@@ -1,0 +1,4 @@
+set(CMAKE_C_COMPILER   x86_64-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER x86_64-linux-gnu-g++)
+
+set(AERIAL_ARCH_TUNE_FLAGS -march=x86-64 -mssse3)

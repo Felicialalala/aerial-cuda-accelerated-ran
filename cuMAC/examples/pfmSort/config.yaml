@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# PFM sorting testbench configuration file
+---
+SEED: 0 # randomness seed for PFM sorting
+NUM_SLOT: 1000 # number of test runs for PFM sorting
+NUM_CELL: 40 # number of cells for PFM sorting
+NUM_UE_PER_CELL: 512 # number of UEs per cell for PFM sorting
+NUM_DL_LC_PER_UE: 4 # number of DL LCs per UE for PFM sorting
+NUM_UL_LCG_PER_UE: 4 # number of UL LCGs per UE for PFM sorting
+
+# for H5 TV creation
+MAX_NUM_H5_TV_CREATED: 20

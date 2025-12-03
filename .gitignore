@@ -1,0 +1,9 @@
+cuPHY-CP/cuphycontroller/config/*_dyncore.yaml
+cuPHY-CP/testMAC/testMAC/*_dyncore.yaml
+testVectors/*.h5
+testVectors/multi-cell/*.yaml
+.cache/
+.vscode/
+.idea/
+build*/
+cmake-build-*/

@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testing_mode: 1 # 0: random test 1: test with yaml configs, please provide n_cell x n_max_active_ue_per_cell data points to the arrays of srs_last_tx_counter, mu_mimo_indication, srs_wideband_signal_energy, srs_tx_pwr, srs_wb_snr, srs_tpc_accumulation_flag, srs_tpc_adjustment_state, srs_pwr_alpha
+n_cell: 3
+n_max_active_ue_per_cell: 4
+n_bs_ant: 64
+srs_scheduling_sel: 1
+srs_last_tx_counter: [10, 13, 8, 6, 12, 8, 9, 5, 4, 9, 6, 2]
+mu_mimo_indication: [1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1]
+srs_wideband_signal_energy: [1.20, 6.09, 3.85, 2.55, 0.54, 4.32, 1.78, 9.68, 7.49, 3.33, 5.17, 1.97]
+srs_tx_pwr: [20.5, 21.0, 19.3, 18.7, 21.2, 15.8, 22.2, 17.9, 16.0, 18.6, 14.5, 20.0] #dBm
+srs_wb_snr: [-0.1, 8.2, 0.9, 3.4, 8.0, -1.8, 5.6, 4.5, 3.2, 4.8, -2.5, 2.7] #dB
+srs_wb_snr_th: 6.0 #dB
+srs_tpc_accumulation_flag: [1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, 0]
+srs_tpc_adjustment_state: [-4.0, 1.0, 4.0, -1.0, -1.0, -4.0, 1.0, 4.0, 1.0, -4.0, 4.0, -1.0] #dB
+srs_pwr_zero: [-10.0, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0, -10.0] #dBm
+srs_pwr_alpha: [0.4, 0.2, 0.9, 0.4, 0.5, 0.6, 0.7, 0.8, 0.3, 0.1, 0.8, 0.9]

@@ -1,0 +1,301 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This is a scenario file to simulate Ch 6 and 7 conformance tests with Batchsim
+# Yuan Gao
+# 2023/11
+
+common_part: # configurations in common_part will apply to all scenarios defined in scenarios_part 
+  carrier:
+    duplex: 1.0
+    CpType: 0.0
+    mu: 1.0   
+  SimCtrl:
+    batchsim:
+      save_results: 1.0  # enable saving SysPar, UE, gNB in runSim.m
+    N_frame: 100.0
+    N_slot_run: 0   
+    timeDomainSim: 1.0
+    puschHARQ:
+      EnableAutoHARQ: 0.0
+      MaxTransmissions: 1.0    
+    seed: {sweep: [1,2]}
+       
+  pusch_mimo_equalizer: 'MMSE'
+  python_expression: |  # note that all parameters used in cfg_template.yaml and your scenario should be enclosed by ${}       
+    if ${pusch_mimo_equalizer}=='ZF':
+        ${SimCtrl.alg.enableIrc} = 0.0
+        ${SimCtrl.alg.enableNoiseEstForZf} = 0.0
+        ${SimCtrl.alg.enable_use_genie_nCov} = 0.0
+        ${SimCtrl.alg.enable_nCov_shrinkage} = 0.0
+    elif ${pusch_mimo_equalizer}=='MMSE':
+        ${SimCtrl.alg.enableIrc} = 0.0
+        ${SimCtrl.alg.enableNoiseEstForZf} = 1.0
+        ${SimCtrl.alg.enable_use_genie_nCov} = 0.0
+        ${SimCtrl.alg.enable_nCov_shrinkage} = 0.0
+    elif ${pusch_mimo_equalizer}=='MMSE-IRC':
+        ${SimCtrl.alg.enableIrc} = 1.0
+        ${SimCtrl.alg.enableNoiseEstForZf} = 0.0
+        ${SimCtrl.alg.enable_use_genie_nCov} = 0.0 
+        ${SimCtrl.alg.enable_nCov_shrinkage} = 0.0  
+    
+               
+scenarios_part: 
+
+  scenario_TC_601:
+    description: "Ch 6 Tx EVM test, 4QAM" 
+    author: "Yuan Gao" 
+    testAlloc: {dl: 1.0, ul: 0.0, ssb: 0.0, pdcch: 0.0, pdsch: 1.0, csirs: 0.0, prach: 0.0, pucch: 0.0, pusch: 0.0, srs: 0.0, bfw: 0.0}    
+    SimCtrl:
+      enable_DL_Tx_RF_impairments: 1.0
+      N_UE: 1.0
+      enableUeRx: 1
+      enable_snapshot_gNB_UE_into_SimCtrl: 1
+      enable_EVM_calculation: 1
+    carrier:
+      Nant_gNB: 1.0
+      Nant_UE: 1.0
+    RF:
+      DL_Tx_gain_dB: 34
+      DL_Tx_IIP3_dBm: 47
+      DL_Tx_IQ_imblance_gain_dB: 0.005
+      DL_Tx_IQ_imblance_phase_degree: 0.063
+      DL_Tx_signal_distortion_var_dB: -75
+      DL_Tx_PN_level_offset_dB: 0.0
+      DL_Tx_PN_spectral_mask_freqOffset_Hz: [1e5, 1e6, 1e7]
+      DL_Tx_PN_spectral_mask_power_dBcPerHz: [-104.0, -125.0, -149.0]
+      DL_Tx_DC_offset_real_volt: 2e-7  
+    Chan:
+    - type: {sweep: ["AWGN"]}
+      SNR: {sweep: [60.0]}
+      CFO: 0.0
+    pdsch:
+    - pduBitmap: 0.0
+      mcsIndex: 1 #{sweep: [1, 10, 19, 27]}
+      mcsTable: 1.0
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+      numDmrsCdmGrpsNoData: 2.0
+      rbStart: 0.0
+      rbSize: 273.0
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0
+  scenario_TC_602:
+    description: "Ch 6 Tx EVM test, 16QAM" 
+    author: "Yuan Gao" 
+    testAlloc: {dl: 1.0, ul: 0.0, ssb: 0.0, pdcch: 0.0, pdsch: 1.0, csirs: 0.0, prach: 0.0, pucch: 0.0, pusch: 0.0, srs: 0.0, bfw: 0.0}    
+    SimCtrl:
+      enable_DL_Tx_RF_impairments: 1.0
+      N_UE: 1.0
+      enableUeRx: 1
+      enable_snapshot_gNB_UE_into_SimCtrl: 1
+      enable_EVM_calculation: 1
+    carrier:
+      Nant_gNB: 1.0
+      Nant_UE: 1.0
+    RF:
+      DL_Tx_gain_dB: 34
+      DL_Tx_IIP3_dBm: 47
+      DL_Tx_IQ_imblance_gain_dB: 0.005
+      DL_Tx_IQ_imblance_phase_degree: 0.063
+      DL_Tx_signal_distortion_var_dB: -75
+      DL_Tx_PN_level_offset_dB: 0.0
+      DL_Tx_PN_spectral_mask_freqOffset_Hz: [1e5, 1e6, 1e7]
+      DL_Tx_PN_spectral_mask_power_dBcPerHz: [-104.0, -125.0, -149.0]
+      DL_Tx_DC_offset_real_volt: 2e-7  
+    Chan:
+    - type: {sweep: ["AWGN"]}
+      SNR: {sweep: [60.0]}
+      CFO: 0.0
+    pdsch:
+    - pduBitmap: 0.0
+      mcsIndex: 10 #{sweep: [1, 10, 19, 27]}
+      mcsTable: 1.0
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+      numDmrsCdmGrpsNoData: 2.0
+      rbStart: 0.0
+      rbSize: 273.0
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0
+  scenario_TC_603:
+    description: "Ch 6 Tx EVM test, 64QAM" 
+    author: "Yuan Gao" 
+    testAlloc: {dl: 1.0, ul: 0.0, ssb: 0.0, pdcch: 0.0, pdsch: 1.0, csirs: 0.0, prach: 0.0, pucch: 0.0, pusch: 0.0, srs: 0.0, bfw: 0.0}    
+    SimCtrl:
+      enable_DL_Tx_RF_impairments: 1.0
+      N_UE: 1.0
+      enableUeRx: 1
+      enable_snapshot_gNB_UE_into_SimCtrl: 1
+      enable_EVM_calculation: 1
+    carrier:
+      Nant_gNB: 1.0
+      Nant_UE: 1.0
+    RF:
+      DL_Tx_gain_dB: 34
+      DL_Tx_IIP3_dBm: 47
+      DL_Tx_IQ_imblance_gain_dB: 0.005
+      DL_Tx_IQ_imblance_phase_degree: 0.063
+      DL_Tx_signal_distortion_var_dB: -75
+      DL_Tx_PN_level_offset_dB: 0.0
+      DL_Tx_PN_spectral_mask_freqOffset_Hz: [1e5, 1e6, 1e7]
+      DL_Tx_PN_spectral_mask_power_dBcPerHz: [-104.0, -125.0, -149.0]
+      DL_Tx_DC_offset_real_volt: 2e-7  
+    Chan:
+    - type: {sweep: ["AWGN"]}
+      SNR: {sweep: [60.0]}
+      CFO: 0.0
+    pdsch:
+    - pduBitmap: 0.0
+      mcsIndex: 19 #{sweep: [1, 10, 19, 27]}
+      mcsTable: 1.0
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+      numDmrsCdmGrpsNoData: 2.0
+      rbStart: 0.0
+      rbSize: 273.0
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0
+  scenario_TC_604:
+    description: "Ch 6 Tx EVM test, 256QAM" 
+    author: "Yuan Gao" 
+    testAlloc: {dl: 1.0, ul: 0.0, ssb: 0.0, pdcch: 0.0, pdsch: 1.0, csirs: 0.0, prach: 0.0, pucch: 0.0, pusch: 0.0, srs: 0.0, bfw: 0.0}    
+    SimCtrl:
+      enable_DL_Tx_RF_impairments: 1.0
+      N_UE: 1.0
+      enableUeRx: 1
+      enable_snapshot_gNB_UE_into_SimCtrl: 1
+      enable_EVM_calculation: 1
+    carrier:
+      Nant_gNB: 1.0
+      Nant_UE: 1.0
+    RF:
+      DL_Tx_gain_dB: 34
+      DL_Tx_IIP3_dBm: 47
+      DL_Tx_IQ_imblance_gain_dB: 0.005
+      DL_Tx_IQ_imblance_phase_degree: 0.063
+      DL_Tx_signal_distortion_var_dB: -75
+      DL_Tx_PN_level_offset_dB: 0.0
+      DL_Tx_PN_spectral_mask_freqOffset_Hz: [1e5, 1e6, 1e7]
+      DL_Tx_PN_spectral_mask_power_dBcPerHz: [-104.0, -125.0, -149.0]
+      DL_Tx_DC_offset_real_volt: 2e-7  
+    Chan:
+    - type: {sweep: ["AWGN"]}
+      SNR: {sweep: [60.0]}
+      CFO: 0.0
+    pdsch:
+    - pduBitmap: 0.0
+      mcsIndex: 27 #{sweep: [1, 10, 19, 27]}
+      mcsTable: 1.0
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+      numDmrsCdmGrpsNoData: 2.0
+      rbStart: 0.0
+      rbSize: 273.0
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0    
+  scenario_TC_701:
+    description: "Ch 7 Rx sensitivity test" 
+    author: "Yuan Gao" 
+    testAlloc: {dl: 0.0, ul: 1.0, ssb: 0.0, pdcch: 0.0, pdsch: 0.0, csirs: 0.0, prach: 0.0, pucch: 0.0, pusch: 1.0, srs: 0.0, bfw: 0.0}    
+    SimCtrl:
+      enable_UL_Rx_RF_impairments: 1.0
+      N_UE: 1.0
+    carrier:
+      Nant_gNB: 1.0
+      Nant_UE: 1.0
+    RF:
+      UL_Rx_tot_NF_dB: 5.0
+      UL_Rx_gain_dB: 33.5
+      UL_Rx_IIP3_dBm: -3.5
+      UL_Rx_IQ_imblance_gain_dB: 0.005
+      UL_Rx_IQ_imblance_phase_degree: 0.063
+      UL_Rx_PN_level_offset_dB: 0.0
+      UL_Rx_PN_spectral_mask_freqOffset_Hz: [1e5, 1e6, 1e7]
+      UL_Rx_PN_spectral_mask_power_dBcPerHz: [-104.0, -125.0, -149.0]
+      UL_Rx_DC_offset_real_volt: 2e-7  
+    Chan:
+    - type: {sweep: ["AWGN"]}
+      SNR: {sweep: ["4.0:0.5:8.1"]}
+      CFO: 200.0
+    pusch:
+    - mcsIndex: 4.0
+      mcsTable: 0.0
+      newDataIndicator: 1.0     
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]     
+      rbStart: 0.0
+      rbSize: 51      
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0      
+      idxUE: 0.0
+      idxUeg: 0.0     
+  scenario_TC_702:
+    description: "Ch 7 Rx in-channel selectivity test" # description and author are dummy keys, which are only used for illustration
+    author: "Yuan Gao" 
+    testAlloc: {dl: 0.0, ul: 1.0, ssb: 0.0, pdcch: 0.0, pdsch: 0.0, csirs: 0.0, prach: 0.0, pucch: 0.0, pusch: 2.0, srs: 0.0, bfw: 0.0}    
+    SimCtrl:
+      enable_UL_Rx_RF_impairments: 1.0
+      N_UE: 2.0
+    carrier:
+      Nant_gNB: 1.0
+      Nant_UE: 1.0
+    RF:
+      UL_Rx_tot_NF_dB: 5.0
+      UL_Rx_gain_dB: 33.5
+      UL_Rx_IIP3_dBm: -3.5
+      UL_Rx_IQ_imblance_gain_dB: 0.005
+      UL_Rx_IQ_imblance_phase_degree: 0.063
+      UL_Rx_PN_level_offset_dB: 0.0
+      UL_Rx_PN_spectral_mask_freqOffset_Hz: [1e5, 1e6, 1e7]
+      UL_Rx_PN_spectral_mask_power_dBcPerHz: [-104.0, -125.0, -149.0]
+      UL_Rx_DC_offset_real_volt: 2e-7  
+    Chan:
+    - type: {sweep: ["AWGN"]}
+      SNR: {sweep: ["4.0:0.5:8.1"]}
+      CFO: 200.0
+    - type: "AWGN"  # channel for the in-channel interference UE
+      gain: 9.87    # interference power is 19.87 dB higher
+    pusch:
+    - mcsIndex: 4.0  # wanted signal
+      mcsTable: 0.0
+      newDataIndicator: 1.0     
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]     
+      rbStart: 85.0
+      rbSize: 51      
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0      
+      idxUE: 0.0
+      idxUeg: 0.0
+    - mcsIndex: 4.0 # in-channel interference
+      mcsTable: 0.0
+      newDataIndicator: 1.0     
+      nrOfLayers: 1.0
+      portIdx: [0.0]
+      DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]     
+      rbStart: 136
+      rbSize: 50      
+      StartSymbolIndex: 0.0
+      NrOfSymbols: 14.0      
+      idxUE: 1.0
+      idxUeg: 1.0 
+      TransformPrecoding: 0.0 # 0 means enabling DFT-s-OFDM according to FAPI spec

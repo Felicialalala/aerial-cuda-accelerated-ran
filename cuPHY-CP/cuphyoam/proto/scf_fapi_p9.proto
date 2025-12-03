@@ -1,0 +1,112 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+ syntax = "proto3";
+
+ package p9_messages.v1;
+
+ service P9Messages {
+    rpc HandleMsg (Msg) returns (Msg) {}
+  }
+
+ message Msg
+ {
+      Header header = 1;
+      Body body = 2;
+ }
+ 
+ message Header
+ {
+      string msg_id = 1;            // Message identifier to
+                                    // 1) Identify requests and notifications
+                                    // 2) Correlate requests and response
+      optional string oru_name = 2; // The name (identifier) of the O-RU, if present.
+      int32 vf_id = 3;              // The identifier for the FAPI VF ID
+      int32 phy_id = 4;             // The identifier for the FAPI PHY ID
+ 
+      optional int32 trp_id = 5;    // The identifier PHY’s TRP, if any
+ }
+ 
+ message Body
+ {
+      oneof msg_body
+      {
+           Request request = 1;
+           Response response = 2;
+      }
+ }
+ 
+ message Request
+ {
+      oneof req_type
+      {
+           Get get = 1;
+           EditConfig edit_config = 2;
+      }
+ }
+ 
+ message Response
+ {
+      oneof resp_type
+      {
+           GetResp get_resp = 1;
+           EditConfigResp edit_config_resp = 2;
+      }
+ }
+ 
+ message Get { repeated bytes filter = 1; }
+ 
+ message GetResp
+ {
+      Status status_resp = 1;
+      bytes data = 2;
+ }
+ 
+ message EditConfig
+ {
+      bytes delta_config = 1; // List of Node changes with the associated operation to apply to the node
+ }
+ 
+ message EditConfigResp { Status status_resp = 1; }
+ 
+ message Error
+ {                                // Type of error as defined in RFC 6241 section 4.3
+      string error_type = 1;      // Error type defined in RFC 6241, Appendix B
+ 
+      string error_tag = 2;       // Error tag defined in RFC 6241, Appendix B
+ 
+      string error_severity = 3;  // Error severity defined in RFC 6241, Appendix B
+ 
+      string error_app_tag = 4;   // Error app tag defined in RFC 6241, Appendix B
+ 
+      string error_path = 5;      // Error path defined in RFC 6241, Appendix B
+ 
+      string error_message = 6;   // Error message defined in RFC 6241, Appendix B
+ }
+ 
+ message Status
+ {
+      enum StatusCode
+      {
+           OK = 0;
+           ERROR_GENERAL = 1;
+      }
+ 
+      StatusCode status_code = 1;
+      repeated Error error = 2; // Optional: Error information
+ }
+ 

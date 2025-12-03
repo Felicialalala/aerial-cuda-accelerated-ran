@@ -1,0 +1,142 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 1, ul: 0, ssb: 0, pdcch: 1, pdsch: 1, csirs: 0, prach: 0, pucch: 0,
+  pusch: 0, srs: 0, bfw: 0}
+pdcch:
+- dciUL: 0.0
+  BWPSize: 48.0
+  BWPStart: 0.0
+  StartSymbolIndex: 0.0
+  DurationSymbols: 1.0
+  coresetMap: [1, 1, 1, 1, 1, 1, 1, 1]
+  coresetIdx: 0.0
+  CceRegMappingType: 1.0
+  RegBundleSize: 6.0
+  InterleaverSize: 2.0
+  ShiftIndex: 0.0
+  precoderGranularity: 0.0
+  numDlDci: 1.0
+  testModel: 0.0
+  isCSS: 1.0
+  forceCceIndex: 1.0
+  DCI:
+  - RNTI: 65535.0
+    ScramblingId: 0.0
+    ScramblingRNTI: 0.0
+    cceIndex: 0.0
+    AggregationLevel: 8.0
+    digBFInterfaces: 4.0
+    prcdBf: 15.0
+    beamIdx: [1.0, 2.0, 3.0, 4.0]
+    beta_PDCCH_1_0: 8.0
+    powerControlOffsetSS: 0.0
+    powerControlOffsetSSProfileNR: 0.0
+    PayloadSizeBits: 39.0
+    Payload: [0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0,
+      1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0,
+      1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+pdsch:
+- pduBitmap: 0.0
+  RNTI: 65535.0
+  BWPSize: 48.0
+  BWPStart: 0.0
+  NrOfCodewords: 1.0
+  mcsIndex: 4.0
+  mcsTable: 0.0
+  rvIndex: 0.0
+  dataScramblingId: 0.0
+  nrOfLayers: 1.0
+  transmissionScheme: 0.0
+  refPoint: 1.0
+  DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+  DmrsMappingType: 0.0
+  dmrsConfigType: 0.0
+  DmrsScramblingId: 0.0
+  SCID: 0.0
+  numDmrsCdmGrpsNoData: 2.0
+  portIdx: [0]
+  resourceAlloc: 1.0
+  rbBitmap: 0.0
+  rbStart: 44.0
+  rbSize: 4.0
+  VRBtoPRBMapping: 0.0
+  StartSymbolIndex: 2.0
+  NrOfSymbols: 12.0
+  digBFInterfaces: 4.0
+  prcdBf: 15.0
+  beamIdx: [1.0, 2.0, 3.0, 4.0]
+  powerControlOffset: 11.0
+  powerControlOffsetSS: 1.0
+  IsLastCbPresent: 0.0
+  isInlineTbCrc: 0.0
+  dlTbCrc: 0.0
+  I_LBRM: 1.0
+  maxLayers: 4.0
+  maxQm: 8.0
+  n_PRB_LBRM: 273.0
+  testModel: 0.0
+  payload: [0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0,
+    1.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0,
+    1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0,
+    1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0,
+    1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0,
+    1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 1.0,
+    1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0,
+    1.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0,
+    0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0,
+    1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0,
+    0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+    1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0,
+    0.0, 1.0]
+  idxUE: 0.0
+  idxUeg: 0.0
+SimCtrl:
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 1.0
+  timeDomainSim: 0.0
+  enableCS: 0.0
+  prachFalseAlarmTest: 0.0
+  puschHARQ:
+    EnableAutoHARQ: 0.0
+    MaxTransmissions: 1.0
+    MinTransmissions: 1.0
+    rvTable: [0.0, 2.0, 3.0, 1.0]
+    MAX_gNB_HARQ_BUFFERS: 32.0
+  plotFigure: {tfGrid: 1, constellation: 1}
+  bf: {N_SRS_CHEST_BUFF: 0.0}
+  genTV:
+    enable: 0.0
+    enableUE: 0.0
+    tvDirName: GPU_test_input
+    genYamlCfg: 0.0
+    cuPHY: 1.0
+    FAPI: 1.0
+    launchPattern: 0.0
+    fhMsgMode: 0.0
+    FAPIyaml: 0.0
+    slotIdx: 0.0
+    forceSlotIdxFlag: 1.0
+    bypassComp: 0.0
+    idx: 0.0
+    TVname: []
+    polDbg: 0.0
+  alg:
+    enablePrcdBf: 1

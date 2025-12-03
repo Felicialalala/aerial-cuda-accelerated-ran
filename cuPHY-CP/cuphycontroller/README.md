@@ -1,0 +1,3 @@
+# cuPHY Controller
+
+The cuPHY controller is the main application that initializes the system with the desired configuration. During the start-up process, cuPHY controller creates a new context (memory resources, tasks) for each new connection with an O-RU, identified by MAC address, VLAN ID and set of eAxCIDs. It starts cuphydriver DL/UL worker threads and assigns them to CPU cores as configured in the yaml file. It also prepares GPU resources and initiates FH driver and NIC class objects. cuPHY controller prepares L1 according to the config yaml. It also brings a carrier in and out of service with the cell lifecycle management functionality. The cuphy controller also creates and starts the message processing and timer threads which is hosted in the cuphyl2adapter.

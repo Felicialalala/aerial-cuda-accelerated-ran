@@ -1,0 +1,4 @@
+onnxruntime-gpu==1.22.0
+sionna==1.0.2
+sionna-rt==1.0.2
+tensorflow[and-cuda]==2.19.0

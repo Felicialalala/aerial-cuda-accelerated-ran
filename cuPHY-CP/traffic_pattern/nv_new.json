@@ -1,0 +1,54 @@
+{
+    "sequence": [
+        "dl_SSB",
+        "dl_SSB",
+        "dl_SSB",
+        "dl_SSB",
+        "ul_noPRACH",
+        "ul_PRACH",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "ul_noPRACH",
+        "ul_noPRACH",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB"
+    ],
+    "types": {
+        "dl_SSB": {
+            "pdcch": [[0, 1, 0, 36],
+                      [0, 1, 36, 72]], 
+            "ssb":   [[2, 6, 0, 20], 
+                      [8, 12, 0, 20]],
+            "pdsch": [[1, 14, 20, 152]],
+            "//comment": "152 = 20+22*6",
+            "csirs_flex_0": [[5,6,22,272]],
+            "//comment2": "used for even cells",
+            "csirs_flex_1": [[6,7,22,272]],
+            "//comment3": "used for odd cells"
+        },
+        "dl_noSSB": {
+            "pdcch": [[0, 1, 0, 36],
+                      [0, 1, 36, 72]],
+            "pdsch": [[1, 14, 20, 152]],
+            "csirs_flex_0": [[5,6,22,272]],
+            "csirs_flex_1": [[6,7,22,272]]
+        },
+        "ul_PRACH": {
+            "pucch":[[3,12,0,1]],
+            "prach":[[0,12,225,273]],
+            "pusch": [[0, 14, 2, 134]]
+        },
+        "ul_noPRACH": {
+            "pucch":[[3,12,0,1]],
+            "pusch": [[0, 14, 2, 134]]
+        }
+    }
+}

@@ -1,0 +1,14 @@
+*~
+.vscode
+build/
+__pycache__
+.ipynb_checkpoints
+.mypy_cache
+.pytest_cache
+dist
+src/*.egg-info
+src/aerial/pycuphy/*.so
+notebooks/*.onnx
+notebooks/data
+notebooks/generated
+models/*.trt

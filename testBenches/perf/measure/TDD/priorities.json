@@ -1,0 +1,19 @@
+{
+  "PUSCH": 3,
+  "PUSCH2": 3,
+  "ULBFW": 3,
+  "PUCCH": 2,
+  "PUCCH2": 2,
+  "PRACH": 2,
+  "UL_ORDER": 0,
+  "UL_SRS_ORDER": 0,
+  "SRS": 3,
+  "PDSCH": 1,
+  "DLBFW": 2,
+  "PDCCH": 1,
+  "CSIRS": 1,
+  "SSB": 1,
+  "GPU_CMN": 0,
+  "MAC": 0,
+  "MAC2": 0
+}

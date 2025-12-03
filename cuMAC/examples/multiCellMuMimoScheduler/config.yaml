@@ -1,0 +1,125 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# mMIMO scheduler testbench configuration file
+---
+# constants
+seed: 0
+fullBufferTraffic: 1
+DL: 1
+harqEnabled: 1
+nCell: 6
+ueGrpMode: 0
+semiStatFreqAlloc: 0
+nActiveUePerCell: 64
+numUeForGrpPerCell: 64
+numUeSchdPerCellTTI: 16
+nMaxActUePerCell: 64
+nMaxUePerGrpUl: 8
+nMaxUePerGrpDl: 16
+nMaxLayerPerGrpUl: 8
+nMaxLayerPerGrpDl: 16
+nMaxLayerPerUeSuUl: 4
+nMaxLayerPerUeSuDl: 4
+nMaxLayerPerUeMuUl: 2
+nMaxLayerPerUeMuDl: 2
+nMaxUegPerCellDl: 4
+nMaxUegPerCellUl: 4
+nPrbPerGrp: 4
+nPrbGrp: 68
+nBsAnt: 64
+nUeAnt: 4
+scs: 30000
+zfCoeff: 1e-16
+betaCoeff: 1.0
+chanCorrThr: 0.7
+srsSnrThr: -3.0
+muCoeff: 1.5
+bfPowAllocScheme: 1
+allocType: 1
+muGrpSrsSnrMaxGap: 100.0
+muGrpSrsSnrSplitThr: -100.0
+mcsSelLutType: 0
+
+riBasedLayerSelSu: 1
+mcsSelCqi: 0
+
+# simulation parameters
+chanEstNmseDB: -15.0
+
+channel_config:
+  fading_type: 0  # 0: internal Rayleigh fading, 1: using statistic channel model based on config below
+  
+  # NOTE: Most parameters are automatically derived from cuMAC config above:
+  # - nCell, nBsAnt, nUeAnt, nPrbGrp → antenna configuration and PRBG parameters
+  # - nActiveUePerCell → number of UTs per cell
+  # - Simulation parameters like center frequency, bandwidth, FFT size are read from YAML below
+  
+  # System Level Configuration
+  system_level:
+    scenario: "UMa"  # Scenario type: UMa (Urban Macro), UMi (Urban Micro), RMa (Rural Macro). TODO: currently only UMa is calibrated, will remove this restriction later
+    isd: 1732.0  # Inter-site distance in meters, only used for RMa scenario (1732 or 5000), ignored for UMa/UMi
+    optional_pl_ind: 0  # Path loss model: 0=standard pathloss equation, 1=optional path loss equation
+    o2i_building_penetr_loss_ind: 1  # Outdoor-to-Indoor building penetration loss: 0=none, 1=low-loss, 2=high-loss (for indoor UTs)
+    o2i_car_penetr_loss_ind: 0  # Outdoor-to-Indoor car penetration loss: 0=none, 1=basic car, 2=metallized car window (RMa only)
+    enable_near_field_effect: 0  # Near field effect: 0=disable, 1=enable
+    enable_non_stationarity: 0  # Non-stationarity effect: 0=disable, 1=enable
+    force_indoor_ratio: -1  # Force indoor ratio for all links. -1 uses Table 7.4.1-1
+    force_los_prob: [-1, -1]  # Force LOS probability for [indoor, outdoor] links. [-1,-1] uses Table 7.4.1-1
+    force_ut_speed: [-1, -1]  # Force UT speed for [indoor, outdoor] links. [-1,-1] uses Table 7.4.1-1
+    disable_pl_shadowing: 0  # Path loss and shadowing calculation: 0=calculate, 1=disable
+    enable_per_tti_lsp: 1  # LSP update per TTI: 0=disable, 1=update PL/O2I/shadowing only, 2=update everything
+    enable_propagation_delay: 1  # Propagation delay in CIR: 0=disable, 1=enable (delay = cluster_delay + propagation_delay)
+
+  # Link Level Configuration
+  link_level:
+    fast_fading_type: 0  # Fast fading model: 0=AWGN, 1=TDL (Tapped Delay Line), 2=CDL (Clustered Delay Line)
+    delay_profile: "A"  # Delay profile type: 'A' to 'C' (TODO: support for 'D' and 'E')
+    delay_spread: 30.0  # Delay spread in nanoseconds
+    velocity: [0, 0, 0]  # Velocity vector (vx, vy, vz) in m/s, |velocity| = speed, vz = 0 per 3GPP spec
+    num_ray: 0  # Number of rays per path (default: 48 for TDL, 20 for CDL)
+    cfo_hz: 200.0  # Carrier frequency offset in Hz
+    delay: 0.0  # Delay in seconds
+
+  # Simulation Configuration
+  simulation:
+    link_sim_ind: 0  # Link simulation indicator
+    center_freq_hz: 2.5e9  # Center frequency in Hz
+    bandwidth_hz: 100e6  # Bandwidth in Hz
+    fft_size: 4096  # FFT size for OFDM processing
+    n_snapshot_per_slot: 1  # Number of channel realizations per slot (1 or 14)
+    run_mode: 0  # run mode, 0: CIR only, 1: CIR and CFR on PRBG, 2: CIR and CFR on Sc, 3: CIR and CFR on PRBG/Sc, 4: CIR and CFR on all N_FFT subcarriers, no PRBG
+    internal_memory_mode: 1  # Memory management: 0=external memory for CIR/CFR (buffer allocated outside), 1=internal memory for CIR, external memory for CFR (use get*()), 2=internal memory for CIR/CFR (use get*())
+    freq_convert_type: 1  # Frequency conversion: 0=first SC, 1=center SC, 2=last SC, 3=avg SC, 4=avg SC without ramping
+    sc_sampling: 1  # Subcarrier sampling within PRBG (0:scSampling:N_sc_Prbg-1), only for freqConvertType=3/4
+    proc_sig_freq: 0  # Signal processing frequency indicator (TODO: not used for now)
+    optional_cfr_dim: 1  # Optional CFR dimension: 0: [nActiveUtForThisCell, n_snapshot_per_slot, nUtAnt, nBsAnt, nPrbg / nSc], 1: [nActiveUtForThisCell, n_snapshot_per_slot, nPrbg / nSc, nUtAnt, nBsAnt] (matches SLS layout, no mapping kernel needed)
+    cpu_only_mode: 0  # configure CPU only mode: 0=GPU mode, 1=CPU only mode
+
+  # Antenna Panel Configuration (required - cuMAC only specifies total antenna counts)
+  antenna_panels:
+    panel_0:  # BS (Base Station) antenna panel
+      n_ant: 64  # Total number of antennas (will be validated against cuMAC m_nBsAnt)
+      ant_model: 1  # Antenna model: 0=isotropic, 1=3GPP directional, 2=from file
+      ant_size: [1, 1, 8, 8, 1]  # [M1, M2, M3, M4, M5] where M3*M4 = main array size
+      ant_spacing: [0.5, 0.5, 0.5, 0.5]  # [d_H, d_V, d_H_panel, d_V_panel] in wavelengths
+      ant_polar_angles: [0, 90]  # [theta, phi] polarization angles in degrees
+      
+    panel_1:  # UE (User Equipment) antenna panel  
+      n_ant: 4  # Total number of antennas (will be validated against cuMAC m_nUeAnt)
+      ant_model: 1  # Antenna model: 0=isotropic, 1=3GPP directional, 2=from file
+      ant_size: [1, 1, 2, 2, 1]  # [M1, M2, M3, M4, M5] where M3*M4 = main array size
+      ant_spacing: [0.5, 0.5, 0.5, 0.5]  # [d_H, d_V, d_H_panel, d_V_panel] in wavelengths
+      ant_polar_angles: [0, 90]  # [theta, phi] polarization angles in degrees 

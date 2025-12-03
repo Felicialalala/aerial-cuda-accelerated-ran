@@ -1,0 +1,16 @@
+{
+    "performance.xlsm": [
+        "F01 - PDSCH",
+        "F01 - PUSCH",
+        "F14 - PDSCH",
+        "F14 - PUSCH"
+    ],
+    "performance-avg.xlsm": [
+        "F01 - PDSCH",
+        "F01 - PUSCH",
+        "F08 - PDSCH",
+        "F08 - PUSCH",
+        "F14 - PDSCH",
+        "F14 - PUSCH"
+    ]
+}

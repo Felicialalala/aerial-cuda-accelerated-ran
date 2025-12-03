@@ -1,0 +1,650 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8127e09..f0e3b18 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -10,18 +10,19 @@ option(MI_PADDING           "Enable padding to detect heap block overflow (used
+ option(MI_OVERRIDE          "Override the standard malloc interface (e.g. define entry points for malloc() etc)" ON)
+ option(MI_XMALLOC           "Enable abort() call on memory allocation failure by default" OFF)
+ option(MI_SHOW_ERRORS       "Show error and warning messages by default (only enabled by default in DEBUG mode)" OFF)
+-option(MI_USE_CXX           "Use the C++ compiler to compile the library (instead of the C compiler)" OFF)
++option(MI_USE_CXX           "Use the C++ compiler to compile the library (instead of the C compiler)" ON)
+ option(MI_SEE_ASM           "Generate assembly files" OFF)
+ option(MI_OSX_INTERPOSE     "Use interpose to override standard malloc on macOS" ON)
+-option(MI_OSX_ZONE          "Use malloc zone to override standard malloc on macOS" ON) 
++option(MI_OSX_ZONE          "Use malloc zone to override standard malloc on macOS" ON)
+ option(MI_LOCAL_DYNAMIC_TLS "Use slightly slower, dlopen-compatible TLS mechanism (Unix)" OFF)
+ option(MI_BUILD_SHARED      "Build shared library" ON)
+-option(MI_BUILD_STATIC      "Build static library" ON)
+-option(MI_BUILD_OBJECT      "Build object library" ON)
++option(MI_BUILD_STATIC      "Build static library" OFF)
++option(MI_BUILD_OBJECT      "Build object library" OFF)
+ option(MI_BUILD_TESTS       "Build test executables" ON)
+ option(MI_DEBUG_TSAN        "Build with thread sanitizer (needs clang)" OFF)
+ option(MI_DEBUG_UBSAN       "Build with undefined-behavior sanitizer (needs clang++)" OFF)
+ option(MI_SKIP_COLLECT_ON_EXIT, "Skip collecting memory on program exit" OFF)
++option(MI_MEMTRACE          "Allow per-thread-enableable backtrace for malloc() etc.  Uses backward-cpp and libdw." ON)
+ 
+ # deprecated options
+ option(MI_CHECK_FULL        "Use full internal invariant checking in DEBUG mode (deprecated, use MI_DEBUG_FULL instead)" OFF)
+@@ -52,7 +53,7 @@ set(mi_sources
+ # Convenience: set default build type depending on the build directory
+ # -----------------------------------------------------------------------------
+ 
+-message(STATUS "")    
++message(STATUS "")
+ if (NOT CMAKE_BUILD_TYPE)
+   if ("${CMAKE_BINARY_DIR}" MATCHES ".*(D|d)ebug$" OR  MI_DEBUG_FULL)
+     message(STATUS "No build type selected, default to: Debug")
+@@ -84,7 +85,7 @@ if(MI_OVERRIDE)
+       # use zone's on macOS
+       message(STATUS "  Use malloc zone to override malloc (MI_OSX_ZONE=ON)")
+       list(APPEND mi_sources src/alloc-override-osx.c)
+-      list(APPEND mi_defines MI_OSX_ZONE=1)      
++      list(APPEND mi_defines MI_OSX_ZONE=1)
+       if (NOT MI_OSX_INTERPOSE)
+         message(STATUS "  WARNING: zone overriding usually also needs interpose (use -DMI_OSX_INTERPOSE=ON)")
+       endif()
+@@ -150,12 +151,12 @@ if(MI_DEBUG_TSAN)
+     list(APPEND mi_cflags -fsanitize=thread -g -O1)
+     list(APPEND CMAKE_EXE_LINKER_FLAGS -fsanitize=thread)
+   else()
+-    message(WARNING "Can only use thread sanitizer with clang (MI_DEBUG_TSAN=ON but ignored)")    
+-  endif()  
++    message(WARNING "Can only use thread sanitizer with clang (MI_DEBUG_TSAN=ON but ignored)")
++  endif()
+ endif()
+ 
+ if(MI_DEBUG_UBSAN)
+-  if(CMAKE_BUILD_TYPE MATCHES "Debug")    
++  if(CMAKE_BUILD_TYPE MATCHES "Debug")
+     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+       message(STATUS "Build with undefined-behavior sanitizer (MI_DEBUG_UBSAN=ON)")
+       list(APPEND mi_cflags -fsanitize=undefined -g -fno-sanitize-recover=undefined)
+@@ -165,10 +166,10 @@ if(MI_DEBUG_UBSAN)
+         set(MI_USE_CXX "ON")
+       endif()
+     else()
+-      message(WARNING "Can only use undefined-behavior sanitizer with clang++ (MI_DEBUG_UBSAN=ON but ignored)")    
+-    endif()  
++      message(WARNING "Can only use undefined-behavior sanitizer with clang++ (MI_DEBUG_UBSAN=ON but ignored)")
++    endif()
+   else()
+-    message(WARNING "Can only use thread sanitizer with a debug build (CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})")    
++    message(WARNING "Can only use thread sanitizer with a debug build (CMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})")
+   endif()
+ endif()
+ 
+@@ -189,7 +190,7 @@ if(CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang|GNU")
+   list(APPEND mi_cflags -Wall -Wextra -Wno-unknown-pragmas -fvisibility=hidden)
+   if(NOT MI_USE_CXX)
+     list(APPEND mi_cflags -Wstrict-prototypes)
+-  endif()  
++  endif()
+   if(CMAKE_C_COMPILER_ID MATCHES "AppleClang|Clang")
+     list(APPEND mi_cflags -Wpedantic -Wno-static-in-inline)
+   endif()
+@@ -219,19 +220,40 @@ if(WIN32)
+   list(APPEND mi_libraries psapi shell32 user32 advapi32 bcrypt)
+ else()
+   find_library(MI_LIBPTHREAD pthread)
+-  if (MI_LIBPTHREAD)                      
++  if (MI_LIBPTHREAD)
+     list(APPEND mi_libraries ${MI_LIBPTHREAD})
+   endif()
+   find_library(MI_LIBRT rt)
+   if(MI_LIBRT)
+     list(APPEND mi_libraries ${MI_LIBRT})
+-  endif()  
++  endif()
+   find_library(MI_LIBATOMIC atomic)
+-  if (MI_LIBATOMIC OR MI_USE_LIBATOMIC) 
++  if (MI_LIBATOMIC OR MI_USE_LIBATOMIC)
+     list(APPEND mi_libraries atomic)
+   endif()
+ endif()
+ 
++if (MI_MEMTRACE)
++  if(NOT MI_USE_CXX)
++    message(FATAL_ERROR "MI_USE_CXX must be ON when using MI_MEMTRACE, e.g. add -DMI_USE_CXX=ON")
++  endif()
++
++  list(APPEND mi_sources src/memtrace.cpp)
++  list(APPEND mi_defines MI_MEMTRACE=1)
++  find_library(MI_LIBDW rt)
++  list(APPEND mi_libraries ${MI_LIBDW})
++
++  include(FetchContent)
++
++  # Also requires one of: libbfd (gnu binutils), libdwarf, libdw (elfutils)
++  FetchContent_Declare(backward
++    GIT_REPOSITORY https://github.com/bombela/backward-cpp
++    GIT_TAG v1.6    # or a version tag, such as v1.6
++    #SYSTEM         # optional, the Backward include directory will be treated as system directory
++  )
++  FetchContent_MakeAvailable(backward)
++endif()
++
+ # -----------------------------------------------------------------------------
+ # Install and output names
+ # -----------------------------------------------------------------------------
+@@ -243,7 +265,7 @@ set(mi_install_libdir   "${CMAKE_INSTALL_LIBDIR}")
+ # are either installed at top level, or use versioned directories for side-by-side installation (default)
+ if (MI_INSTALL_TOPLEVEL)
+   set(mi_install_objdir     "${CMAKE_INSTALL_LIBDIR}")
+-  set(mi_install_incdir     "${CMAKE_INSTALL_INCLUDEDIR}")        
++  set(mi_install_incdir     "${CMAKE_INSTALL_INCLUDEDIR}")
+   set(mi_install_cmakedir   "${CMAKE_INSTALL_LIBDIR}/cmake/mimalloc")
+ else()
+   set(mi_install_objdir     "${CMAKE_INSTALL_LIBDIR}/mimalloc-${mi_version}")       # for static library and object files
+@@ -304,6 +326,9 @@ if(MI_BUILD_SHARED)
+       $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+       $<INSTALL_INTERFACE:${mi_install_incdir}>
+   )
++  if (MI_MEMTRACE)
++    add_backward(mimalloc)
++  endif()
+   if(WIN32)
+     # On windows copy the mimalloc redirection dll too.
+     if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+@@ -319,7 +344,7 @@ if(MI_BUILD_SHARED)
+     install(FILES "$<TARGET_FILE_DIR:mimalloc>/mimalloc-redirect${MIMALLOC_REDIRECT_SUFFIX}.dll" DESTINATION ${mi_install_libdir})
+   endif()
+ 
+-  install(TARGETS mimalloc EXPORT mimalloc DESTINATION ${mi_install_libdir} LIBRARY)  
++  install(TARGETS mimalloc EXPORT mimalloc DESTINATION ${mi_install_libdir} LIBRARY)
+   install(EXPORT mimalloc DESTINATION ${mi_install_cmakedir})
+ endif()
+ 
+@@ -392,6 +417,13 @@ if (MI_BUILD_TESTS)
+ 
+     add_test(NAME test-${TEST_NAME} COMMAND mimalloc-test-${TEST_NAME})
+   endforeach()
++
++  if (MI_MEMTRACE)
++    add_executable(mimalloc-test-memtrace test/test-memtrace.cpp)
++    set_property(TARGET mimalloc-test-memtrace PROPERTY POSITION_INDEPENDENT_CODE ON)
++    target_include_directories(mimalloc-test-memtrace PRIVATE include)
++    add_test(memtraace test-memtrace COMMAND mimalloc-test-memtrace)
++  endif()
+ endif()
+ 
+ # -----------------------------------------------------------------------------
+diff --git a/backward-cpp b/backward-cpp
+new file mode 160000
+index 0000000..65a769f
+--- /dev/null
++++ b/backward-cpp
+@@ -0,0 +1 @@
++Subproject commit 65a769ffe77cf9d759d801bc792ac56af8e911a3
+diff --git a/cmake/mimalloc-config-version.cmake b/cmake/mimalloc-config-version.cmake
+index 8063afe..842c733 100644
+--- a/cmake/mimalloc-config-version.cmake
++++ b/cmake/mimalloc-config-version.cmake
+@@ -1,6 +1,6 @@
+ set(mi_version_major 2)
+-set(mi_version_minor 0)
+-set(mi_version_patch 6)
++set(mi_version_minor 1)
++set(mi_version_patch 0)
+ set(mi_version ${mi_version_major}.${mi_version_minor})
+ 
+ set(PACKAGE_VERSION ${mi_version})
+diff --git a/include/mimalloc-internal.h b/include/mimalloc-internal.h
+index d691eca..06e37b1 100644
+--- a/include/mimalloc-internal.h
++++ b/include/mimalloc-internal.h
+@@ -40,10 +40,10 @@ terms of the MIT license. A copy of the license can be found in the file
+ #if defined(__cplusplus)
+ #define mi_decl_externc       extern "C"
+ #else
+-#define mi_decl_externc  
++#define mi_decl_externc
+ #endif
+ 
+-#if !defined(_WIN32) && !defined(__wasi__) 
++#if !defined(_WIN32) && !defined(__wasi__)
+ #define  MI_USE_PTHREADS
+ #include <pthread.h>
+ #endif
+@@ -158,6 +158,8 @@ void        _mi_block_zero_init(const mi_page_t* page, void* p, size_t size);
+ bool        _mi_page_is_valid(mi_page_t* page);
+ #endif
+ 
++// "memtrace.cpp"
++mi_decl_externc void _mi_memtrace_print_backtrace(void);
+ 
+ // ------------------------------------------------------
+ // Branches
+@@ -329,14 +331,14 @@ mi_heap_t*  _mi_heap_main_get(void);    // statically allocated main backing hea
+ 
+ #if defined(MI_MALLOC_OVERRIDE)
+ #if defined(__APPLE__) // macOS
+-#define MI_TLS_SLOT               89  // seems unused? 
+-// #define MI_TLS_RECURSE_GUARD 1     
++#define MI_TLS_SLOT               89  // seems unused?
++// #define MI_TLS_RECURSE_GUARD 1
+ // other possible unused ones are 9, 29, __PTK_FRAMEWORK_JAVASCRIPTCORE_KEY4 (94), __PTK_FRAMEWORK_GC_KEY9 (112) and __PTK_FRAMEWORK_OLDGC_KEY9 (89)
+ // see <https://github.com/rweichler/substrate/blob/master/include/pthread_machdep.h>
+ #elif defined(__OpenBSD__)
+-// use end bytes of a name; goes wrong if anyone uses names > 23 characters (ptrhread specifies 16) 
++// use end bytes of a name; goes wrong if anyone uses names > 23 characters (ptrhread specifies 16)
+ // see <https://github.com/openbsd/src/blob/master/lib/libc/include/thread_private.h#L371>
+-#define MI_TLS_PTHREAD_SLOT_OFS   (6*sizeof(int) + 4*sizeof(void*) + 24)  
++#define MI_TLS_PTHREAD_SLOT_OFS   (6*sizeof(int) + 4*sizeof(void*) + 24)
+ // #elif defined(__DragonFly__)
+ // #warning "mimalloc is not working correctly on DragonFly yet."
+ // #define MI_TLS_PTHREAD_SLOT_OFS   (4 + 1*sizeof(void*))  // offset `uniqueid` (also used by gdb?) <https://github.com/DragonFlyBSD/DragonFlyBSD/blob/master/lib/libthread_xu/thread/thr_private.h#L458>
+@@ -376,7 +378,7 @@ static inline mi_heap_t* mi_get_default_heap(void) {
+     #ifdef __GNUC__
+     __asm(""); // prevent conditional load of the address of _mi_heap_empty
+     #endif
+-    heap = (mi_heap_t*)&_mi_heap_empty;    
++    heap = (mi_heap_t*)&_mi_heap_empty;
+   }
+   return heap;
+ #elif defined(MI_TLS_PTHREAD_SLOT_OFS)
+@@ -386,7 +388,7 @@ static inline mi_heap_t* mi_get_default_heap(void) {
+   mi_heap_t* heap = (mi_unlikely(_mi_heap_default_key == (pthread_key_t)(-1)) ? _mi_heap_main_get() : (mi_heap_t*)pthread_getspecific(_mi_heap_default_key));
+   return (mi_unlikely(heap == NULL) ? (mi_heap_t*)&_mi_heap_empty : heap);
+ #else
+-  #if defined(MI_TLS_RECURSE_GUARD)  
++  #if defined(MI_TLS_RECURSE_GUARD)
+   if (mi_unlikely(!_mi_process_is_initialized)) return _mi_heap_main_get();
+   #endif
+   return _mi_heap_default;
+@@ -446,7 +448,7 @@ static inline mi_slice_t* mi_page_to_slice(mi_page_t* p) {
+ 
+ // Segment belonging to a page
+ static inline mi_segment_t* _mi_page_segment(const mi_page_t* page) {
+-  mi_segment_t* segment = _mi_ptr_segment(page); 
++  mi_segment_t* segment = _mi_ptr_segment(page);
+   mi_assert_internal(segment == NULL || ((mi_slice_t*)page >= segment->slices && (mi_slice_t*)page < segment->slices + segment->slice_entries));
+   return segment;
+ }
+@@ -737,12 +739,12 @@ size_t _mi_commit_mask_next_run(const mi_commit_mask_t* cm, size_t* idx);
+ 
+ #define mi_commit_mask_foreach(cm,idx,count) \
+   idx = 0; \
+-  while ((count = _mi_commit_mask_next_run(cm,&idx)) > 0) { 
+-        
++  while ((count = _mi_commit_mask_next_run(cm,&idx)) > 0) {
++
+ #define mi_commit_mask_foreach_end() \
+     idx += count; \
+   }
+-      
++
+ 
+ 
+ 
+@@ -803,7 +805,7 @@ static inline mi_threadid_t _mi_thread_id(void) mi_attr_noexcept {
+   return (uintptr_t)NtCurrentTeb();
+ }
+ 
+-// We use assembly for a fast thread id on the main platforms. The TLS layout depends on 
++// We use assembly for a fast thread id on the main platforms. The TLS layout depends on
+ // both the OS and libc implementation so we use specific tests for each main platform.
+ // If you test on another platform and it works please send a PR :-)
+ // see also https://akkadia.org/drepper/tls.pdf for more info on the TLS register.
+@@ -916,7 +918,7 @@ static inline size_t mi_ctz(uintptr_t x) {
+ #endif
+ }
+ 
+-#elif defined(_MSC_VER) 
++#elif defined(_MSC_VER)
+ 
+ #include <limits.h>       // LONG_MAX
+ #define MI_HAVE_FAST_BITSCAN
+@@ -927,7 +929,7 @@ static inline size_t mi_clz(uintptr_t x) {
+   _BitScanReverse(&idx, x);
+ #else
+   _BitScanReverse64(&idx, x);
+-#endif  
++#endif
+   return ((MI_INTPTR_BITS - 1) - idx);
+ }
+ static inline size_t mi_ctz(uintptr_t x) {
+@@ -937,7 +939,7 @@ static inline size_t mi_ctz(uintptr_t x) {
+   _BitScanForward(&idx, x);
+ #else
+   _BitScanForward64(&idx, x);
+-#endif  
++#endif
+   return idx;
+ }
+ 
+@@ -967,7 +969,7 @@ static inline size_t mi_clz32(uint32_t x) {
+ }
+ 
+ static inline size_t mi_clz(uintptr_t x) {
+-  if (x==0) return MI_INTPTR_BITS;  
++  if (x==0) return MI_INTPTR_BITS;
+ #if (MI_INTPTR_BITS <= 32)
+   return mi_clz32((uint32_t)x);
+ #else
+@@ -998,9 +1000,9 @@ static inline size_t mi_bsr(uintptr_t x) {
+ // ---------------------------------------------------------------------------------
+ // Provide our own `_mi_memcpy` for potential performance optimizations.
+ //
+-// For now, only on Windows with msvc/clang-cl we optimize to `rep movsb` if 
+-// we happen to run on x86/x64 cpu's that have "fast short rep movsb" (FSRM) support 
+-// (AMD Zen3+ (~2020) or Intel Ice Lake+ (~2017). See also issue #201 and pr #253. 
++// For now, only on Windows with msvc/clang-cl we optimize to `rep movsb` if
++// we happen to run on x86/x64 cpu's that have "fast short rep movsb" (FSRM) support
++// (AMD Zen3+ (~2020) or Intel Ice Lake+ (~2017). See also issue #201 and pr #253.
+ // ---------------------------------------------------------------------------------
+ 
+ #if defined(_WIN32) && (defined(_M_IX86) || defined(_M_X64))
+@@ -1024,7 +1026,7 @@ static inline void _mi_memcpy(void* dst, const void* src, size_t n) {
+ 
+ 
+ // -------------------------------------------------------------------------------
+-// The `_mi_memcpy_aligned` can be used if the pointers are machine-word aligned 
++// The `_mi_memcpy_aligned` can be used if the pointers are machine-word aligned
+ // This is used for example in `mi_realloc`.
+ // -------------------------------------------------------------------------------
+ 
+diff --git a/include/mimalloc-memtrace.h b/include/mimalloc-memtrace.h
+new file mode 100644
+index 0000000..ccacfae
+--- /dev/null
++++ b/include/mimalloc-memtrace.h
+@@ -0,0 +1,23 @@
++/* ----------------------------------------------------------------------------
++Copyright (c) 2022, NVIDIA, Tim Martin
++This is free software; you can redistribute it and/or modify it under the
++terms of the MIT license. A copy of the license can be found in the file
++"LICENSE" at the root of this distribution.
++-----------------------------------------------------------------------------*/
++#pragma once
++#ifndef MIMALLOC_MEMTRACE_H
++#define MIMALLC_MEMTRACE_H
++
++#define MI_MEMTRACE_CONFIG_ENABLE (1)
++#define MI_MEMTRACE_CONFIG_EXIT_AFTER_BACKTRACE (2)
++
++#if defined(__cplusplus)
++#define mi_decl_externc extern "C"
++#else
++#define mi_decl_externc
++#endif
++
++mi_decl_externc int mi_memtrace_get_config(void) __attribute__((weak));;
++mi_decl_externc void mi_memtrace_set_config(int config) __attribute__((weak));;
++
++#endif // MIMALLOC_MEMTRACE_H
+diff --git a/src/alloc.c b/src/alloc.c
+index 1a36b5d..aeb90a1 100644
+--- a/src/alloc.c
++++ b/src/alloc.c
+@@ -14,6 +14,15 @@ terms of the MIT license. A copy of the license can be found in the file
+ 
+ #include <string.h>  // memset, strlen
+ #include <stdlib.h>  // malloc, exit
++#include <stdio.h>
++#include <sys/wait.h>
++#include <unistd.h>
++#include <signal.h>
++#include <execinfo.h>
++
++#ifdef MI_MEMTRACE
++#include "mimalloc-memtrace.h"
++#endif
+ 
+ #define MI_IN_ALLOC_C
+ #include "alloc-override.c"
+@@ -29,7 +38,7 @@ extern inline void* _mi_page_malloc(mi_heap_t* heap, mi_page_t* page, size_t siz
+   mi_assert_internal(page->xblock_size==0||mi_page_block_size(page) >= size);
+   mi_block_t* const block = page->free;
+   if (mi_unlikely(block == NULL)) {
+-    return _mi_malloc_generic(heap, size); 
++    return _mi_malloc_generic(heap, size);
+   }
+   mi_assert_internal(block != NULL && _mi_ptr_page(block) == page);
+   // pop from the free list
+@@ -115,7 +124,35 @@ extern inline mi_decl_restrict void* mi_heap_malloc(mi_heap_t* heap, size_t size
+   }
+ }
+ 
++#ifdef MI_MEMTRACE
++__thread int mi_malloc_running = 0;
++__thread int mi_memtrace_config = 0;
++
++mi_decl_externc mi_decl_export int mi_memtrace_get_config(void)
++{
++    return mi_memtrace_config;
++}
++mi_decl_externc mi_decl_export void mi_memtrace_set_config(int config)
++{
++    mi_memtrace_config = config;
++}
++#endif //MI_MEMTRACE
++
+ extern inline mi_decl_restrict void* mi_malloc(size_t size) mi_attr_noexcept {
++#ifdef MI_MEMTRACE
++  if ((mi_memtrace_config) && (mi_malloc_running == 0))
++  {
++    mi_malloc_running = 1;
++    _mi_memtrace_print_backtrace();
++    if (mi_memtrace_config & MI_MEMTRACE_CONFIG_EXIT_AFTER_BACKTRACE)
++    {
++      printf("Exiting.\n");
++      fflush(stdout);
++      exit(1);
++    }
++    mi_malloc_running = 0;
++  }
++#endif // MI_MEMTRACE
+   return mi_heap_malloc(mi_get_default_heap(), size);
+ }
+ 
+@@ -297,7 +334,7 @@ static void mi_padding_shrink(const mi_page_t* page, const mi_block_t* block, co
+ // only maintain stats for smaller objects if requested
+ #if (MI_STAT>0)
+ static void mi_stat_free(const mi_page_t* page, const mi_block_t* block) {
+-  #if (MI_STAT < 2)  
++  #if (MI_STAT < 2)
+   MI_UNUSED(block);
+   #endif
+   mi_heap_t* const heap = mi_heap_get_default();
+@@ -305,7 +342,7 @@ static void mi_stat_free(const mi_page_t* page, const mi_block_t* block) {
+   #if (MI_STAT>1)
+   const size_t usize = mi_page_usable_size_of(page, block);
+   mi_heap_stat_decrease(heap, malloc, usize);
+-  #endif  
++  #endif
+   if (bsize <= MI_MEDIUM_OBJ_SIZE_MAX) {
+     mi_heap_stat_decrease(heap, normal, bsize);
+     #if (MI_STAT > 1)
+@@ -451,7 +488,7 @@ static void mi_decl_noinline mi_free_generic(const mi_segment_t* segment, bool l
+ // Get the segment data belonging to a pointer
+ // This is just a single `and` in assembly but does further checks in debug mode
+ // (and secure mode) if this was a valid pointer.
+-static inline mi_segment_t* mi_checked_ptr_segment(const void* p, const char* msg) 
++static inline mi_segment_t* mi_checked_ptr_segment(const void* p, const char* msg)
+ {
+   MI_UNUSED(msg);
+ #if (MI_DEBUG>0)
+@@ -482,15 +519,15 @@ static inline mi_segment_t* mi_checked_ptr_segment(const void* p, const char* ms
+   return segment;
+ }
+ 
+-// Free a block 
++// Free a block
+ void mi_free(void* p) mi_attr_noexcept
+ {
+   mi_segment_t* const segment = mi_checked_ptr_segment(p,"mi_free");
+-  if (mi_unlikely(segment == NULL)) return; 
++  if (mi_unlikely(segment == NULL)) return;
+ 
+   mi_threadid_t tid = _mi_thread_id();
+   mi_page_t* const page = _mi_segment_page_of(segment, p);
+-  
++
+   if (mi_likely(tid == mi_atomic_load_relaxed(&segment->thread_id) && page->flags.full_aligned == 0)) {  // the thread id matches and it is not a full page, nor has aligned blocks
+     // local, and not full or aligned
+     mi_block_t* block = (mi_block_t*)(p);
+@@ -502,7 +539,7 @@ void mi_free(void* p) mi_attr_noexcept
+     #endif
+     mi_block_set_next(page, block, page->local_free);
+     page->local_free = block;
+-    if (mi_unlikely(--page->used == 0)) {   // using this expression generates better code than: page->used--; if (mi_page_all_free(page))    
++    if (mi_unlikely(--page->used == 0)) {   // using this expression generates better code than: page->used--; if (mi_page_all_free(page))
+       _mi_page_retire(page);
+     }
+   }
+@@ -547,7 +584,7 @@ mi_decl_noinline static size_t mi_page_usable_aligned_size_of(const mi_segment_t
+ static inline size_t _mi_usable_size(const void* p, const char* msg) mi_attr_noexcept {
+   const mi_segment_t* const segment = mi_checked_ptr_segment(p, msg);
+   if (segment==NULL) return 0;  // also returns 0 if `p == NULL`
+-  const mi_page_t* const page = _mi_segment_page_of(segment, p);  
++  const mi_page_t* const page = _mi_segment_page_of(segment, p);
+   if (mi_likely(!mi_page_has_aligned(page))) {
+     const mi_block_t* block = (const mi_block_t*)p;
+     return mi_page_usable_size_of(page, block);
+@@ -626,7 +663,7 @@ mi_decl_restrict void* mi_mallocn(size_t count, size_t size) mi_attr_noexcept {
+ // Expand (or shrink) in place (or fail)
+ void* mi_expand(void* p, size_t newsize) mi_attr_noexcept {
+   #if MI_PADDING
+-  // we do not shrink/expand with padding enabled 
++  // we do not shrink/expand with padding enabled
+   MI_UNUSED(p); MI_UNUSED(newsize);
+   return NULL;
+   #else
+@@ -659,7 +696,7 @@ void* _mi_heap_realloc_zero(mi_heap_t* heap, void* p, size_t newsize, bool zero)
+ }
+ 
+ void* mi_heap_realloc(mi_heap_t* heap, void* p, size_t newsize) mi_attr_noexcept {
+-  return _mi_heap_realloc_zero(heap, p, newsize, false);  
++  return _mi_heap_realloc_zero(heap, p, newsize, false);
+ }
+ 
+ void* mi_heap_reallocn(mi_heap_t* heap, void* p, size_t count, size_t size) mi_attr_noexcept {
+@@ -819,9 +856,9 @@ static bool mi_try_new_handler(bool nothrow) {
+   #else
+     std::new_handler h = std::set_new_handler();
+     std::set_new_handler(h);
+-  #endif  
++  #endif
+   if (h==NULL) {
+-    _mi_error_message(ENOMEM, "out of memory in 'new'");      
++    _mi_error_message(ENOMEM, "out of memory in 'new'");
+     if (!nothrow) {
+       throw std::bad_alloc();
+     }
+@@ -852,7 +889,7 @@ static std_new_handler_t mi_get_new_handler() {
+ static bool mi_try_new_handler(bool nothrow) {
+   std_new_handler_t h = mi_get_new_handler();
+   if (h==NULL) {
+-    _mi_error_message(ENOMEM, "out of memory in 'new'");       
++    _mi_error_message(ENOMEM, "out of memory in 'new'");
+     if (!nothrow) {
+       abort();  // cannot throw in plain C, use abort
+     }
+diff --git a/src/memtrace.cpp b/src/memtrace.cpp
+new file mode 100644
+index 0000000..bcb1395
+--- /dev/null
++++ b/src/memtrace.cpp
+@@ -0,0 +1,30 @@
++/* ----------------------------------------------------------------------------
++Copyright (c) 2022, NVIDIA, Tim Martin
++This is free software; you can redistribute it and/or modify it under the
++terms of the MIT license. A copy of the license can be found in the file
++"LICENSE" at the root of this distribution.
++-----------------------------------------------------------------------------*/
++
++#include <mutex>
++
++#include "mimalloc.h"
++#include "mimalloc-internal.h"
++
++
++
++#define BACKWARD_HAS_DW 1
++#include "backward.hpp"
++
++std::mutex m;
++
++void _mi_memtrace_print_backtrace(void)
++{
++   // Display one thread's trace without interleaving
++   const std::lock_guard<std::mutex> lock(m);
++
++   backward::StackTrace st;
++   backward::Printer p;
++
++   st.load_here(32);
++   p.print(st);
++}
+diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
+index bb8dc97..734b4cd 100644
+--- a/test/CMakeLists.txt
++++ b/test/CMakeLists.txt
+@@ -47,3 +47,7 @@ target_link_libraries(static-override PUBLIC mimalloc-static)
+ 
+ add_executable(static-override-cxx  main-override.cpp)
+ target_link_libraries(static-override-cxx PUBLIC mimalloc-static)
++
++if (MI_MEMTRACE)
++  add_executable(test-memtrace test-memtrace.cpp)
++endif()
+diff --git a/test/test-memtrace.cpp b/test/test-memtrace.cpp
+new file mode 100644
+index 0000000..38275cc
+--- /dev/null
++++ b/test/test-memtrace.cpp
+@@ -0,0 +1,53 @@
++#include <iostream>
++#include <stdio.h>
++#include <vector>
++
++#include "mimalloc-memtrace.h"
++
++using namespace std;
++
++void test_vector(int count)
++{
++   std::vector<int> v;
++   for (int k=0; k<count; k++)
++   {
++      v.push_back(k);
++   }
++}
++
++int memtrace_get_config(void)
++{
++   if (mi_memtrace_get_config)
++   {
++      return mi_memtrace_get_config();
++   }
++   else
++   {
++      printf("get: mi_memtrace_get_config not linked\n");
++   }
++   return 0;
++}
++
++void memtrace_set_config(int value)
++{
++   if (mi_memtrace_set_config)
++   {
++      mi_memtrace_set_config(value);
++   }
++   else
++   {
++      printf("set: mi_memtrace_set_config not linked\n");
++   }
++}
++
++int main(void)
++{
++   printf("RT Status: %d\n",memtrace_get_config());
++   test_vector(4);
++
++   memtrace_set_config(1);
++   printf("RT Status: %d\n",memtrace_get_config());
++
++   test_vector(4);
++}
++

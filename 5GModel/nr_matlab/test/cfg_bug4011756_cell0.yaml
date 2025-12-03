@@ -1,0 +1,535 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 1, ul: 0, ssb: 0, pdcch: 1, pdsch: 1, csirs: 4, prach: 0, pucch: 0,
+  pusch: 0, srs: 0, bfw: 0}
+carrier:
+  carrierFreq: 3.5
+  duplex: 1.0
+  CpType: 0
+  mu: 1
+  N_grid_start_mu: 0.0
+  N_grid_size_mu: 273.0
+  N_ID_CELL: 0
+  Nant_gNB: 4
+  Nant_UE: 4
+  freqShift7p5KHz: 0.0
+  SFN_start: 0.0
+  dmrsTypeAPos: 2.0
+  TddPeriod: 2.5
+  SlotConfig: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, -1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+    1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+ssb:
+  ssbSubcarrierOffset: 12.0
+  SsbOffsetPointA: 6.0
+  periodFrame: 1.0
+  caseType: case_C
+  n_hf: 0.0
+  prcdBf_vec: [0.0, 0.0, 0.0, 0.0]
+  digBFInterfaces_0: 1.0
+  beamIdx_0: 1.0
+  digBFInterfaces_1: 1.0
+  beamIdx_1: 2.0
+  digBFInterfaces_2: 1.0
+  beamIdx_2: 3.0
+  digBFInterfaces_3: 1.0
+  beamIdx_3: 4.0
+  betaPss: 0.0
+  seed: 0.0
+  mib: [0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0,
+    1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0]
+  cfgTx: 1.0
+  symIdxInFrame: [2.0, 8.0, 16.0, 22.0, 30.0, 36.0, 44.0, 50.0]
+  ssbBitMap: [0, 0, 0, 0, 0, 0, 0, 0]
+  idxUE: 0.0
+pdcch:
+- BWPSize: 273
+  BWPStart: 0
+  StartSymbolIndex: 0
+  DurationSymbols: 1
+  coresetIdx: 1
+  coresetMap: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0]
+  CceRegMappingType: 1
+  RegBundleSize: 6
+  InterleaverSize: 2
+  ShiftIndex: 3
+  precoderGranularity: 0
+  numDlDci: 1
+  testModel: 0.0
+  isCSS: 0.0
+  forceCceIndex: 0.0
+  DCI:
+  - RNTI: 16743
+    ScramblingId: 0
+    ScramblingRNTI: 0
+    beta_PDCCH_1_0: 8
+    powerControlOffsetSS: 0
+    powerControlOffsetSSProfileNR: 0.0
+    AggregationLevel: 2
+    cceIndex: 18
+    PayloadSizeBits: 49
+    prcdBf: 0.0
+    digBFInterfaces: 2
+    beamIdx: [1, 1]
+    seed: 0.0
+    Payload: [1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+      0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0]
+  dciUL: 0.0
+  idxUE: 0
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartSymbolIndex: 0
+#   DurationSymbols: 1
+#   coresetIdx: 1
+#   coresetMap: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+#     1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0]
+#   CceRegMappingType: 1
+#   RegBundleSize: 6
+#   InterleaverSize: 2
+#   ShiftIndex: 3
+#   precoderGranularity: 0
+#   numDlDci: 1
+#   testModel: 0.0
+#   isCSS: 0.0
+#   forceCceIndex: 0.0
+#   DCI:
+#   - RNTI: 16743
+#     ScramblingId: 3
+#     ScramblingRNTI: 0
+#     beta_PDCCH_1_0: 8
+#     powerControlOffsetSS: 0
+#     powerControlOffsetSSProfileNR: 0.0
+#     AggregationLevel: 2
+#     cceIndex: 18
+#     PayloadSizeBits: 49
+#     prcdBf: 0.0
+#     digBFInterfaces: 1.0
+#     beamIdx: [1, 1]
+#     seed: 0.0
+#     Payload: [1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
+#       0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0]
+#     prcBf: 0
+#     digBFInterface: 2
+#   dciUL: 0.0
+#   idxUE: 0
+pdsch:
+- pduBitmap: 0
+  BWPSize: 273
+  BWPStart: 0
+  RNTI: 16743
+  NrOfCodewords: 1
+  mcsIndex: 21
+  mcsTable: 1
+  rvIndex: 0
+  dataScramblingId: 0
+  nrOfLayers: 1
+  portIdx: [0]
+  transmissionScheme: 0
+  refPoint: 0
+  DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+  DmrsMappingType: 0.0
+  dmrsConfigType: 0
+  DmrsScramblingId: 0
+  SCID: 0
+  numDmrsCdmGrpsNoData: 2
+  resourceAlloc: 1
+  rbBitmap: [255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    1.0, 0.0]
+  rbStart: 0
+  rbSize: 16
+  VRBtoPRBMapping: 0
+  StartSymbolIndex: 2
+  NrOfSymbols: 12
+  prcdBf: 0.0
+  digBFInterfaces: 1
+  beamIdx: [1]
+  powerControlOffset: 11
+  powerControlOffsetSS: 1
+  IsLastCbPresent: 0.0
+  isInlineTbCrc: 0.0
+  dlTbCrc: 0.0
+  testModel: 0
+  I_LBRM: 1.0
+  maxLayers: 4.0
+  maxQm: 8.0
+  n_PRB_LBRM: 273.0
+  Xtf_remap: []
+  seed: 0.0
+  payload: []
+  idxUE: 0
+  idxUeg: 0
+# - pduBitmap: 0
+#   BWPSize: 273
+#   BWPStart: 0
+#   RNTI: 16743
+#   NrOfCodewords: 1
+#   mcsIndex: 21
+#   mcsTable: 1
+#   rvIndex: 0
+#   dataScramblingId: 3
+#   nrOfLayers: 1
+#   portIdx: [0]
+#   transmissionScheme: 0
+#   refPoint: 0
+#   DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+#   DmrsMappingType: 0.0
+#   dmrsConfigType: 0
+#   DmrsScramblingId: 3
+#   SCID: 0
+#   numDmrsCdmGrpsNoData: 2
+#   resourceAlloc: 1
+#   rbBitmap: [255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+#     255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+#     255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+#     1.0, 0.0]
+#   rbStart: 0
+#   rbSize: 16
+#   VRBtoPRBMapping: 0
+#   StartSymbolIndex: 2
+#   NrOfSymbols: 12
+#   prcdBf: 0.0
+#   digBFInterfaces: 4.0
+#   beamIdx: ['']
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   IsLastCbPresent: 0.0
+#   isInlineTbCrc: 0.0
+#   dlTbCrc: 0.0
+#   testModel: 0
+#   I_LBRM: 1.0
+#   maxLayers: 4.0
+#   maxQm: 8.0
+#   n_PRB_LBRM: 273.0
+#   Xtf_remap: []
+#   seed: 0.0
+#   payload: []
+#   idxUE: 0
+#   idxUeg: 0
+#   prcBf: 15
+#   digBFInterface: 1
+csirs:
+- BWPSize: 273
+  BWPStart: 0
+  StartRB: 0
+  NrOfRBs: 273
+  CSIType: 0
+  Row: 1
+  FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  SymbL0: 10
+  SymbL1: 0
+  CDMType: 0
+  FreqDensity: 3
+  ScrambId: 0
+  prcdBf: 0.0
+  digBFInterfaces: 2
+  beamIdx: [1, 1]
+  powerControlOffset: 11
+  powerControlOffsetSS: 1
+  idxUE: 0.0
+- BWPSize: 273
+  BWPStart: 0
+  StartRB: 0
+  NrOfRBs: 273
+  CSIType: 1
+  Row: 4
+  FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+  SymbL0: 13
+  SymbL1: 0
+  CDMType: 1
+  FreqDensity: 2
+  ScrambId: 0
+  prcdBf: 0.0
+  digBFInterfaces: 4
+  beamIdx: [1, 2, 1, 2]
+  powerControlOffset: 11
+  powerControlOffsetSS: 1
+  idxUE: 0.0
+- BWPSize: 273
+  BWPStart: 0
+  StartRB: 0
+  NrOfRBs: 273
+  CSIType: 2
+  Row: 5
+  FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+  SymbL0: 9
+  SymbL1: 0
+  CDMType: 1
+  FreqDensity: 2
+  ScrambId: 0
+  prcdBf: 0.0
+  digBFInterfaces: 0
+  beamIdx: [0]
+  powerControlOffset: 8
+  powerControlOffsetSS: 1
+  idxUE: 0.0
+- BWPSize: 273
+  BWPStart: 0
+  StartRB: 0
+  NrOfRBs: 273
+  CSIType: 0
+  Row: 1
+  FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+  SymbL0: 6
+  SymbL1: 0
+  CDMType: 0
+  FreqDensity: 3
+  ScrambId: 0
+  prcdBf: 0.0
+  digBFInterfaces: 2.0
+  beamIdx: [1, 1]
+  powerControlOffset: 11
+  powerControlOffsetSS: 1
+  idxUE: 0.0
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 0
+#   Row: 1
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+#   SymbL0: 10
+#   SymbL1: 0
+#   CDMType: 0
+#   FreqDensity: 3
+#   ScrambId: 2
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [1, 1]
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 2
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 1
+#   Row: 4
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+#   SymbL0: 13
+#   SymbL1: 0
+#   CDMType: 1
+#   FreqDensity: 2
+#   ScrambId: 2
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [1, 3, 1, 3]
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 4
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 2
+#   Row: 5
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0]
+#   SymbL0: 9
+#   SymbL1: 0
+#   CDMType: 1
+#   FreqDensity: 2
+#   ScrambId: 2
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [0]
+#   powerControlOffset: 8
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 0
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 0
+#   Row: 1
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+#   SymbL0: 6
+#   SymbL1: 0
+#   CDMType: 0
+#   FreqDensity: 3
+#   ScrambId: 2
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [1, 1]
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 2
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 0
+#   Row: 1
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+#   SymbL0: 5
+#   SymbL1: 0
+#   CDMType: 0
+#   FreqDensity: 3
+#   ScrambId: 3
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [1, 1]
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 2
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 0
+#   Row: 1
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]
+#   SymbL0: 9
+#   SymbL1: 0
+#   CDMType: 0
+#   FreqDensity: 3
+#   ScrambId: 3
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [1, 1]
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 2
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 2
+#   Row: 5
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]
+#   SymbL0: 9
+#   SymbL1: 0
+#   CDMType: 1
+#   FreqDensity: 2
+#   ScrambId: 3
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [0]
+#   powerControlOffset: 8
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 0
+# - BWPSize: 273
+#   BWPStart: 0
+#   StartRB: 0
+#   NrOfRBs: 273
+#   CSIType: 1
+#   Row: 4
+#   FreqDomain: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+#   SymbL0: 12
+#   SymbL1: 0
+#   CDMType: 1
+#   FreqDensity: 2
+#   ScrambId: 3
+#   prcdBf: 0.0
+#   digBFInterfaces: 2.0
+#   beamIdx: [1, 2, 1, 2]
+#   powerControlOffset: 11
+#   powerControlOffsetSS: 1
+#   idxUE: 0.0
+#   prcBf: 0
+#   digBFInterface: 4
+Chan:
+- {type: AWGN, DelayProfile: CDL-A, DelaySpread: 3.0e-08, MaximumDopplerShift: 10.0,
+  CDL_updateRateType: perSample, Polarization: Co-Polar, SNR: 40.0, delay: 0.0, CFO: 0.0,
+  use5Gtoolbox: 1.0, simplifiedDelayProfile: 1.0, gain: 1.0}
+Interf_Chan:
+- {DelayProfile: TDLA30, DelaySpread: 0.0, MaximumDopplerShift: 10.0, MIMOCorrelation: low,
+  Polarization: Co-Polar, SIR: 40.0, delay: 0.0, CFO: 0.0, use5Gtoolbox: 1.0, gain: 1.0}
+SimCtrl:
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 1.0
+  timeDomainSim: 0.0
+  enableCS: 0.0
+  prachFalseAlarmTest: 0.0
+  puschHARQ:
+    EnableAutoHARQ: 0.0
+    MaxTransmissions: 1.0
+    MinTransmissions: 1.0
+    rvTable: [0.0, 2.0, 3.0, 1.0]
+    MAX_gNB_HARQ_BUFFERS: 32.0
+  force_pucch_payload_as: random
+  plotFigure: {tfGrid: 1, constellation: 1}
+  bf: {N_SRS_CHEST_BUFF: 0.0}
+  enable_codebook_BF: 1
+  genTV:
+    enable: 0.0
+    enableUE: 0.0
+    tvDirName: GPU_test_input
+    genYamlCfg: 0.0
+    cuPHY: 1.0
+    FAPI: 1.0
+    launchPattern: 0.0
+    fhMsgMode: 0.0
+    FAPIyaml: 0.0
+    slotIdx: 0
+    forceSlotIdxFlag: 0.0
+    bypassComp: 0.0
+    idx: 0.0
+    TVname: []
+    polDbg: 0.0
+  oranComp:
+    iqWidth: [14, 9.0]
+    Ref_c: [0.0, 0.0]
+    FSOffset: [0.0, 0.0]
+    Nre_max: 3276.0
+  BFPforCuphy: 14.0
+  alg: {enableRssiMeas: 1.0, enableSinrMeas: 1.0, enableIrc: 0.0, Irc_fallback_thres: 0.0,
+    enable_nCov_shrinkage: 0.0, nCov_shrinkage_method: RBLW, pusch_sinr_selector: 2.0,
+    enableNoiseEstForZf: 1.0, fakeSNRdBForZf: 36.0, enableCfoEstimation: 1.0, enableCfoCorrection: 1.0,
+    enableToEstimation: 1.0, enableToCorrection: 0.0, enableDftSOfdm: 0.0, TdiMode: 1.0,
+    TdiModePf3: 1.0, dtxModePf2: 1.0, dtxModePf3: 1.0, dtxModeUciOnPusch: 1.0, useNrUCIDecode: 0.0,
+    listLength: 1.0, enablePrcdBf: 0.0, enable_get_genie_meas: 0.0, enable_use_genie_nCov: 0.0,
+    genie_nCov_method: genie_interfNoise_based, enable_sphere_decoder: 0.0, enable_use_genie_channel_for_equalizer: 0.0}
+  delaySpread: 2.0e-06
+  fp16AlgoSel: 2.0
+  forceRxZero: 0.0
+  useCuphySoftDemapper: 1.0
+  checkSrsHestErr: 0.0
+  forceCsiPart2Length: 0.0
+  capSamp:
+    enable: 0.0
+    fileName: []
+    isComp: 1
+  ul_gain_calibration: 48.68
+  enableUeRx: 0.0
+  enableDlTxBf: 0.0
+  enableUlRxBf: 0.0
+  results: []
+  N_Interfering_UE_UL: 0.0
+  batchsim: {save_results: 0.0}
+  seed: 0.0
+  enable_get_genie_channel_matrix: 0.0
+  enable_freeze_tx_and_channel: 0.0
+  oranCompressBetaForce: 0.0
+  enable_print_idxFrame: 0.0

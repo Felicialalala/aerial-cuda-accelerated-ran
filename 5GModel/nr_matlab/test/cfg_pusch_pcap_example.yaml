@@ -1,0 +1,86 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 0.0, ul: 1.0, ssb: 0.0, pdcch: 0.0, pdsch: 0.0, csirs: 0.0, prach: 0.0,
+  pucch: 0.0, pusch: 1.0, srs: 0.0}
+carrier:
+  duplex: 1.0
+  N_grid_size_mu: 273.0
+  N_ID_CELL: 0.0
+  Nant_gNB: 2.0
+  Nant_UE: 2.0
+pusch:
+- pduBitmap: 1.0
+  BWPSize: 273.0
+  BWPStart: 0.0
+  RNTI: 29500.0
+  NrOfCodewords: 1.0
+  mcsIndex: 0.0
+  mcsTable: 0.0
+  rvIndex: 0.0
+  newDataIndicator: 1.0
+  harqProcessID: 0.0
+  TransformPrecoding: 1.0
+  dataScramblingId: 0.0
+  nrOfLayers: 2.0
+  portIdx: [0.0, 2.0] 
+  DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  DmrsMappingType: 0.0
+  dmrsConfigType: 0.0
+  DmrsScramblingId: 0.0
+  puschIdentity: 0.0
+  SCID: 0.0
+  numDmrsCdmGrpsNoData: 2.0
+  resourceAlloc: 1.0
+  rbStart: 0.0
+  rbSize: 8.0
+  VRBtoPRBMapping: 0.0
+  FrequencyHopping: 0.0
+  txDirectCurrentLocation: 0.0
+  uplinkFrequencyShift7p5khz: 0.0
+  StartSymbolIndex: 0.0
+  NrOfSymbols: 14.0
+  prcdBf: 0.0
+  I_LBRM: 0.0
+  maxLayers: 4.0
+  maxQm: 8.0
+  n_PRB_LBRM: 273.0
+  seed: 0.0
+  payload: []
+  idxUE: 0.0
+  idxUeg: 0.0
+Chan:
+- {type: AWGN, SNR: 100.0, delay: 0.0, CFO: 0.0, use5Gtoolbox: 1.0, gain: 1.0}
+SimCtrl:
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 1.0
+  plotFigure: {tfGrid: 1, constellation: 1} 
+  oranComp: {iqWidth: 9, Ref_c: 0, FSOffset: 0, Nre_max: 3276} 
+  capSamp: 
+    isComp: 1 
+  genTV: 
+    enable: 0.0 
+    enableUE: 0.0 
+    tvDirName: GPU_test_input 
+    cuPHY: 1.0 
+    FAPI: 1.0 
+    FAPIyaml: 0.0 
+    forceSlotIdxFlag: 1 
+    slotIdx: 14 
+    bypassComp: 0.0 
+    idx: 0.0 
+    TVname: [] 
+  results: []

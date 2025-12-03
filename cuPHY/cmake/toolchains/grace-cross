@@ -1,0 +1,6 @@
+# which compilers to use for C and C++
+set(CMAKE_C_COMPILER   aarch64-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+
+set(AERIAL_ARCH_TUNE_FLAGS -mcpu=neoverse-v2 -march=armv9-a+crypto+sve2-sm4+sve2-aes+sve2-sha3+sve2-bitperm+i8mm+bf16+nopredres)
+

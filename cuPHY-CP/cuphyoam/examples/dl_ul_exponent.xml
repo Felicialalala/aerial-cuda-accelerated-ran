@@ -1,0 +1,16 @@
+  <user-plane-configuration xmlns="urn:o-ran:uplane-conf:1.0">
+    <low-level-tx-endpoints>
+      <name>tx-ep</name>
+      <sro-id/>
+      <compression>
+	      <exponent>4</exponent>
+      </compression>
+    </low-level-tx-endpoints>
+    <low-level-rx-endpoints>
+      <name>rx-ep</name>
+      <sro-id/>
+      <compression>
+	     <exponent>4</exponent>
+      </compression>
+    </low-level-rx-endpoints>
+  </user-plane-configuration>

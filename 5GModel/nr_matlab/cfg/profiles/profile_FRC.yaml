@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This file includes FRC configurations defined in TS38.141
+
+# TS38.141 Table 8.2.1.5-7 100MHz, 30kHz SCS
+profile_FRC_G_FR1_A3_14:
+  descprition: "single layer, MCS 1" # description and author are dummy keys, which are only used for illustration purpose
+  author: "Yuan Gao"
+  pusch:
+  - mcsIndex: 1 
+    mcsTable: 1
+    nrOfLayers: 1
+    DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+    rbStart: 0 
+    rbSize: 273 
+    StartSymbolIndex: 0 
+    NrOfSymbols: 14   
+
+profile_FRC_G_FR1_A4_14:
+  descprition: "single layer, MCS 10" 
+  author: "Yuan Gao"
+  pusch:
+  - mcsIndex: 10 
+    mcsTable: 1
+    nrOfLayers: 1
+    DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+    rbStart: 0 
+    rbSize: 273 
+    StartSymbolIndex: 0 
+    NrOfSymbols: 14
+  
+profile_FRC_G_FR1_A5_14:
+  descprition: "single layer, MCS 13" 
+  author: "Yuan Gao"
+  pusch:
+  - mcsIndex: 13 
+    mcsTable: 1
+    nrOfLayers: 1
+    DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+    rbStart: 0 
+    rbSize: 273 
+    StartSymbolIndex: 0 
+    NrOfSymbols: 14  
+  
+profile_FRC_G_FR1_A3_28:
+  descprition: "two layers, MCS 1" 
+  author: "Yuan Gao"
+  pusch:
+  - mcsIndex: 1 
+    mcsTable: 1
+    nrOfLayers: 2
+    DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+    rbStart: 0 
+    rbSize: 273 
+    StartSymbolIndex: 0 
+    NrOfSymbols: 14
+
+profile_FRC_G_FR1_A4_28:
+  descprition: "two layers, MCS 10" 
+  author: "Yuan Gao"
+  pusch:
+  - mcsIndex: 10 
+    mcsTable: 1
+    nrOfLayers: 2
+    DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+    rbStart: 0 
+    rbSize: 273 
+    StartSymbolIndex: 0 
+    NrOfSymbols: 14

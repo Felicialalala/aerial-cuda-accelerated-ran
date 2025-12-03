@@ -1,0 +1,6 @@
+# which compilers to use for C and C++
+set(CMAKE_C_COMPILER   aarch64-linux-gnu-gcc)
+set(CMAKE_CXX_COMPILER aarch64-linux-gnu-g++)
+
+set(AERIAL_ARCH_TUNE_FLAGS -mcpu=cortex-a78ae -march=armv8.2-a+crypto+fp16+rcpc+dotprod+pauth)
+

@@ -1,0 +1,74 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "minimal-base",
+      "hidden": true,
+      "description": "Base minimal configuration - use minimal-x86 or minimal-arm instead",
+      "binaryDir": "${sourceDir}/build-minimal",
+      "cacheVariables": {
+        "ENABLE_TESTS": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "ENABLE_YANG_PARSER": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "AERIAL_METRICS": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "ENABLE_SCTP_CHECK": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "ENABLE_DOCA_GPU_COMM": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "ENABLE_CUMAC": {
+          "type": "BOOL",
+          "value": "OFF"
+        },
+        "ENABLE_PYAERIAL": {
+          "type": "BOOL",
+          "value": "OFF"
+        }
+      }
+    },
+    {
+      "name": "minimal-x86",
+      "inherits": "minimal-base",
+      "displayName": "Minimal Build (x86_64)",
+      "description": "Minimal build for x86_64 toolchain",
+      "binaryDir": "${sourceDir}/build-minimal-x86",
+      "toolchainFile": "${sourceDir}/cuPHY/cmake/toolchains/x86-64"
+    },
+    {
+      "name": "minimal-arm",
+      "inherits": "minimal-base",
+      "displayName": "Minimal Build (ARM/Grace)",
+      "description": "Minimal build for ARM/Grace with cross-compilation toolchain",
+      "binaryDir": "${sourceDir}/build-minimal-arm",
+      "toolchainFile": "${sourceDir}/cuPHY/cmake/toolchains/grace-cross"
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "minimal-x86",
+      "configurePreset": "minimal-x86",
+      "jobs": 0
+    },
+    {
+      "name": "minimal-arm",
+      "configurePreset": "minimal-arm",
+      "jobs": 0
+    }
+  ]
+}

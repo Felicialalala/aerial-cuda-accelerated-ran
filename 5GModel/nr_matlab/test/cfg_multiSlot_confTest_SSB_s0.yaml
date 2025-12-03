@@ -1,0 +1,154 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 1.0, ul: 0.0, ssb: 1.0, pdcch: 0.0, pdsch: 0.0, csirs: 0.0, prach: 0.0,
+  pucch: 0.0, pusch: 0.0, srs: 0.0, bfw: 0.0}
+ssb:
+  ssbSubcarrierOffset: 0.0
+  SsbOffsetPointA: 0.0
+  periodFrame: 2.0
+  caseType: case_C
+  n_hf: 0.0
+  prcdBf_vec: [0.0, 0.0, 0.0, 0.0]
+  digBFInterfaces_0: 1.0
+  beamIdx_0: 1.0
+  digBFInterfaces_1: 1.0
+  beamIdx_1: 2.0
+  digBFInterfaces_2: 1.0
+  beamIdx_2: 3.0
+  digBFInterfaces_3: 1.0
+  beamIdx_3: 4.0
+  betaPss: 0.0
+  seed: 0.0
+  mib: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 
+        0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+        0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]
+  cfgTx: 1.0
+  symIdxInFrame: [2.0, 8.0, 16.0, 22.0, 30.0, 36.0, 44.0, 50.0]
+  ssbBitMap: [1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  idxUE: 0.0
+
+SimCtrl:
+  relNum: 10000.0
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 0.0
+  timeDomainSim: 1.0
+  enableCS: 0.0
+  prachFalseAlarmTest: 0.0
+  puschHARQ:
+    EnableAutoHARQ: 0.0
+    MaxTransmissions: 1.0
+    MinTransmissions: 1.0
+    rvTable: [0.0, 2.0, 3.0, 1.0]
+    MAX_gNB_HARQ_BUFFERS: 32.0
+  force_pucch_payload_as: random
+  plotFigure: {tfGrid: 0.0, constellation: 0.0}
+  bf: {N_SRS_CHEST_BUFF: 0.0}
+  enable_codebook_BF: 1.0
+  enable_dynamic_BF: 0.0
+  genTV:
+    enable: 1.0
+    enableUE: 0.0
+    tvDirName: GPU_test_input
+    genYamlCfg: 0.0
+    cuPHY: 1.0
+    FAPI: 1.0
+    launchPattern: 0.0
+    fhMsgMode: 0.0
+    FAPIyaml: 0.0
+    slotIdx: 0.0
+    forceSlotIdxFlag: 1.0
+    bypassComp: 0.0
+    idx: 0.0
+    TVname: []
+    polDbg: 0.0
+    enable_logging_tx_Xtf: 0.0
+    enable_logging_carrier_and_channel_info: 0.0
+  oranComp:
+    iqWidth: [14.0, 9.0]
+    Ref_c: [0.0, 0.0]
+    FSOffset: [0.0, 0.0]
+    Nre_max: 6552.0
+    max_amp_ul: 65504.0
+  BFPforCuphy: 14.0
+  alg:
+    enableRssiMeas: 1.0
+    enableSinrMeas: 1.0
+    enableIrc: 0.0
+    Irc_fallback_thres: 0.0
+    enable_nCov_shrinkage: 0.0
+    nCov_shrinkage_method: OAS
+    pusch_sinr_selector: 2.0
+    LDPC_maxItr: 10.0
+    LDPC_enableEarlyTerm: 0.0
+    LDPC_earlyTermAlg: PCE
+    LDPC_earlyTerm_NBF_num_consecutive_itr: 2.0
+    LDPC_flags: 2.0
+    LDPC_DMI_method: LUT_spef
+    LDPC_DMI_ML_model_path: []
+    LDPC_DMI_ML_confidence_thres: 0.0
+    LDPC_DMI_LUT_SNRmargin_dB: 0.0
+    LDPC_DMI_LUT_numItr_vec: [10.0, 7.0]
+    enableNoiseEstForZf: 1.0
+    fakeSNRdBForZf: 36.0
+    enableCfoEstimation: 1.0
+    enableCfoCorrection: 1.0
+    enableToEstimation: 1.0
+    enableToCorrection: 0.0
+    enableDftSOfdm: 0.0
+    TdiMode: 1.0
+    TdiModePf3: 1.0
+    dtxModePf2: 1.0
+    dtxModePf3: 1.0
+    dtxModeUciOnPusch: 1.0
+    useNrUCIDecode: 0.0
+    listLength: 1.0
+    enablePrcdBf: 0.0
+    enable_get_genie_meas: 0.0
+    enable_use_genie_nCov: 0.0
+    genie_nCov_method: genie_interfNoise_based
+    enable_sphere_decoder: 0.0
+    enable_use_genie_channel_for_equalizer: 0.0
+    enable_avg_nCov_prbs_fd: 0.0
+    win_size_avg_nCov_prbs_fd: 3.0
+    threshold_avg_nCov_prbs_fd_dB: 3.0
+    enable_instant_equ_coef_cfo_corr: 1.0
+  delaySpread: 2.0E-6
+  fp16AlgoSel: 2.0
+  forceRxZero: 0.0
+  useCuphySoftDemapper: 1.0
+  checkSrsHestErr: 0.0
+  forceCsiPart2Length: 0.0
+  capSamp:
+    enable: 0.0
+    fileName: []
+    isComp: 0.0
+  ul_gain_calibration: 48.68
+  enableUeRx: 1.0
+  enableDlTxBf: 0.0
+  enableUlRxBf: 0.0
+  results: []
+  N_Interfering_UE_UL: 0.0
+  batchsim: {save_results: 0.0, save_results_LDPC: 0.0}
+  seed: 0.0
+  enable_get_genie_channel_matrix: 0.0
+  enable_freeze_tx_and_channel: 0.0
+  enable_freeze_tx: 0.0
+  oranCompressBetaForce: 0.0
+  enable_print_idxFrame: 0.0
+  enable_snapshot_gNB_UE_into_SimCtrl: 0.0
+  bfw: {compressBitWidth: 9.0, beta: 2048.0}
+  subslot_proc_option: 0.0

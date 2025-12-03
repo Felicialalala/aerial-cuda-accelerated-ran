@@ -1,0 +1,6 @@
+# DLC Test Bench - 4T4R Test Patterns
+# Format: pattern_num (one per line, commas optional)
+# Lines starting with # are comments and will be ignored
+
+# Common 4T4R patterns
+59c

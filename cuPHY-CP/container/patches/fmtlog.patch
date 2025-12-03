@@ -1,0 +1,498 @@
+diff --git a/.gitmodules b/.gitmodules
+deleted file mode 100644
+index c8edf6a..0000000
+--- a/.gitmodules
++++ /dev/null
+@@ -1,3 +0,0 @@
+-[submodule "fmt"]
+-	path = fmt
+-	url = https://github.com/fmtlib/fmt
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index aa64a8a..d91896a 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -13,7 +13,6 @@ else()
+ endif()
+
+ link_directories(.)
+-include_directories(fmt/include)
+
+ add_library(fmtlog-shared SHARED fmtlog.cc)
+ if(MSVC)
+@@ -27,5 +26,6 @@ if(MSVC)
+ endif()
+ install(TARGETS fmtlog-static)
+
+-add_subdirectory(fmt)
+-add_subdirectory(test)
++find_package(fmt REQUIRED)
++target_link_libraries(fmtlog-shared PUBLIC fmt::fmt)
++target_link_libraries(fmtlog-static PUBLIC fmt::fmt)
+diff --git a/README.md b/README.md
+index d40da2c..c289e27 100644
+--- a/README.md
++++ b/README.md
+@@ -150,6 +150,7 @@ Log header pattern can also be customized with `fmtlog::setHeaderPattern()` and
+ |`YmdHMSe`|Year-Month-Day Hour:Minute:Second.Millisecond|2021-05-03 16:08:09.796|
+ |`YmdHMSf`|Year-Month-Day Hour:Minute:Second.Microsecond|2021-05-03 16:08:09.796341|
+ |`YmdHMSF`|Year-Month-Day Hour:Minute:Second.Nanosecond|2021-05-03 16:08:09.796341126|
++|`O`|Number of Log Buffer Overflows (counted per-thread)|0|
+
+ Note that using concatenated named args is more efficient than seperated ones, e.g. `{YmdHMS}` is faster than `{Y}-{m}-{d} {H}:{M}:{S}`.
+
+diff --git a/fmt b/fmt
+deleted file mode 160000
+index e69e5f9..0000000
+--- a/fmt
++++ /dev/null
+@@ -1 +0,0 @@
+-Subproject commit e69e5f977d458f2650bb346dadf2ad30c5320281
+diff --git a/fmtlog-inl.h b/fmtlog-inl.h
+index f02cab6..aa4dd7f 100644
+--- a/fmtlog-inl.h
++++ b/fmtlog-inl.h
+@@ -103,10 +103,13 @@ public:
+     setHeaderPattern("{HMSf} {s:<16} {l}[{t:<6}] ");
+     logInfos.reserve(32);
+     bgLogInfos.reserve(128);
++    bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::VEB, fmt::string_view());
+     bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::DBG, fmt::string_view());
+     bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::INF, fmt::string_view());
+     bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::WRN, fmt::string_view());
++    bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::CON, fmt::string_view());
+     bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::ERR, fmt::string_view());
++    bgLogInfos.emplace_back(nullptr, nullptr, fmtlog::FAT, fmt::string_view());
+     threadBuffers.reserve(8);
+     bgThreadBuffers.reserve(8);
+     memset(membuf.data(), 0, membuf.capacity());
+@@ -129,7 +132,7 @@ public:
+       "t"_a = "thread name", "F"_a = "", "f"_a = "", "e"_a = "", "S"_a = "", "M"_a = "", "H"_a = "",
+       "l"_a = fmtlog::LogLevel(), "s"_a = "fmtlog.cc:123", "g"_a = "/home/raomeng/fmtlog/fmtlog.cc:123", "Ymd"_a = "",
+       "HMS"_a = "", "HMSe"_a = "", "HMSf"_a = "", "HMSF"_a = "", "YmdHMS"_a = "", "YmdHMSe"_a = "", "YmdHMSf"_a = "",
+-      "YmdHMSF"_a = "");
++      "YmdHMSF"_a = "", "O"_a = "");
+     shouldDeallocateHeader = headerPattern.data() != pattern;
+
+     setArg<0>(fmt::string_view(weekdayName.s, 3));
+@@ -138,7 +141,7 @@ public:
+     setArg<3>(fmt::string_view(year.s, 4));
+     setArg<4>(fmt::string_view(month.s, 2));
+     setArg<5>(fmt::string_view(day.s, 2));
+-    setArg<6>(fmt::string_view());
++    setArg<6>(fmt::string_view());                  // thread name
+     setArg<7>(fmt::string_view(nanosecond.s, 9));
+     setArg<8>(fmt::string_view(nanosecond.s, 6));
+     setArg<9>(fmt::string_view(nanosecond.s, 3));
+@@ -148,15 +151,16 @@ public:
+     setArg<13>(fmt::string_view(logLevel.s, 3));
+     setArg<14>(fmt::string_view());
+     setArg<15>(fmt::string_view());
+-    setArg<16>(fmt::string_view(year.s, 10)); // Ymd
+-    setArg<17>(fmt::string_view(hour.s, 8));  // HMS
+-    setArg<18>(fmt::string_view(hour.s, 12)); // HMSe
+-    setArg<19>(fmt::string_view(hour.s, 15)); // HMSf
+-    setArg<20>(fmt::string_view(hour.s, 18)); // HMSF
+-    setArg<21>(fmt::string_view(year.s, 19));   // YmdHMS
+-    setArg<22>(fmt::string_view(year.s, 23));   // YmdHMSe
+-    setArg<23>(fmt::string_view(year.s, 26));   // YmdHMSf
+-    setArg<24>(fmt::string_view(year.s, 29));   // YmdHMSF
++    setArg<16>(fmt::string_view(year.s, 10));       // Ymd
++    setArg<17>(fmt::string_view(hour.s, 8));        // HMS
++    setArg<18>(fmt::string_view(hour.s, 12));       // HMSe
++    setArg<19>(fmt::string_view(hour.s, 15));       // HMSf
++    setArg<20>(fmt::string_view(hour.s, 18));       // HMSF
++    setArg<21>(fmt::string_view(year.s, 19));       // YmdHMS
++    setArg<22>(fmt::string_view(year.s, 23));       // YmdHMSe
++    setArg<23>(fmt::string_view(year.s, 26));       // YmdHMSf
++    setArg<24>(fmt::string_view(year.s, 29));       // YmdHMSF
++    setArg<25>(fmt::string_view());                 // O
+   }
+
+   class ThreadBufferDestroyer
+@@ -248,7 +252,7 @@ public:
+
+   fmtlog::MemoryBuffer membuf;
+
+-  const static int parttenArgSize = 25;
++  const static int parttenArgSize = 26;
+   uint32_t reorderIdx[parttenArgSize];
+   Str<3> weekdayName;
+   Str<3> monthName;
+@@ -355,53 +359,61 @@ public:
+   void handleLog(fmt::string_view threadName, const fmtlog::SPSCVarQueueOPT::MsgHeader* header) {
+     setArgVal<6>(threadName);
+     StaticLogInfo& info = bgLogInfos[header->logId];
+-    const char* data = (const char*)(header + 1);
+-    const char* end = (const char*)header + header->size;
+-    int64_t tsc = *(int64_t*)data;
+-    data += 8;
+-    if (!info.formatToFn) { // log once
+-      info.location = *(const char**)data;
++    try {
++      const char* data = (const char*)(header + 1);
++      const char* end = (const char*)header + header->size;
++      int64_t tsc = *(int64_t*)data;
+       data += 8;
+-      info.processLocation();
+-    }
+-    int64_t ts = fmtlogWrapper<>::impl.tscns.tsc2ns(tsc);
+-    // the date could go back when polling different threads
+-    uint64_t t = (ts > midnightNs) ? (ts - midnightNs) : 0;
+-    nanosecond.fromi(t % 1000000000);
+-    t /= 1000000000;
+-    second.fromi(t % 60);
+-    t /= 60;
+-    minute.fromi(t % 60);
+-    t /= 60;
+-    uint32_t h = t; // hour
+-    if (h > 23) {
+-      h %= 24;
+-      resetDate();
+-    }
+-    hour.fromi(h);
+-    setArgVal<14>(info.getBase());
+-    setArgVal<15>(info.getLocation());
+-    logLevel = (const char*)"DBG INF WRN ERR OFF" + (info.logLevel << 2);
++      if (!info.formatToFn) { // log once
++        info.location = *(const char**)data;
++        data += 8;
++        info.processLocation();
++      }
++      int64_t ts = fmtlogWrapper<>::impl.tscns.tsc2ns(tsc);
++      // the date could go back when polling different threads
++      uint64_t t = (ts > midnightNs) ? (ts - midnightNs) : 0;
++      nanosecond.fromi(t % 1000000000);
++      t /= 1000000000;
++      second.fromi(t % 60);
++      t /= 60;
++      minute.fromi(t % 60);
++      t /= 60;
++      uint32_t h = t; // hour
++      if (h > 23) {
++        h %= 24;
++        resetDate();
++      }
++      hour.fromi(h);
++      setArgVal<14>(info.getBase());
++      setArgVal<15>(info.getLocation());
++      setArgVal<25>(fmt::format("{}",header->logQFullCount));
++      logLevel = (const char*)"VEB DBG INF WRN CON ERR FAT OFF" + (info.logLevel << 2);
+
+-    size_t headerPos = membuf.size();
+-    fmtlog::vformat_to(membuf, headerPattern, fmt::basic_format_args(args.data(), parttenArgSize));
+-    size_t bodyPos = membuf.size();
++      size_t headerPos = membuf.size();
++      fmtlog::vformat_to(membuf, headerPattern, fmt::basic_format_args(args.data(), parttenArgSize));
+
+-    if (info.formatToFn) {
+-      info.formatToFn(info.formatString, data, membuf, info.argIdx, args);
+-    }
+-    else { // log once
+-      membuf.append(fmt::string_view(data, end - data));
+-    }
++      size_t bodyPos = membuf.size();
+
+-    if (logCB && info.logLevel >= minCBLogLevel) {
+-      logCB(ts, info.logLevel, info.getLocation(), info.basePos, threadName,
+-            fmt::string_view(membuf.data() + headerPos, membuf.size() - headerPos), bodyPos - headerPos,
+-            fpos + headerPos);
++      if (info.formatToFn) {
++        info.formatToFn(info.formatString, data, membuf, info.argIdx, args);
++      }
++      else { // log once
++        membuf.append(fmt::string_view(data, end - data));
++      }
++
++      if (logCB && info.logLevel >= minCBLogLevel) {
++        logCB(ts, info.logLevel, info.getLocation(), info.basePos, threadName,
++              fmt::string_view(membuf.data() + headerPos, membuf.size() - headerPos), bodyPos - headerPos,
++              fpos + headerPos);
++      }
++      membuf.push_back('\n');
++      if (membuf.size() >= flushBufSize || info.logLevel >= flushLogLevel) {
++        flushLogFile();
++      }
+     }
+-    membuf.push_back('\n');
+-    if (membuf.size() >= flushBufSize || info.logLevel >= flushLogLevel) {
+-      flushLogFile();
++    catch (...) {
++      fmt::print("Caught exception in fmtlog at {} with format string {}\n", info.location, info.formatString);
++      ::exit(1);
+     }
+   }
+
+@@ -526,7 +538,11 @@ typename fmtlogT<_>::SPSCVarQueueOPT::MsgHeader* fmtlogT<_>::allocMsg(uint32_t s
+   auto& d = fmtlogDetailWrapper<>::impl;
+   if (threadBuffer == nullptr) preallocate();
+   auto ret = threadBuffer->varq.alloc(size);
+-  if ((ret == nullptr) & q_full_cb) d.logQFullCB(d.logQFullCBArg);
++  if ((ret == nullptr) & q_full_cb)
++  {
++    d.logQFullCB(d.logQFullCBArg);
++    threadBuffer->logQFullCount++;
++  }
+   return ret;
+ }
+
+diff --git a/fmtlog.h b/fmtlog.h
+index 566b34f..cd5ef19 100644
+--- a/fmtlog.h
++++ b/fmtlog.h
+@@ -46,19 +46,24 @@ SOFTWARE.
+ #define FMTLOG_BLOCK 0
+ #endif
+
+-#define FMTLOG_LEVEL_DBG 0
+-#define FMTLOG_LEVEL_INF 1
+-#define FMTLOG_LEVEL_WRN 2
+-#define FMTLOG_LEVEL_ERR 3
+-#define FMTLOG_LEVEL_OFF 4
++// Log levels: VERBOSE, DEBUG, INFO, WARNING, CONSOLE, ERROR, FATAL, OFF
++#define FMTLOG_LEVEL_VEB 0
++#define FMTLOG_LEVEL_DBG 1
++#define FMTLOG_LEVEL_INF 2
++#define FMTLOG_LEVEL_WRN 3
++#define FMTLOG_LEVEL_CON 4
++#define FMTLOG_LEVEL_ERR 5
++#define FMTLOG_LEVEL_FAT 6
++#define FMTLOG_LEVEL_OFF 7
++
+
+ // define FMTLOG_ACTIVE_LEVEL to turn off low log level in compile time
+ #ifndef FMTLOG_ACTIVE_LEVEL
+-#define FMTLOG_ACTIVE_LEVEL FMTLOG_LEVEL_DBG
++#define FMTLOG_ACTIVE_LEVEL FMTLOG_LEVEL_VEB
+ #endif
+
+ #ifndef FMTLOG_QUEUE_SIZE
+-#define FMTLOG_QUEUE_SIZE (1 << 20)
++#define FMTLOG_QUEUE_SIZE (1 << 24)
+ #endif
+
+ namespace fmtlogdetail {
+@@ -94,10 +99,13 @@ class fmtlogT
+ public:
+   enum LogLevel : uint8_t
+   {
+-    DBG = 0,
++    VEB = 0,
++    DBG,
+     INF,
+     WRN,
++    CON,
+     ERR,
++    FAT,
+     OFF
+   };
+
+@@ -181,6 +189,7 @@ public:
+
+       uint32_t size;
+       uint32_t logId;
++      size_t logQFullCount;
+     };
+     static constexpr uint32_t BLK_CNT = FMTLOG_QUEUE_SIZE / sizeof(MsgHeader);
+
+@@ -243,6 +252,7 @@ public:
+     bool shouldDeallocate = false;
+     char name[32];
+     size_t nameSize;
++    size_t logQFullCount = 0;
+   };
+
+   // https://github.com/MengRao/tscns
+@@ -391,7 +401,7 @@ public:
+   TSCNS tscns;
+
+   volatile LogLevel currentLogLevel;
+-  static FAST_THREAD_LOCAL ThreadBuffer* threadBuffer;
++  __attribute__((visibility("default"))) static FAST_THREAD_LOCAL ThreadBuffer* threadBuffer;
+
+   template<typename Arg>
+   static inline constexpr bool isNamedArg() {
+@@ -614,57 +624,59 @@ public:
+     constexpr size_t num_named_args = fmt::detail::count<isNamedArg<Args>()...>();
+     if constexpr (num_named_args == 0) {
+       return in;
+-    }
+-    const char* begin = in.data();
+-    const char* p = begin;
+-    std::unique_ptr<char[]> unnamed_str(new char[in.size() + 1 + num_named_args * 5]);
+-    fmt::detail::named_arg_info<char> named_args[std::max(num_named_args, (size_t)1)];
+-    storeNamedArgs<0, 0>(named_args, args...);
+-
+-    char* out = (char*)unnamed_str.get();
+-    uint8_t arg_idx = 0;
+-    while (true) {
+-      auto c = *p++;
+-      if (!c) {
+-        size_t copy_size = p - begin - 1;
++    } else {
++      static_assert(num_named_args, "num_named_args must be greater than zero");
++      const char* begin = in.data();
++      const char* p = begin;
++      std::unique_ptr<char[]> unnamed_str(new char[in.size() + 1 + num_named_args * 5]);
++      fmt::detail::named_arg_info<char> named_args[std::max(num_named_args, (size_t)1)];
++      storeNamedArgs<0, 0>(named_args, args...);
++
++      char* out = (char*)unnamed_str.get();
++      uint8_t arg_idx = 0;
++      while (true) {
++        auto c = *p++;
++        if (!c) {
++          size_t copy_size = p - begin - 1;
++          memcpy(out, begin, copy_size);
++          out += copy_size;
++          break;
++        }
++        if (c != '{') continue;
++        size_t copy_size = p - begin;
+         memcpy(out, begin, copy_size);
+         out += copy_size;
+-        break;
+-      }
+-      if (c != '{') continue;
+-      size_t copy_size = p - begin;
+-      memcpy(out, begin, copy_size);
+-      out += copy_size;
+-      begin = p;
+-      c = *p++;
+-      if (!c) fmt::detail::throw_format_error("invalid format string");
+-      if (fmt::detail::is_name_start(c)) {
+-        while ((fmt::detail::is_name_start(c = *p) || ('0' <= c && c <= '9'))) {
+-          ++p;
+-        }
+-        fmt::string_view name(begin, p - begin);
+-        int id = -1;
+-        for (size_t i = 0; i < num_named_args; ++i) {
+-          if (named_args[i].name == name) {
+-            id = named_args[i].id;
+-            break;
++        begin = p;
++        c = *p++;
++        if (!c) fmt::detail::throw_format_error("invalid format string");
++        if (fmt::detail::is_name_start(c)) {
++          while ((fmt::detail::is_name_start(c = *p) || ('0' <= c && c <= '9'))) {
++            ++p;
++          }
++          fmt::string_view name(begin, p - begin);
++          int id = -1;
++          for (size_t i = 0; i < num_named_args; ++i) {
++            if (named_args[i].name == name) {
++              id = named_args[i].id;
++              break;
++            }
++          }
++          if (id < 0) fmt::detail::throw_format_error("invalid format string");
++          if constexpr (Reorder) {
++            reorderIdx[id] = arg_idx++;
++          }
++          else {
++            out = fmt::format_to(out, "{}", id);
+           }
+-        }
+-        if (id < 0) fmt::detail::throw_format_error("invalid format string");
+-        if constexpr (Reorder) {
+-          reorderIdx[id] = arg_idx++;
+         }
+         else {
+-          out = fmt::format_to(out, "{}", id);
++          *out++ = c;
+         }
++        begin = p;
+       }
+-      else {
+-        *out++ = c;
+-      }
+-      begin = p;
++      const char* ptr = unnamed_str.release();
++      return fmt::string_view(ptr, out - ptr);
+     }
+-    const char* ptr = unnamed_str.release();
+-    return fmt::string_view(ptr, out - ptr);
+   }
+
+ public:
+@@ -684,6 +696,7 @@ public:
+     do {
+       if (auto header = allocMsg(alloc_size, q_full_cb)) {
+         header->logId = logId;
++        header->logQFullCount = threadBuffer->logQFullCount;
+         char* out = (char*)(header + 1);
+         *(int64_t*)out = tsc;
+         out += 8;
+@@ -706,6 +719,7 @@ public:
+     do {
+       if (auto header = allocMsg(alloc_size, q_full_cb)) {
+         header->logId = (uint32_t)level;
++        header->logQFullCount = threadBuffer->logQFullCount;
+         char* out = (char*)(header + 1);
+         *(int64_t*)out = tscns.rdtsc();
+         out += 8;
+@@ -781,6 +795,17 @@ inline bool fmtlogT<_>::checkLogLevel(LogLevel logLevel) noexcept {
+     fmtlogWrapper<>::impl.logOnce(__FMTLOG_LOCATION, level, format, ##__VA_ARGS__);                \
+   } while (0)
+
++
++#if FMTLOG_ACTIVE_LEVEL <= FMTLOG_LEVEL_VEB
++#define logv(format, ...) FMTLOG(fmtlog::VEB, format, ##__VA_ARGS__)
++#define logvo(format, ...) FMTLOG_ONCE(fmtlog::VEB, format, ##__VA_ARGS__)
++#define logvl(min_interval, format, ...) FMTLOG_LIMIT(min_interval, fmtlog::VEB, format, ##__VA_ARGS__)
++#else
++#define logv(format, ...) (void)0
++#define logvo(format, ...) (void)0
++#define logvl(min_interval, format, ...) (void)0
++#endif
++
+ #if FMTLOG_ACTIVE_LEVEL <= FMTLOG_LEVEL_DBG
+ #define logd(format, ...) FMTLOG(fmtlog::DBG, format, ##__VA_ARGS__)
+ #define logdo(format, ...) FMTLOG_ONCE(fmtlog::DBG, format, ##__VA_ARGS__)
+@@ -811,6 +836,16 @@ inline bool fmtlogT<_>::checkLogLevel(LogLevel logLevel) noexcept {
+ #define logwl(min_interval, format, ...) (void)0
+ #endif
+
++#if FMTLOG_ACTIVE_LEVEL <= FMTLOG_LEVEL_CON
++#define logc(format, ...) FMTLOG(fmtlog::CON, format, ##__VA_ARGS__)
++#define logco(format, ...) FMTLOG_ONCE(fmtlog::CON, format, ##__VA_ARGS__)
++#define logcl(min_interval, format, ...) FMTLOG_LIMIT(min_interval, fmtlog::CON, format, ##__VA_ARGS__)
++#else
++#define logc(format, ...) (void)0
++#define logco(format, ...) (void)0
++#define logcl(min_interval, format, ...) (void)0
++#endif
++
+ #if FMTLOG_ACTIVE_LEVEL <= FMTLOG_LEVEL_ERR
+ #define loge(format, ...) FMTLOG(fmtlog::ERR, format, ##__VA_ARGS__)
+ #define logeo(format, ...) FMTLOG_ONCE(fmtlog::ERR, format, ##__VA_ARGS__)
+@@ -821,6 +856,17 @@ inline bool fmtlogT<_>::checkLogLevel(LogLevel logLevel) noexcept {
+ #define logel(min_interval, format, ...) (void)0
+ #endif
+
++#if FMTLOG_ACTIVE_LEVEL <= FMTLOG_LEVEL_FAT
++// logf is a math function, use log_f instead of logf to avoid name conflicting
++#define log_f(format, ...) FMTLOG(fmtlog::FAT, format, ##__VA_ARGS__)
++#define log_fo(format, ...) FMTLOG_ONCE(fmtlog::FAT, format, ##__VA_ARGS__)
++#define log_fl(min_interval, format, ...) FMTLOG_LIMIT(min_interval, fmtlog::FAT, format, ##__VA_ARGS__)
++#else
++#define log_f(format, ...) (void)0
++#define log_fo(format, ...) (void)0
++#define log_fl(min_interval, format, ...) (void)0
++#endif
++
+ #ifdef FMTLOG_HEADER_ONLY
+ #include "fmtlog-inl.h"
+ #endif
+diff --git a/test/log_test.cc b/test/log_test.cc
+index 6729c6e..ffa19b4 100644
+--- a/test/log_test.cc
++++ b/test/log_test.cc
+@@ -40,7 +40,7 @@ int main() {
+
+   logd("This message wont be logged since it is lower "
+        "than the current log level.");
+-  fmtlog::setLogLevel(fmtlog::DBG);
++  fmtlog::setLogLevel(fmtlog::VEB);
+   logd("Now debug msg is shown");
+
+   fmtlog::poll();

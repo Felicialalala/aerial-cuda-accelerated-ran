@@ -1,0 +1,99 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 1.0, ul: 0.0, ssb: 0.0, pdcch: 1.0, pdsch: 0.0, csirs: 0.0, prach: 0.0,
+  pucch: 0.0, pusch: 0.0, srs: 0.0}
+carrier:
+  N_ID_CELL: 41.0
+  Nant_gNB: 4.0
+  Nant_UE: 4.0
+pdcch:
+- dciUL: 1
+  BWPSize: 273.0
+  BWPStart: 0.0
+  StartSymbolIndex: 0.0
+  DurationSymbols: 1.0
+  coresetIdx: 1.0
+  coresetMap: [0, 0, 0, 0, 0, 0, 0, 0,
+               0, 1, 1]
+  CceRegMappingType: 0.0
+  RegBundleSize: 6.0
+  InterleaverSize: 0.0
+  ShiftIndex: 0.0
+  precoderGranularity: 0.0
+  numDlDci: 1.0
+  DCI:
+  - RNTI: 20000.0
+    ScramblingId: 41.0
+    ScramblingRNTI: 0.0
+    AggregationLevel: 2.0
+    PayloadSizeBits: 39.0
+    seed: 0.0
+    Payload: []
+pdsch:
+- BWPSize: 48.0
+  BWPStart: 108.0
+  RNTI: 20000.0
+  NrOfCodewords: 1.0
+  mcsIndex: 5.0
+  mcsTable: 0.0
+  rvIndex: 0.0
+  dataScramblingId: 41.0
+  nrOfLayers: 1.0
+  transmissionScheme: 0.0
+  refPoint: 0.0
+  DmrsSymbPos: [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  dmrsConfigType: 0.0
+  DmrsScramblingId: 41.0
+  SCID: 0.0
+  numDmrsCdmGrpsNoData: 2.0
+  resourceAlloc: 1.0
+  rbStart: 0.0
+  rbSize: 48.0
+  VRBtoPRBMapping: 0.0
+  StartSymbolIndex: 2.0
+  NrOfSymbols: 5.0
+  prcdBf: 0
+  IsLastCbPresent: 0.0
+  isInlineTbCrc: 0.0
+  dlTbCrc: 0.0
+  seed: 1.0
+  payload: [0,0,1,1,1,1,1,0,
+            0,0,0,0,1,1,1,1,
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,1,1,0,
+            0,0,1,1,1,1,1,1]
+  idxUE: 1.0
+SimCtrl:
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 0.0
+  plotFigure:
+    tfGrid: 1.0
+  genTV:
+    enable: 1.0
+    enableUE: 0.0
+    tvDirName: GPU_test_input
+    cuPHY: 1.0
+    FAPI: 1.0
+    FAPIyaml: 0.0
+    slotIdx: 7.0
+    bypassComp: 0.0
+    idx: 0.0
+    TVname: []
+  results: []

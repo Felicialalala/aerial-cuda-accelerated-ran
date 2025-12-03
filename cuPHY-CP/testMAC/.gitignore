@@ -1,0 +1,4 @@
+.*
+*.bak
+build
+scripts/__pycache__

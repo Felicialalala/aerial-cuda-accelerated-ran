@@ -1,0 +1,23 @@
+  <interfaces xmlns="urn:ietf:params:xml:ns:yang:ietf-interfaces">
+    <interface>
+      <name>test_if</name>
+      <vlan-tagging xmlns="urn:o-ran:interfaces:1.0">true</vlan-tagging>
+      <class-of-service xmlns="urn:o-ran:interfaces:1.0">
+        <u-plane-marking>7</u-plane-marking>
+      </class-of-service>
+    </interface>
+  </interfaces>
+  <processing-elements xmlns="urn:o-ran:processing-element:1.0">
+    <maximum-number-of-transport-flows>4094</maximum-number-of-transport-flows>
+    <transport-session-type>ETH-INTERFACE</transport-session-type>
+    <ru-elements>
+      <name>rue</name>
+      <transport-flow>
+	      <interface-name>test_if</interface-name>
+        <eth-flow>
+          <ru-mac-address>26:04:9D:9E:29:B3</ru-mac-address>
+          <vlan-id>2</vlan-id>
+        </eth-flow>
+      </transport-flow>
+    </ru-elements>
+  </processing-elements>

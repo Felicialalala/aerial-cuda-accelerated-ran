@@ -1,0 +1,63 @@
+{
+    "sequence": [
+        "dl_SSB0",
+        "dl_SSB1",
+        "dl_SSB2",
+        "dl_noSSB",
+        "ul_noPRACH",
+        "ul_PRACH",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "ul_noPRACH",
+        "ul_noPRACH",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB",
+        "dl_noSSB"
+    ],
+    "types": {
+        "dl_SSB0": {
+            "pdcch": [[0, 1, 0, 36],
+                      [0, 1, 36, 72]], 
+            "ssb":   [[2, 6, 0, 20], 
+                      [8, 12, 0, 20]],
+            "pdsch": [[1, 14, 20, 272]],
+            "//comment": "272 = 20+42*6"
+        },
+        "dl_SSB1": {
+            "pdcch": [[0, 1, 0, 36],
+                      [0, 1, 36, 72]], 
+            "ssb":   [[8, 12, 0, 20]],
+            "pdsch": [[1, 14, 20, 272]],
+            "//comment": "272 = 20+42*6"
+        },
+        "dl_SSB2": {
+            "pdcch": [[0, 1, 0, 36],
+                      [0, 1, 36, 72]], 
+            "ssb":   [[2, 6, 0, 20]],
+            "pdsch": [[1, 14, 20, 272]],
+            "//comment": "272 = 20+42*6"
+        },
+        "dl_noSSB": {
+            "pdcch": [[0, 1, 0, 36],
+                      [0, 1, 36, 72]],
+            "pdsch": [[1, 14, 0, 270]]
+        },
+        "ul_PRACH": {
+            "pucch":[[3,12,0,1]],            
+            "pusch": [[0, 14, 1, 223]],
+            "//comment": "1+37*6",
+            "prach":[[0,12,225,273]]
+        },
+        "ul_noPRACH": {
+            "pucch":[[3,12,0,1]],
+            "pusch": [[0, 14, 1, 271]]
+        }
+    }
+}

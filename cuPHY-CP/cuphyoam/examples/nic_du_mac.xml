@@ -1,0 +1,13 @@
+  <processing-elements xmlns="urn:o-ran:processing-element:1.0">
+    <maximum-number-of-transport-flows>4094</maximum-number-of-transport-flows>
+    <transport-session-type>ETH-INTERFACE</transport-session-type>
+    <ru-elements>
+      <name>rue</name>
+      <transport-flow>
+	      <interface-name>test_if</interface-name>
+        <eth-flow>
+          <o-du-mac-address>48:b0:2d:a6:28:5a</o-du-mac-address>
+        </eth-flow>
+      </transport-flow>
+    </ru-elements>
+  </processing-elements>

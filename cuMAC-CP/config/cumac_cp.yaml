@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# cuMAC-CP configuration file
+---
+
+# log file name
+log_name: cumac_cp.log
+
+oam_server_addr: 0.0.0.0:50060
+
+# CPU core shared by all low-priority threads
+low_priority_core: 19
+
+# Config dedicated yaml file for nvipc. Example: nvipc_multi_instances.yaml
+nvipc_config_file: null
+nvipc_config_file_path: ../../cuMAC-CP/config/
+
+recv_thread_config:
+  name: cumac_cp_recv
+  cpu_affinity: 25
+  sched_priority: 95
+
+# cuMAC task worker cores
+worker_cores: [31, 32, 33, 34]
+
+thread_num_per_core: 1
+
+# Run in CPU, for debug only
+run_in_cpu: 0
+
+# The GPU ID to be used in GPU mode
+gpu_id: 0
+
+# CUDA block number
+cuda_block_num: 512
+
+# Performance tuning parameters
+group_buffer_enable: 1
+multi_stream_enable: 1
+slot_concurrent_enable: 0
+
+# Set bits to debug
+# b0 - Enable printing cuMAC buffer
+# b1 - Enable printing NVIPC buffer
+# b2 - Enable comparing with cell group TV
+debug_option: 0x0
+
+# Total cell number
+cell_num: 8
+
+# CUDA task ring length, each ring buffer will be pre-allocated with CUDA buffers
+task_ring_len: 10
+
+# For debug only: the group TV for verify group buffers. Example: TV_cumac_F08-MC-CC-8PC_DL.h5
+cumac_group_tv_file: null
+
+# Transport settings for nvIPC
+transport:
+  type: shm
+  udp_config:
+    local_port: 38556
+    remort_port: 38555
+  shm_config:
+    primary: 0
+    prefix: cumac
+    cuda_device_id: 0
+    ring_len: 8192
+    mempool_size:
+      cpu_msg:
+        buf_size: 8192
+        pool_len: 4096
+      cpu_data:
+        buf_size: 4096000
+        pool_len: 512
+      cuda_data:
+        buf_size: 307200
+        pool_len: 0
+      gpu_data:
+        buf_size: 576000
+        pool_len: 0
+
+...

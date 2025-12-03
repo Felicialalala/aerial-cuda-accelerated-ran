@@ -1,0 +1,40 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+#This container exists to build nvIPC for ancient build environments that don't support c++17. From cuPHY-CP/gt_common_libs: 
+#./pack_nvipc.sh && docker build --rm --build-arg folder="nvipc_src.$(date -u +%Y.%m.%d)" -t mav -f nvIPC/tests/docker/Dockerfile.gcc.5.4 .
+# Should result in a successful build. If it doesn't then there is something wrong in the code
+FROM "ubuntu:16.04"
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt update
+RUN apt install pkg-config libpcap-dev  libnuma-dev libcunit1-dev vim-tiny -y
+RUN apt-get install apt-transport-https ca-certificates gnupg \
+                         software-properties-common wget -y
+RUN apt-add-repository 'deb https://apt.kitware.com/ubuntu/ xenial main'
+RUN wget -qO - https://apt.kitware.com/keys/kitware-archive-latest.asc | apt-key add -
+RUN apt-get update
+RUN apt-get install cmake -y
+
+
+ARG folder
+ENV src_folder=$folder
+
+COPY $src_folder /$src_folder/
+WORKDIR /$src_folder/build
+RUN ls -la /$src_folder
+RUN ls -l && ls .. && cmake .. -DBUILD_NVIPC_ONLY=ON -DNVIPC_DOCA_ENABLE=OFF  -DNVIPC_CUDA_ENABLE=OFF && make -j && cd .. # pass
+

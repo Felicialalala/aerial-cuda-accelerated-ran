@@ -1,0 +1,96 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+SCHED:
+- config:
+  - cell_index: 0.0
+    channels: [cfg_dl_s0.yaml]
+  slot: 0.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_dl_s1.yaml, cfg_ul_s1.yaml]
+  slot: 1.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_ul_s2.yaml]
+  slot: 2.0
+- config:
+  - cell_index: 0.0
+    channels: [ul_harq2_tx0.yaml]
+  slot: 3.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_ul_s4.yaml]
+  slot: 4.0
+- config:
+  - cell_index: 0.0
+    channels: [ul_harq2_tx1.yaml]
+  slot: 5.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 6.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 7.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 8.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 9.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 10.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 11.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 12.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 13.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 14.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 15.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 16.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 17.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 18.0
+- config:
+  - cell_index: 0.0
+    channels: []
+  slot: 19.0

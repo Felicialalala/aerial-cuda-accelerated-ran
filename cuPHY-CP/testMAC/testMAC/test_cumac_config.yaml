@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# TestCUMAC configuration file
+---
+
+recv_thread_config:
+  name: cumac_recv
+  cpu_affinity: 43
+  sched_priority: 95
+
+sched_thread_config:
+  name: cumac_sched
+  cpu_affinity: 39
+  sched_priority: 96
+
+builder_thread_config:
+  name: cumac_builder
+  cpu_affinity: 39
+  sched_priority: 95
+
+# Worker thread cores, can be used for both outgoing message building and incoming message handling
+worker_cores: [26, 27, 28, 29]
+
+# Run test_mac + cumac_cp only without depending on L1
+cumac_cp_standalone: 0
+
+# Set bits to debug
+# b0 - Enable printing SCH_TTI.req buffer
+# b1 - Enable printing SCH_TTI.resp buffer
+debug_option: 0x2
+
+# Enable FAPI builder thread
+builder_thread_enable: 0
+
+# Schedule total time for CUMAC (unit: ns). Set 0 to disable this feature.
+schedule_total_time: 0
+
+# CUMAC task bitmask:
+# b0 - multiCellUeSelection;
+# b1 - multiCellScheduler;
+# b2 - multiCellLayerSel;
+# b3 - mcsSelectionLUT;
+# b4 - pfmSort;
+task_bitmask: 0x1
+
+# FAPI TB data location option. See enum dl_tb_loc in nv_phy_module.hpp
+# 0 - CPU_MSG buffer; 1 - CPU_DATA buffer; 2 - CUDA_DATA buffer
+fapi_tb_loc: 1
+
+cumac_cell_num: 8
+
+# Total slot number in cuMAC-CP test
+cumac_test_slots: 0
+
+# CUMAC response message validating
+# validate_enable: 0 - disabled; 1 - report error level; 2 - report error and warning levels
+validate_enable: 2
+# validate_log_opt: 0 - no print; 1 - print per MSG; 2 - print per PDU; 3 - force print all
+validate_log_opt: 1
+
+# Transport settings for nvIPC
+transport:
+  type: shm
+  shm_config:
+    prefix: cumac
+
+...

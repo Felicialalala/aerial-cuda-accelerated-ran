@@ -1,0 +1,15 @@
+build==1.2.2.post1
+clickhouse-connect==0.8.17
+cuda-python==12.9.0
+cupy-cuda12x==13.4.1
+flake8==7.2.0
+ipympl==0.9.7
+jupyter==1.1.1
+nbconvert==7.16.6
+onnx==1.17.0
+polygraphy==0.49.24
+pylint==3.3.7
+pytest-mock==3.14.1
+sshtunnel==0.4.0
+tf2onnx==1.16.1
+tqdm==4.67.1

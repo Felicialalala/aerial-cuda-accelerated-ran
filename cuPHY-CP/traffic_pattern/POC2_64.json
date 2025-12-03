@@ -1,0 +1,228 @@
+{
+  "sequence": [
+    "dl_SSB0",
+    "dl_SSB0",
+    "dl_SSB0",
+    "special_slot1",
+    "ul_noPRACH",
+    "ul_4PRACH",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB",
+    "special_slot2",
+    "ul_noPRACH",
+    "ul_3PRACH",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "special_slot2",
+    "ul_noPRACH",
+    "ul_4PRACH",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB",
+    "special_slot2",
+    "ul_noPRACH",
+    "ul_3PRACH",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_SSB0",
+    "dl_SSB0",
+    "dl_SSB0",
+    "special_slot1",
+    "ul_noPRACH",
+    "ul_4PRACH",
+    "dl_noSSB_TRS_CSIRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB",
+    "special_slot2",
+    "ul_noPRACH",
+    "ul_3PRACH",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "special_slot2",
+    "ul_noPRACH",
+    "ul_4PRACH",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB_TRS",
+    "dl_noSSB",
+    "special_slot2",
+    "ul_noPRACH",
+    "ul_3PRACH",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB",
+    "dl_noSSB"
+  ],
+  "types": {
+    "dl_SSB0": {
+      "pdcch": [
+        [0, 2, 0, 96],
+        [0, 2, 0, 96]],
+      "ssb": [
+        [2, 6, 0, 20],
+        [8, 12, 0, 20]],
+      "pdsch": [
+        [2, 14, 20, 41],
+        [2, 14, 41, 60],
+        [2, 14, 60, 79],
+        [2, 14, 79, 98],
+        [2, 14, 98, 117],
+        [2, 14, 117, 126],
+        [2, 14, 126, 135]
+      ]
+    },
+    "special_slot1": {
+      "pdcch": [
+        [0, 2, 0, 96],
+        [0, 2, 0, 96]],
+      "ssb": [
+        [2, 6, 0, 20]],
+      "srs": [
+        [10, 14, 0, 272]
+      ]
+    },
+    "dl_noSSB": {
+      "pdcch": [
+        [0, 2, 0, 96],
+        [0, 2, 0, 96]],
+      "pdsch": [
+        [2, 14, 0, 24],
+        [2, 14, 24, 46],
+        [2, 14, 46, 68],
+        [2, 14, 68, 90],
+        [2, 14, 90, 112],
+        [2, 14, 112, 124],
+        [2, 14, 124, 136]]
+    },
+    "special_slot2": {
+      "pdcch": [
+        [0, 2, 0, 96],
+        [0, 2, 0, 96]],
+      "srs": [
+        [10, 14, 0, 272]
+      ]
+    },
+    "dl_noSSB_TRS_CSIRS": {
+      "pdcch": [
+        [0, 2, 0, 96],
+        [0, 2, 0, 96]],
+      "pdsch": [
+        [2, 14, 0, 24],
+        [2, 14, 24, 46],
+        [2, 14, 46, 68],
+        [2, 14, 68, 90],
+        [2, 14, 90, 112],
+        [2, 14, 112, 124],
+        [2, 14, 124, 136]],
+      "csirs_flex_0": [
+        [6, 7, 0, 273],
+        [10, 11, 0, 273],
+        [12, 13, 0, 273]],
+      "csirs_flex_1": [
+        [5, 6, 0, 273],
+        [9, 10, 0, 273],
+        [13, 14, 0, 273]]
+    },
+    "dl_noSSB_TRS": {
+      "pdcch": [
+        [0, 2, 0, 96],
+        [0, 2, 0, 96]],
+      "pdsch": [
+        [2, 14, 0, 24],
+        [2, 14, 24, 46],
+        [2, 14, 46, 68],
+        [2, 14, 68, 90],
+        [2, 14, 90, 112],
+        [2, 14, 112, 124],
+        [2, 14, 124, 136]],
+      "csirs_flex_0": [
+        [6, 7, 0, 273],
+        [10, 11, 0, 273]],
+      "csirs_flex_1": [
+        [5, 6, 0, 273],
+        [9, 10, 0, 273]]
+    },
+    "ul_4PRACH": {
+      "pucch": [
+        [0, 14, 0, 1],
+        [0, 14, 1, 2],
+        [0, 14, 2, 3],
+        [0, 14, 3, 4]],
+      "pusch": [
+        [0, 14, 4, 20],
+        [0, 14, 20, 34],
+        [0, 14, 34, 48],
+        [0, 14, 48, 62],
+        [0, 14, 62, 76],
+        [0, 14, 76, 82],
+        [0, 14, 82, 88]],
+      "prach": [
+        [0, 12, 88, 100],
+        [0, 12, 100, 112],
+        [0, 12, 112, 124],
+        [0, 12, 124, 136]]
+    },
+    "ul_3PRACH": {
+      "pucch": [
+        [0, 14, 0, 1],
+        [0, 14, 1, 2],
+        [0, 14, 2, 3],
+        [0, 14, 3, 4]],
+      "pusch":  [
+        [0, 14, 4, 22],
+        [0, 14, 22, 38],
+        [0, 14, 38, 54],
+        [0, 14, 54, 70],
+        [0, 14, 70, 86],
+        [0, 14, 86, 92],
+        [0, 14, 92, 98]],
+      "prach": [
+        [0, 12, 100, 112],
+        [0, 12, 112, 124],
+        [0, 12, 124, 136]]
+    },
+    "ul_noPRACH": {
+      "pucch": [
+        [0, 14, 0, 1],
+        [0, 14, 1, 2],
+        [0, 14, 2, 3],
+        [0, 14, 3, 4]],
+      "pusch": [
+        [0, 14, 4, 27],
+        [0, 14, 27, 48],
+        [0, 14, 48, 69],
+        [0, 14, 69, 90],
+        [0, 14, 90, 111],
+        [0, 14, 111, 122],
+        [0, 14, 122, 133]]
+    }
+  }
+}

@@ -1,0 +1,4 @@
+launch_pattern_F08_20C_59c.yaml
+launch_pattern_nrSim_90601.yaml
+launch_pattern_nrSim_3337.yaml
+launch_pattern_nrSim_3338.yaml

@@ -1,0 +1,23 @@
+# Ignore everything
+*
+
+# Allow files and directories
+!.git
+!.gitattributes
+!.gitmodules
+!aerial-sdk-version
+!build*
+!5GModel
+!cmake
+!cubb_scripts
+!cuMAC
+!cuMAC-CP
+!cuPHY
+!cuPHY-CP
+!pyaerial
+!testBenches
+!testVectors
+!CMakeLists.txt
+!CMakePresets.json
+!README.md
+!LICENSE.txt

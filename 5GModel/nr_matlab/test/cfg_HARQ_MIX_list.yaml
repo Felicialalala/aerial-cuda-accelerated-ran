@@ -1,0 +1,176 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+SCHED:
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s0.yaml]
+  slot: 0.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s1.yaml]
+  slot: 1.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s2.yaml]
+  slot: 2.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s3.yaml, cfg_HARQ_DLMIX_s3.yaml]
+  slot: 3.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s4.yaml]
+  slot: 4.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s5.yaml]
+  slot: 5.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s6.yaml]
+  slot: 6.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s7.yaml]
+  slot: 7.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s8.yaml]
+  slot: 8.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s9.yaml]
+  slot: 9.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s10.yaml]
+  slot: 10.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s11.yaml]
+  slot: 11.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s12.yaml]
+  slot: 12.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s13.yaml, cfg_HARQ_DLMIX_s13.yaml]
+  slot: 13.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s14.yaml]
+  slot: 14.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s15.yaml]
+  slot: 15.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s16.yaml]
+  slot: 16.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s17.yaml]
+  slot: 17.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s18.yaml]
+  slot: 18.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s19.yaml]
+  slot: 19.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s20.yaml]
+  slot: 20.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s21.yaml]
+  slot: 21.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s22.yaml]
+  slot: 22.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s23.yaml, cfg_HARQ_DLMIX_s23.yaml]
+  slot: 23.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s24.yaml]
+  slot: 24.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s25.yaml]
+  slot: 25.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s26.yaml]
+  slot: 26.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s27.yaml]
+  slot: 27.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s28.yaml]
+  slot: 28.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s29.yaml]
+  slot: 29.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s30.yaml]
+  slot: 30.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s31.yaml]
+  slot: 31.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s32.yaml]
+  slot: 32.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s33.yaml, cfg_HARQ_DLMIX_s33.yaml]
+  slot: 33.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s34.yaml]
+  slot: 34.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_ULMIX_s35.yaml]
+  slot: 35.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s36.yaml]
+  slot: 36.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s37.yaml]
+  slot: 37.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s38.yaml]
+  slot: 38.0
+- config:
+  - cell_index: 0.0
+    channels: [cfg_HARQ_DLMIX_s39.yaml]
+  slot: 39.0

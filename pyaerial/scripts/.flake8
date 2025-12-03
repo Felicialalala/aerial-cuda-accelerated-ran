@@ -1,0 +1,8 @@
+[flake8]
+select = B,C,E,F,W,T4,B9
+max-line-length = 100
+max-complexity = 18
+ignore = W503,W504,E402,E203
+per-file-ignores =
+    __init__.py:F401
+    chest_filters.py:E201,E221,E225,E226,E241

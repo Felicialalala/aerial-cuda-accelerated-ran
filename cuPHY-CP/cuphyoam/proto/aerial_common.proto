@@ -1,0 +1,170 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package aerial;
+
+service Common {
+  rpc WarmUp (GenericRequest) returns (DummyReply) {}
+  rpc TerminateCuphycontroller (GenericRequest) returns (DummyReply) {}
+  rpc GetSFN (GenericRequest) returns (SFNReply) {}
+  rpc GetCpuUtilization (GenericRequest) returns (CpuUtilizationReply) {}
+  rpc SetPuschH5DumpNextCrc (GenericRequest) returns (DummyReply) {}
+  rpc GetFAPIStream (FAPIStreamRequest) returns (stream FAPIStreamReply) {}
+  rpc UpdateCellParamsSyncCall (CellParamUpdateRequest) returns (CellParamUpdateReply) {}
+  rpc UpdateCellParams (CellParamUpdateRequest) returns (DummyReply) {}
+  rpc SendGenericAsyncCmd (GenericAsyncRequest) returns (DummyReply) {}
+  rpc SendCellCtrlCmd (CellCtrlCmdRequest) returns (DummyReply) {}
+  rpc SimulateCPUStall (SimulatedCPUStallRequest) returns (DummyReply) {}
+  rpc SendFapiDelayCmd (FapiDelayCmdRequest) returns (DummyReply) {}
+  rpc SimulateULUPlaneDrop (SimulateULUPlaneDropRequest) returns (DummyReply) {}
+  rpc SendSfnSlotSyncCmd (SfnSlotSyncRequest) returns (DummyReply) {}
+  rpc SendCellUlPcapCmd (PcapRequest) returns (DummyReply) {}
+  rpc SendZeroUplane (ZeroUplaneRequest) returns (DummyReply) {}
+  rpc FlushUlPcap (FlushUlPcapRequest) returns (DummyReply) {}
+}
+
+message GenericRequest {
+  string name = 1;
+}
+
+message SFNReply {
+  int32 sfn = 1;
+  int32 slot = 2;
+}
+
+message DummyReply {
+}
+
+message CellParamUpdateReply
+{
+    Status resp = 1;
+}
+
+message Status
+{
+     enum StatusCode
+     {
+          OK = 0;
+          ERROR_GENERAL = 1;
+     }
+
+     StatusCode status_code = 1;
+     repeated string error_msgs = 2; // Optional: Error information
+}
+
+message GenericAsyncRequest {
+  int32 cmd_id = 1;
+  int32 param_int1 = 2;
+  int32 param_int2 = 3;
+  string param_str = 4;
+}
+
+message CpuUtilizationPerCore {
+  int32 core_id = 1;
+  int32 utilization_x1000 = 2;
+}
+
+message CpuUtilizationReply {
+  repeated CpuUtilizationPerCore core = 1;
+}
+
+message FAPIStreamRequest {
+  int32 client_id = 1;
+  int32 total_msgs_requested = 2;
+}
+
+message FAPIStreamReply {
+  int32 client_id = 1;
+  bytes msg_buf = 2;
+  bytes data_buf = 3;
+}
+
+message IntegerVector {
+  repeated int32 values = 1 [packed=true];
+}
+
+message CellParamUpdateRequest {
+  int32 cell_id = 1;
+
+  bool update_network_cfg = 2;
+  string dst_mac_addr = 3;
+  int32 vlan_tci = 4;
+
+  bool update_cell_attenuation_cfg = 5;
+  float attenuation_db = 6;
+
+  bool multi_attrs_cfg = 7;
+  map<string, double> attrs = 8;
+
+  bool eaxcid_update = 9;
+  map<int32, IntegerVector> ch_eaxcid_map = 10;
+}
+
+message CellCtrlCmdRequest {
+  int32 cell_id = 1;
+  int32 cell_ctrl_cmd = 2;
+  int32 target_cell_id = 3;
+}
+
+message SimulatedCPUStallRequest {
+  int32 thread_id = 1;
+  int32 task_id = 100;
+  int32 usleep_duration = 2;
+}
+
+message FapiDelayCmdRequest {
+  int32 cell_id = 1;
+  int32 slot = 2;
+  int32 fapi_mask = 3;
+  int32 delay_us = 4;
+}
+
+message SimulateULUPlaneDropRequest {
+  int32 cell_id = 1;
+  int32 channel_id = 2;
+  int32 drop_rate = 3;
+  int32 single_drop = 4;
+  int32 drop_slot = 5;
+  int32 frame_id = 6;
+  int32 subframe_id = 7;
+  int32 slot_id = 8;
+}
+
+message SfnSlotSyncRequest {
+  int32 sync_done = 1;
+  uint64 time_anchor = 2;
+}
+
+message PcapRequest {
+  int32 cell_id = 1;
+  int32 cmd = 2;
+  int32 use_cell_mask = 3;
+  uint64 cell_mask = 4;
+}
+
+message ZeroUplaneRequest {
+  int32 cell_id = 1;
+  int32 use_cell_mask = 2;
+  uint64 cell_mask = 3;
+  int32 channel_id = 4;
+}
+
+message FlushUlPcapRequest {
+  int32 cell_id = 1;
+}

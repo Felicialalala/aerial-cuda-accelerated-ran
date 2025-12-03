@@ -1,0 +1,75 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# YAML Format for tick sleep mode test configuration:
+---
+# test_type: 0 - normal; 1 - l2adapter standalone; 2 - tick unit test
+test_type: 2
+
+#gnb_module
+msg_type: scf_5g_fapi
+phy_class: scf_5g_fapi
+
+# tick_generator_mode: 0 - poll + sleep; 1 - sleep; 2 - timer_fd
+tick_generator_mode: 1
+timer_thread_config:
+  name: timer_thread
+  cpu_affinity: 18
+  sched_priority: 95
+message_thread_config:
+  name: msg_processing
+  #core assignment
+  cpu_affinity: 20
+  # thread priority
+  sched_priority: 95
+# Lowest TTI for Ticking
+mu_highest: 1
+slot_advance: 0
+dl_tb_loc: 1
+instances:
+  # PHY 0
+  -
+    name: scf_gnb_configure_module_0_instance_0
+  -
+    name: scf_gnb_configure_module_0_instance_1
+  -
+    name: scf_gnb_configure_module_0_instance_2
+  -
+    name: scf_gnb_configure_module_0_instance_3
+   
+
+# Transport settings for nvIPC
+transport:
+  type: shm
+  shm_config:
+    primary: 1
+    prefix: nvipc
+    cuda_device_id: -1
+    ring_len: 8192
+    mempool_size:
+      cpu_msg:
+        buf_size: 8192
+        pool_len: 4096
+      cpu_data:
+        buf_size: 576000
+        pool_len: 1024
+      cpu_large:
+        buf_size: 4096000
+        pool_len: 64
+      cuda_data:
+        buf_size: 307200
+        pool_len: 0
+...
+

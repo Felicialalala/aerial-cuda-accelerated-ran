@@ -1,0 +1,4 @@
+*.h5 filter=lfs diff=lfs merge=lfs -text
+testVectors/trtEngine/*.h5 filter=lfs diff=lfs merge=lfs -text
+testVectors/trtEngine/*.onnx filter=lfs diff=lfs merge=lfs -text
+testVectors/mlSim/*.h5 filter=lfs diff=lfs merge=lfs -text

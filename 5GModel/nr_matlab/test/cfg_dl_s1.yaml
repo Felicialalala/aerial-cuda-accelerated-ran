@@ -1,0 +1,172 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 1, ul: 0, ssb: 1, pdcch: 1, pdsch: 2, csirs: 0, prach: 0, pucch: 0,
+  pusch: 0, srs: 0, bfw: 0}
+ssb:
+  ssbSubcarrierOffset: 12.0
+  SsbOffsetPointA: 6.0
+  periodFrame: 1.0
+  caseType: case_C
+  n_hf: 0.0
+  prcdBf_vec: [0.0, 0.0, 0.0, 0.0]
+  digBFInterfaces_0: 1.0
+  beamIdx_0: 1.0
+  digBFInterfaces_1: 1.0
+  beamIdx_1: 2.0
+  digBFInterfaces_2: 1.0
+  beamIdx_2: 3.0
+  digBFInterfaces_3: 1.0
+  beamIdx_3: 4.0
+  betaPss: 0.0
+  seed: 0.0
+  mib: [1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 0.0, 1.0,
+    0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0]
+  cfgTx: 1.0
+  symIdxInFrame: [2.0, 8.0, 16.0, 22.0, 30.0, 36.0, 44.0, 50.0]
+  ssbBitMap: [0, 0, 0, 0, 0, 0, 0, 0]
+  idxUE: [0.0 1.0]
+pdcch:
+- BWPSize: 273
+  BWPStart: 0
+  StartSymbolIndex: 0
+  DurationSymbols: 2
+  coresetIdx: 1
+  coresetMap: [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  CceRegMappingType: 0
+  RegBundleSize: 6
+  InterleaverSize: 0
+  ShiftIndex: 0
+  precoderGranularity: 0
+  numDlDci: 1
+  testModel: 1
+  isCSS: 0.0
+  forceCceIndex: 0.0
+  DCI:
+  - RNTI: 0
+    ScramblingId: 41
+    ScramblingRNTI: 0
+    beta_PDCCH_1_0: 8
+    powerControlOffsetSS: 2
+    powerControlOffsetSSProfileNR: 0.0
+    AggregationLevel: 1
+    cceIndex: 0
+    PayloadSizeBits: 39
+    prcdBf: 3
+    digBFInterfaces: 4.0
+    beamIdx: [5.0, 6.0, 7.0, 8.0]
+    seed: 0.0
+    Payload: [1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 0,
+      1, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 0, 1, 1]
+  dciUL: 0.0
+  idxUE: 0
+pdsch:
+- pduBitmap: 0
+  BWPSize: 273
+  BWPStart: 0
+  RNTI: 0
+  NrOfCodewords: 1
+  mcsIndex: 1
+  mcsTable: 1
+  rvIndex: 0
+  dataScramblingId: 1
+  nrOfLayers: 1
+  portIdx: [0]
+  transmissionScheme: 0
+  refPoint: 0
+  DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+  DmrsMappingType: 0.0
+  dmrsConfigType: 0
+  DmrsScramblingId: 1
+  SCID: 0
+  numDmrsCdmGrpsNoData: 1
+  resourceAlloc: 1
+  rbBitmap: [255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    1.0, 0.0]
+  rbStart: 3
+  rbSize: 270
+  VRBtoPRBMapping: 0
+  StartSymbolIndex: 0
+  NrOfSymbols: 14
+  prcdBf: 3
+  digBFInterfaces: 4.0
+  beamIdx: [1.0, 2.0, 3.0, 4.0]
+  powerControlOffset: 8
+  powerControlOffsetSS: 1
+  IsLastCbPresent: 0.0
+  isInlineTbCrc: 0.0
+  dlTbCrc: 0.0
+  testModel: 1
+  I_LBRM: 1.0
+  maxLayers: 4.0
+  maxQm: 8.0
+  n_PRB_LBRM: 273.0
+  Xtf_remap: []
+  seed: 0.0
+  payload: []
+  idxUE: 0
+  idxUeg: 0
+- pduBitmap: 0
+  BWPSize: 273
+  BWPStart: 0
+  RNTI: 2
+  NrOfCodewords: 1
+  mcsIndex: 1
+  mcsTable: 1
+  rvIndex: 0
+  dataScramblingId: 1
+  nrOfLayers: 1
+  portIdx: [0]
+  transmissionScheme: 0
+  refPoint: 0
+  DmrsSymbPos: [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0]
+  DmrsMappingType: 0.0
+  dmrsConfigType: 0
+  DmrsScramblingId: 1
+  SCID: 0
+  numDmrsCdmGrpsNoData: 1
+  resourceAlloc: 1
+  rbBitmap: [255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0, 255.0,
+    1.0, 0.0]
+  rbStart: 0
+  rbSize: 3
+  VRBtoPRBMapping: 0
+  StartSymbolIndex: 2
+  NrOfSymbols: 12
+  prcdBf: 3
+  digBFInterfaces: 4.0
+  beamIdx: [1.0, 2.0, 3.0, 4.0]
+  powerControlOffset: 8
+  powerControlOffsetSS: 1
+  IsLastCbPresent: 0.0
+  isInlineTbCrc: 0.0
+  dlTbCrc: 0.0
+  testModel: 1
+  I_LBRM: 1.0
+  maxLayers: 4.0
+  maxQm: 8.0
+  n_PRB_LBRM: 273.0
+  Xtf_remap: []
+  seed: 0.0
+  payload: []
+  idxUE: 1
+  idxUeg: 1
+SimCtrl:
+  genTV:
+    slotIdx: [1.0]

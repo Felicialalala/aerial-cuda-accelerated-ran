@@ -1,0 +1,45 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 0.0, ul: 1.0, ssb: 0.0, pdcch: 0.0, pdsch: 0.0, csirs: 0.0, prach: 1.0,
+  pucch: 0.0, pusch: 0.0, srs: 0.0}
+carrier:
+  duplex: 1.0
+  N_ID_CELL: 41.0
+  Nant_gNB: 4.0
+  Nant_UE: 4.0
+prach:
+- {configurationIndex: 158.0, restrictedSet: 0.0, rootSequenceIndex: 137.0, zeroCorrelationZone: 5.0,
+  n_RA_start: 0.0, msg1_FDM: 1.0, N_nc: 1.0, prmbIdx: 10.0, ssbIdx: 0.0, betaPrach: 1.0,
+  idxUE: 0.0}
+SimCtrl:
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 0.0
+  oranComp: {iqWidth: 9, Ref_c: 0, FSOffset: 0, Nre_max: 3276}
+  capSamp:
+    isComp: 1
+  genTV:
+    enable: 0.0
+    enableUE: 0.0
+    tvDirName: GPU_test_input
+    cuPHY: 1.0
+    FAPI: 1.0
+    FAPIyaml: 1.0
+    slotIdx: 15.0
+    bypassComp: 0.0
+    idx: 0.0
+    TVname: []
+  results: []

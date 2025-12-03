@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+testAlloc: {dl: 0.0, ul: 1.0, ssb: 0.0, pdcch: 0.0, pdsch: 0.0, csirs: 0.0, prach: 0.0,
+  pucch: 1.0, pusch: 0.0, srs: 0.0}
+carrier:
+  N_ID_CELL: 41.0
+  Nant_gNB: 4.
+  Nant_UE: 4.
+pucch:
+- {BWPSize: 273.0, BWPStart: 0.0, RNTI: 46.0, FormatType: 1.0, multiSlotTxIndicator: 0.0,
+  pi2Bpsk: 0.0, maxCodeRate: 0.0, prbStart: 1.0, prbSize: 1.0, startSym: 10.0, nSym: 4.0,
+  freqHopFlag: 0.0, secondHopPRB: 0.0, groupHopFlag: 0.0, sequenceHopFlag: 0.0,
+  hoppingId: 0.0, cs0: 2.0, tOCCidx: 0.0, PreDftOccIdx: 0.0,
+  PreDftOccLen: 0.0, AddDmrsFlag: 0.0, DMRScyclicshift: 0.0,
+  SRFlag: 0.0, BitLenHarq: 1.0, BitLenSr: 0.0, BitLenCsiPart1: 0.0, 
+  positiveSR: 0.0, DTX: 0.0, idxUE: 0.0, DTXthreshold: 1.0}
+Chan:
+- {type: AWGN, SNR: 100.0, delay: 0.0, CFO: 0.0, use5Gtoolbox: 1.0, gain: 1.0}
+SimCtrl:
+  N_UE: 1.0
+  N_frame: 1.0
+  N_slot_run: 4.0
+  plotFigure: {tfGrid: 1, constellation: 0}
+  genTV:
+    enable: 1.0
+    enableUE: 0.0
+    tvDirName: GPU_test_input
+    cuPHY: 1.0
+    FAPI: 1.0
+    FAPIyaml: 0.0
+    slotIdx: 3.0
+    bypassComp: 0.0
+    idx: 0.0
+    TVname: []
+  results: []

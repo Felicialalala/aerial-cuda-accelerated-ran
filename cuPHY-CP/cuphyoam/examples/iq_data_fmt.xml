@@ -1,0 +1,22 @@
+  <user-plane-configuration xmlns="urn:o-ran:uplane-conf:1.0">
+    <low-level-tx-endpoints>
+      <name>tx-ep</name>
+      <sro-id/>
+      <compression>
+        <!-->iq-bitwidth: 9, 14, 16 for BFP or 16 for fix point <-->
+        <iq-bitwidth>9</iq-bitwidth>
+        <!-->compression-method: BLOCK_FLOATING_POINT for BFP or NO_COMPRESSION for fix point <-->
+        <compression-method>BLOCK_FLOATING_POINT</compression-method>
+      </compression>
+    </low-level-tx-endpoints>
+    <low-level-rx-endpoints>
+      <name>rx-ep</name>
+      <sro-id/>
+      <compression>
+        <!-->iq-bitwidth: 9, 14, 16 for BFP or 16 for fix point <-->
+        <iq-bitwidth>9</iq-bitwidth>
+        <!-->compression-method: BLOCK_FLOATING_POINT for BFP or NO_COMPRESSION for fix point <-->
+        <compression-method>BLOCK_FLOATING_POINT</compression-method>
+      </compression>
+    </low-level-rx-endpoints>
+  </user-plane-configuration>

@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+---
+output_file_prefix: ""        # shared prefix for all output files
+output_directory: /tmp        # output directory for generated files
+raw_mode: true                # raw mode works, non-raw seems broken
+use_display_filter: true      # default to true, can unset for a big performance hit if this isn't working
+
+# Packet filtering options. Set any value to -1 to disable filtering
+src_mac_addr: -1
+dst_mac_addr: -1
+vlan_id: -1
+direction: -1                 # Uplink (0) or Downlink (1)
+ru_port_id: -1
+frame_id: -1
+subframe_id: -1
+slot_id: -1
+#section_id: -1          #not used starting from 22-1ED1
+
+
+# User data buffer parsing options
+ud_iq_width: 9                    # user data compression IQ bit width
+ud_comp_method: 1                 # user data compression method
+ud_comp_hdr_present: false        # user data compression header is present in U-plane
+zero_fill_missing_prbs: true      # zero-fill any missing PRBs in the 0-273 range
+zero_fill_missing_symbols: true   # zero-fill any missing OFDM symbols
+check_all_symbols_present: false  # check if 14 symbols are present in each slot
+...
