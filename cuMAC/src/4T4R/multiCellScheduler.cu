@@ -1064,9 +1064,9 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void lwPfSchedulerKerne
   
         if (threadIdx.x == 0) {
             if (pfMetric[threadIdx.x] < pfMetric[threadIdx.x + 1]) {
-                pDynDescr->allocSol[rbgIdx*pDynDescr->nCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x + 1]);
+                pDynDescr->allocSol[rbgIdx*pDynDescr->totNumCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x + 1]);
             } else {
-                pDynDescr->allocSol[rbgIdx*pDynDescr->nCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x]);
+                pDynDescr->allocSol[rbgIdx*pDynDescr->totNumCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x]);
             }
         }
         __syncthreads();
@@ -1262,9 +1262,9 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void lwPfSchedulerKerne
 
     if (threadIdx.x == 0) {
         if (pfMetric[threadIdx.x] < pfMetric[threadIdx.x + 1]) {
-            pDynDescr->allocSol[rbgIdx*pDynDescr->nCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x + 1]);
+            pDynDescr->allocSol[rbgIdx*pDynDescr->totNumCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x + 1]);
         } else {
-            pDynDescr->allocSol[rbgIdx*pDynDescr->nCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x]);
+            pDynDescr->allocSol[rbgIdx*pDynDescr->totNumCell + cIdx] = static_cast<int16_t>(ueIdxArr[threadIdx.x]);
         }
     }
     __syncthreads();
@@ -5407,6 +5407,13 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
                                float                in_percSmNumThrdBlk,
                                cudaStream_t         strm)
 {
+  if (cellGrpPrms->allocType == 0) {
+    const size_t allocBytes = static_cast<size_t>(simParam->totNumCell) *
+                              static_cast<size_t>(cellGrpPrms->nPrbGrp) *
+                              sizeof(int16_t);
+    CUDA_CHECK_ERR(cudaMemsetAsync(schdSol->allocSol, 0xFF, allocBytes, strm));
+  }
+
   pCpuDynDesc->setSchdUePerCellTTI  = schdSol->setSchdUePerCellTTI;
   pCpuDynDesc->postEqSinr           = cellGrpPrms->postEqSinr;
   pCpuDynDesc->totNumCell           = simParam->totNumCell; // number of all cells in the network. (not needed if channel buffer only contains channels within coordinated cells)
@@ -5499,6 +5506,13 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
                                uint8_t                     in_halfPrecision,
                                cudaStream_t                strm)
 {
+  if (cellGrpPrms->allocType == 0) {
+    const size_t allocBytes = static_cast<size_t>(cellGrpPrms->totNumCell) *
+                              static_cast<size_t>(cellGrpPrms->nPrbGrp) *
+                              sizeof(int16_t);
+    CUDA_CHECK_ERR(cudaMemsetAsync(schdSol->allocSol, 0xFF, allocBytes, strm));
+  }
+
   pCpuDynDesc->setSchdUePerCellTTI  = schdSol->setSchdUePerCellTTI;
   pCpuDynDesc->postEqSinr           = cellGrpPrms->postEqSinr;
   pCpuDynDesc->cellId               = cellGrpPrms->cellId;  

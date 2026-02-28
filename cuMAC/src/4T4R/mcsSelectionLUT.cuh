@@ -31,6 +31,7 @@ typedef struct mcsSelDynDescr{
     int8_t*     tbErrLast; // per-UE indicator for TB decoding error of the last transmission: 0 - decoded correctly, 1 - decoding error, -1 - not scheduled for the last TTI
     float*      wbSinr; // global wideband SINR array
     uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
+    uint16_t*   cellId; // IDs of coordinated cells
     float*      beamformGainLastTx;
     float*      beamformGainCurrTx;
     // HARQ related buffers (common for both DL and UL)
@@ -46,6 +47,7 @@ typedef struct mcsSelDynDescr{
     //----------------- parameters (common for both DL and UL) -----------------
     uint16_t    nUe;
     uint16_t    nCell;
+    uint16_t    totNumCell;
     uint16_t    nPrbGrp;
     uint8_t     nUeAnt;
     uint8_t     nBsAnt;

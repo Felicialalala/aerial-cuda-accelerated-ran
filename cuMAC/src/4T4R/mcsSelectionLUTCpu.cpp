@@ -57,6 +57,7 @@ void mcsSelectionLUTCpu::setup(cumacCellGrpUeStatus*  cellGrpUeStatus,
 {
     pDynDescr->nUe                    = cellGrpPrms->nUe; 
     pDynDescr->nCell                  = cellGrpPrms->nCell;
+    pDynDescr->totNumCell             = cellGrpPrms->totNumCell;
     pDynDescr->nPrbGrp                = cellGrpPrms->nPrbGrp;
     pDynDescr->nUeAnt                 = cellGrpPrms->nUeAnt;
     pDynDescr->nBsAnt                 = cellGrpPrms->nBsAnt;
@@ -68,6 +69,7 @@ void mcsSelectionLUTCpu::setup(cumacCellGrpUeStatus*  cellGrpUeStatus,
     pDynDescr->beamformGainLastTx     = cellGrpUeStatus->beamformGainLastTx;  
     pDynDescr->beamformGainCurrTx     = cellGrpUeStatus->beamformGainCurrTx;
     pDynDescr->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
+    pDynDescr->cellId                 = cellGrpPrms->cellId;
     pDynDescr->allocSol               = schdSol->allocSol;
     pDynDescr->mcsSelSol              = schdSol->mcsSelSol;
 
@@ -108,8 +110,9 @@ void mcsSelectionLUTCpu::mcsSelSinrRepKernel_type0_wbSinr()
 
         uint16_t numAllocPrg = 0; // number of allocated PRGs to the considered UE
         for (int prgIdx = 0; prgIdx < pDynDescr->nPrbGrp; prgIdx++) {
-            for (int cIdx = 0; cIdx < pDynDescr->nCell; cIdx++) {
-                if (pDynDescr->allocSol[prgIdx*pDynDescr->nCell + cIdx] == uIdx) {
+            for (int localCellIdx = 0; localCellIdx < pDynDescr->nCell; localCellIdx++) {
+                const int cellIdx = pDynDescr->cellId[localCellIdx];
+                if (pDynDescr->allocSol[prgIdx*pDynDescr->totNumCell + cellIdx] == uIdx) {
                     numAllocPrg++;
                 }
             }

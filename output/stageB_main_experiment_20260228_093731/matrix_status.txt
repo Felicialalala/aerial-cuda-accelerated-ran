@@ -1,0 +1,3 @@
+scenario,status,reason
+CDL_C_DS300ns,WARN,perf_check_fail_after_full_run_per_ue_gap_1d785713p_sum_gap_0d845480p
+CDL_D_DS1000ns,SKIP,cdl_d_los_not_supported

@@ -48,8 +48,9 @@ namespace cumac {
     float       bsTxPower_perAntPrg; // per antenna and per PRG BS transmit power in unit of dBm
     float       ueTxPower; // UE transmit power in unit of dBm
     float       ueTxPower_perAntPrg; // per antenna and per PRG UE transmit power in unit of dBm
-    uint16_t    numActiveUesPerCell; // number of active UEs per cell
-    uint8_t     numCell; // totel number of cells. Currently support a maximum number of 21 cells
+    uint16_t    numActiveUesPerCell; // number of active UEs per coordinated cell
+    uint8_t     numCell; // total number of cells, including coordinated cells and interferers
+    uint8_t     numCoorCell; // number of coordinated cells with configured UEs
     float       sfStd; // shadow fading STD in dB
     float       noiseFloor; // noise floor in dBm
     uint16_t    numThrdBlk;
@@ -58,10 +59,9 @@ namespace cumac {
     float       rhoPrime;
     float       minD2Bs;
         
-    float       sectorOrien[3];
-        
     std::vector<std::vector<float>>   bsPos;
     std::vector<std::vector<float>>   uePos;
+    std::vector<float>                cellOrien;
     std::unique_ptr<float []>         rxSigPowDB = nullptr; // for DL
     std::unique_ptr<float []>         rxSigPowDB_UL = nullptr; // for UL
     float*                            rxSigPowDBGpu = nullptr; // for DL
@@ -140,6 +140,7 @@ namespace cumac {
 
     void genNetTopology();
     void genLSFading();
+    void initStrongestCellAssociation();
     void rrUeSelectionCpu(const int TTIidx); // assume that the cell assocation of all active UEs are fixed and that the number of active UEs per cell is no less than numActiveUesPerCell
     void genFastFading();
     void genFastFadingGpu(const int TTIidx);
@@ -149,6 +150,7 @@ namespace cumac {
     void ueDownSelectGpu();
     void ueDownSelectCpu();
     void cpySinrGpu2Cpu();
+    float getPredictedBlerCpu(int schedUeIdx, int slotIdx) const;
     void testChannGen();
     void writeToFileLargeNumActUe();
     void writetoFileLargeNumActUe_short();
@@ -205,6 +207,7 @@ namespace cumac {
     // MCS selection records
     std::unique_ptr<std::unique_ptr<int16_t []> []>   mcsSelRecordsCpu = nullptr;
     std::unique_ptr<std::unique_ptr<int8_t []> []>    tbErrRecordsCpu = nullptr;
+    std::unique_ptr<std::unique_ptr<float []> []>     predBlerRecordsCpu = nullptr;
     std::unique_ptr<std::unique_ptr<uint8_t []> []>   layerSelRecordsCpu = nullptr;
     std::unique_ptr<std::unique_ptr<int16_t []> []>   mcsSelRecordsGpu = nullptr;
     std::unique_ptr<std::unique_ptr<int8_t []> []>    tbErrRecordsGpu = nullptr;
@@ -398,6 +401,7 @@ namespace cumac {
                                    float*           rxSigPowDBGpu,
                                    const int        nPrbGrp, 
                                    const int        numCell, 
+                                   const int        totNumActUe,
                                    const int        numActUePerCell, 
                                    const int        numBsAnt,
                                    const int        numUeAnt,

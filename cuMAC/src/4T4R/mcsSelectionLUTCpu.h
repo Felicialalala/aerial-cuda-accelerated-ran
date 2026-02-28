@@ -32,6 +32,7 @@ typedef struct mcsSelDynDescrCpu {
     ollaParam*  ollaParamArr;
     float*      wbSinr; // global wideband SINR array
     uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
+    uint16_t*   cellId; // IDs of coordinated cells
     float*      beamformGainLastTx;
     float*      beamformGainCurrTx;
     // HARQ related buffers
@@ -45,6 +46,7 @@ typedef struct mcsSelDynDescrCpu {
     //----------------- parameters (common for both DL and UL) -----------------
     uint16_t    nUe;
     uint16_t    nCell;
+    uint16_t    totNumCell;
     uint16_t    nPrbGrp;
     uint8_t     nUeAnt; // assumption's that nUeAnt <= nBsAnt
     uint8_t     nBsAnt;

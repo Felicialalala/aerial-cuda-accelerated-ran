@@ -51,6 +51,7 @@ void multiCellLayerSelCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pDynDescr->nUe                    = cellGrpPrms->nUe;
     pDynDescr->nPrbGrp                = cellGrpPrms->nPrbGrp;
     pDynDescr->nCell                  = cellGrpPrms->nCell;
+    pDynDescr->totNumCell             = cellGrpPrms->totNumCell;
     pDynDescr->nUeAnt                 = cellGrpPrms->nUeAnt;
     pDynDescr->sinValThr              = cellGrpPrms->sinValThr;
     allocType                         = cellGrpPrms->allocType;
@@ -72,6 +73,7 @@ void multiCellLayerSelCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     }
 
     pDynDescr->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
+    pDynDescr->cellId                 = cellGrpPrms->cellId;
     pDynDescr->allocSol               = schdSol->allocSol;
     pDynDescr->layerSelSol            = schdSol->layerSelSol;
 
@@ -138,9 +140,10 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type0()
 
       uint16_t assocCellIdx;
 
-      for (uint16_t cIdx = 0; cIdx < pDynDescr->nCell; cIdx++) {
-         if (pDynDescr->cellAssoc[cIdx*pDynDescr->nUe + uIdx] == 1) {
-            assocCellIdx = cIdx;
+      for (uint16_t localCellIdx = 0; localCellIdx < pDynDescr->nCell; localCellIdx++) {
+         const uint16_t cellIdx = pDynDescr->cellId[localCellIdx];
+         if (pDynDescr->cellAssoc[cellIdx*pDynDescr->nUe + uIdx] == 1) {
+            assocCellIdx = cellIdx;
             break;
          }
       }
@@ -148,7 +151,7 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type0()
       uint8_t numLayers = 0xFF;
 
       for (int prgIdx = 0; prgIdx < pDynDescr->nPrbGrp; prgIdx++) {
-         if (pDynDescr->allocSol[prgIdx*pDynDescr->nCell + assocCellIdx] == uIdx) {
+         if (pDynDescr->allocSol[prgIdx*pDynDescr->totNumCell + assocCellIdx] == uIdx) {
             int indexTemp = uIdx*pDynDescr->nPrbGrp*pDynDescr->nUeAnt + prgIdx*pDynDescr->nUeAnt;
             float maxSinValThr = pDynDescr->sinVal[indexTemp]*pDynDescr->sinValThr;
 

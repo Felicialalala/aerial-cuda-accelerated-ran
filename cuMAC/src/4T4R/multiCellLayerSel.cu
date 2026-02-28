@@ -72,9 +72,10 @@ namespace cumac {
    if (uIdx < pDynDescr->nUe) {
       globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-      for (uint16_t cIdx = prgIdx; cIdx < pDynDescr->nCell; cIdx += pDynDescr->nPrbGrp) {
-         if (pDynDescr->cellAssoc[cIdx*pDynDescr->nUe + uIdx] == 1) {
-            assocCellIdx[blockLocalUidx] = cIdx;
+      for (uint16_t localCellIdx = prgIdx; localCellIdx < pDynDescr->nCell; localCellIdx += pDynDescr->nPrbGrp) {
+         const uint16_t cellIdx = pDynDescr->cellId[localCellIdx];
+         if (pDynDescr->cellAssoc[cellIdx*pDynDescr->nUe + uIdx] == 1) {
+            assocCellIdx[blockLocalUidx] = cellIdx;
          }
       }
    }
@@ -84,7 +85,7 @@ namespace cumac {
    __syncthreads(); 
 
    if (uIdx < pDynDescr->nUe && globalUidx < 0xFFFF) {
-      if (pDynDescr->allocSol[prgIdx*pDynDescr->nCell + assocCellIdx[blockLocalUidx]] == uIdx) {
+      if (pDynDescr->allocSol[prgIdx*pDynDescr->totNumCell + assocCellIdx[blockLocalUidx]] == uIdx) {
          int indexTemp = uIdx*pDynDescr->nPrbGrp*pDynDescr->nUeAnt + prgIdx*pDynDescr->nUeAnt;
          float maxSinValThr = pDynDescr->sinVal[indexTemp]*pDynDescr->sinValThr;
          numLayers[threadIdx.x] = 1;
@@ -535,6 +536,7 @@ namespace cumac {
     pCpuDynDesc->nUe                    = cellGrpPrms->nUe;
     pCpuDynDesc->nPrbGrp                = cellGrpPrms->nPrbGrp;
     pCpuDynDesc->nCell                  = cellGrpPrms->nCell;
+    pCpuDynDesc->totNumCell             = cellGrpPrms->totNumCell;
     pCpuDynDesc->nUeAnt                 = cellGrpPrms->nUeAnt;
     pCpuDynDesc->sinValThr              = cellGrpPrms->sinValThr;
     allocType                           = cellGrpPrms->allocType;
@@ -564,6 +566,7 @@ namespace cumac {
     }
     
     pCpuDynDesc->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
+    pCpuDynDesc->cellId                 = cellGrpPrms->cellId;
     pCpuDynDesc->allocSol               = schdSol->allocSol;
     pCpuDynDesc->layerSelSol            = schdSol->layerSelSol;
     

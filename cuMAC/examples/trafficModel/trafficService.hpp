@@ -46,6 +46,33 @@ public:
     {
         generator->Seed(seed);
     }
+    unsigned long long GetTotalGeneratedBytes() const
+    {
+        return generator->GetTotalGeneratedBytes();
+    }
+    unsigned long long GetTotalGeneratedPkts() const
+    {
+        return generator->GetTotalGeneratedPkts();
+    }
+    unsigned long long GetTotalAcceptedBytes() const
+    {
+        return radio_rsrc->GetTotalAcceptedBytes();
+    }
+    unsigned long long GetTotalDroppedBytes() const
+    {
+        return radio_rsrc->GetTotalDroppedBytes();
+    }
+    unsigned long long GetTotalFlowQueuedBytes() const
+    {
+        return radio_rsrc->GetTotalQueuedBytes();
+    }
+    void GetPerFlowStats(std::vector<unsigned long long>& generated_bytes,
+                         std::vector<unsigned long long>& accepted_bytes,
+                         std::vector<unsigned long long>& dropped_bytes,
+                         std::vector<unsigned long long>& queued_bytes) const
+    {
+        radio_rsrc->GetPerFlowStats(generated_bytes, accepted_bytes, dropped_bytes, queued_bytes);
+    }
 private:
     std::unique_ptr<TrafficGenerator> generator;
     std::unique_ptr<RadioResource> radio_rsrc;

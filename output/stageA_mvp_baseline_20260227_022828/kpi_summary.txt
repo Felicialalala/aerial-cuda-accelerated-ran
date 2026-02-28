@@ -1,0 +1,19 @@
+run_dir: /opt/nvidia/cuBB/output/stageA_mvp_baseline_20260227_022828
+tti_count: 200
+ue_count: 24
+
+[Throughput GPU]
+inst_mean_mbps: 274.047920
+inst_p50_mbps: 274.696000
+inst_p95_mbps: 419.481600
+inst_last_mbps: 215.680000
+long_term_last_mbps: 49.851600
+per_ue_p5_mbps: 0.255935
+per_ue_mean_mbps: 2.077151
+
+[Traffic]
+flows: 24
+offered_mbps: 2966.0
+served_mbps_est: 2322.99264
+drop_rate: 0.0
+queue_delay_est_ms: 27.680129

@@ -28,18 +28,33 @@ class FlowType
 private:
     // Keep statistics about traffic (e.g. arrival times, buffer sizes)
     // Also store QoS config
-    int num_bytes;
+    int num_bytes = 0;
     int flow_id; // TODO this is never configured
+    unsigned long long total_generated_bytes = 0;
+    unsigned long long total_accepted_bytes = 0;
+    unsigned long long total_dropped_bytes = 0;
 public:
     constexpr static int MAX_BYTES = 1e9;
     void Enqueue(FlowData& flow_data){
-        num_bytes += (num_bytes <= MAX_BYTES) * flow_data.num_bytes;
+        int incoming = flow_data.num_bytes > 0 ? flow_data.num_bytes : 0;
+        total_generated_bytes += static_cast<unsigned long long>(incoming);
+        int free_bytes = MAX_BYTES - num_bytes;
+        int accepted = incoming;
+        if (accepted > free_bytes) {
+            accepted = free_bytes > 0 ? free_bytes : 0;
+        }
+        int dropped = incoming - accepted;
+        num_bytes += accepted;
+        total_accepted_bytes += static_cast<unsigned long long>(accepted);
+        total_dropped_bytes += static_cast<unsigned long long>(dropped);
     }
     int MoveBytes(){
         auto tmp = num_bytes;
         num_bytes = 0;
         return tmp;
     }
+    unsigned long long GetTotalGeneratedBytes() const { return total_generated_bytes; }
+    int GetQueuedBytes() const { return num_bytes; }
+    unsigned long long GetTotalAcceptedBytes() const { return total_accepted_bytes; }
+    unsigned long long GetTotalDroppedBytes() const { return total_dropped_bytes; }
 };
-
-

@@ -291,6 +291,11 @@ namespace cumac {
         // total number of cells in the coordinated cell group
         // range: [1, maxNumCoorCells_]
 
+        uint16_t    totNumCell;
+        //* (For both 4TR SU-MIMO and 64TR MU-MIMO)
+        // total number of cells in the network, including coordinated cells and
+        // interfering cells. Type-0 allocation uses this as the allocSol stride.
+
         uint16_t    nUe; 
         //* (for 4TR SU-MIMO)
         // total number of selected/scheduled UEs for all coordinated cells per TTI

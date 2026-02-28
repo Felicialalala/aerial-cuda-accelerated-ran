@@ -29,6 +29,7 @@ namespace cumac {
    int16_t*    allocSol; // PRB allocation solution
    float*      sinVal; // array of singular values
    uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
+   uint16_t*   cellId; // IDs of coordinated cells
    uint8_t*    cellAssoc; // only for type-0 allocation
    int8_t*     riActUe; 
 
@@ -47,6 +48,7 @@ namespace cumac {
    uint16_t    nPrbGrp;
    uint8_t     nUeAnt;
    uint16_t    nCell;
+   uint16_t    totNumCell;
    uint8_t     nTxAnt;
    uint8_t     nRxAnt;
 

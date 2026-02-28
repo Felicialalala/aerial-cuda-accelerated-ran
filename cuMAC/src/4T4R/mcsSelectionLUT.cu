@@ -77,22 +77,17 @@ static __global__ void mcsSelSinrRepKernel_type0_cqi(mcsSelDynDescr_t* pDynDescr
     uint16_t globalUidx = 0xFFFF;
     
     __shared__ int numAllocPrg[1024];
-    __shared__ int16_t allocSol[maxNumCoorCells_*maxNumPrgPerCell_];
 
     numAllocPrg[threadIdx.x] = 0;
-    for (int idx = threadIdx.x; idx < pDynDescr->nCell*pDynDescr->nPrbGrp; idx += blockDim.x) {
-        allocSol[idx] = pDynDescr->allocSol[idx];
-    }
-    __syncthreads();
-
     if (uIdx < pDynDescr->nUe) {
         globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
     }
 
     if (globalUidx < 0xFFFF) {
-        for (int cIdx = 0; cIdx < pDynDescr->nCell; cIdx++) {
-            if (allocSol[prgIdx*pDynDescr->nCell + cIdx] == uIdx) {
-                int temp = atomicAdd(&(numAllocPrg[blockLocalUidx]), 1);
+        for (int localCellIdx = 0; localCellIdx < pDynDescr->nCell; localCellIdx++) {
+            const int cellIdx = pDynDescr->cellId[localCellIdx];
+            if (pDynDescr->allocSol[prgIdx*pDynDescr->totNumCell + cellIdx] == uIdx) {
+                atomicAdd(&(numAllocPrg[blockLocalUidx]), 1);
             }
         }
     }
@@ -176,22 +171,17 @@ static __global__ void mcsSelSinrRepKernel_type0_wbSinr(mcsSelDynDescr_t* pDynDe
     uint16_t globalUidx = 0xFFFF;
 
     __shared__ int numAllocPrg[1024];
-    __shared__ int16_t allocSol[maxNumCoorCells_*maxNumPrgPerCell_];
 
     numAllocPrg[threadIdx.x] = 0;
-    for (int idx = threadIdx.x; idx < pDynDescr->nCell*pDynDescr->nPrbGrp; idx += blockDim.x) {
-        allocSol[idx] = pDynDescr->allocSol[idx];
-    }
-    __syncthreads();
-
     if (uIdx < pDynDescr->nUe) {
         globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
     }
 
     if (globalUidx < 0xFFFF) {
-        for (int cIdx = 0; cIdx < pDynDescr->nCell; cIdx++) {
-            if (allocSol[prgIdx*pDynDescr->nCell + cIdx] == uIdx) {
-                int temp = atomicAdd(&(numAllocPrg[blockLocalUidx]), 1);
+        for (int localCellIdx = 0; localCellIdx < pDynDescr->nCell; localCellIdx++) {
+            const int cellIdx = pDynDescr->cellId[localCellIdx];
+            if (pDynDescr->allocSol[prgIdx*pDynDescr->totNumCell + cellIdx] == uIdx) {
+                atomicAdd(&(numAllocPrg[blockLocalUidx]), 1);
             }
         }
     }
@@ -495,6 +485,7 @@ void mcsSelectionLUT::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
 {
     pCpuDynDesc->nUe = cellGrpPrms->nBsAnt == 4 ? cellGrpPrms->nUe : (cellGrpPrms->nCell*cellGrpPrms->numUeForGrpPerCell);
     pCpuDynDesc->nCell                  = cellGrpPrms->nCell;
+    pCpuDynDesc->totNumCell             = cellGrpPrms->totNumCell;
     pCpuDynDesc->nPrbGrp                = cellGrpPrms->nPrbGrp;
     pCpuDynDesc->nUeAnt                 = cellGrpPrms->nUeAnt;
     pCpuDynDesc->nBsAnt                 = cellGrpPrms->nBsAnt;
@@ -508,6 +499,7 @@ void mcsSelectionLUT::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pCpuDynDesc->allocSol               = schdSol->allocSol;
     pCpuDynDesc->mcsSelSol              = schdSol->mcsSelSol;
     pCpuDynDesc->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
+    pCpuDynDesc->cellId                 = cellGrpPrms->cellId;
     
     if (CQI == 1) { // CQI based
         pCpuDynDesc->cqiActUe           = cellGrpUeStatus->cqiActUe;

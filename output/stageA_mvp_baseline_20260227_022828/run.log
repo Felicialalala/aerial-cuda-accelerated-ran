@@ -29,12 +29,12 @@ GPU MCS selection solution computed
 CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU PRG allocation solutions do not match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.394e+06
-GPU scheduler sum cell throughput: 1.394e+06
+CPU scheduler sum cell throughput: 8.361e+04
+GPU scheduler sum cell throughput: 8.361e+04
 ~~~~~~~~~~~~~~~~~TTI 1~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -55,12 +55,12 @@ GPU MCS selection solution computed
 CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU PRG allocation solutions do not match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.648e+06
-GPU scheduler sum cell throughput: 1.648e+06
+CPU scheduler sum cell throughput: 2.635e+05
+GPU scheduler sum cell throughput: 2.635e+05
 ~~~~~~~~~~~~~~~~~TTI 2~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -85,8 +85,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.755e+06
-GPU scheduler sum cell throughput: 1.755e+06
+CPU scheduler sum cell throughput: 2.859e+05
+GPU scheduler sum cell throughput: 2.859e+05
 ~~~~~~~~~~~~~~~~~TTI 3~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -111,8 +111,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.362e+06
-GPU scheduler sum cell throughput: 2.362e+06
+CPU scheduler sum cell throughput: 3.528e+05
+GPU scheduler sum cell throughput: 3.528e+05
 ~~~~~~~~~~~~~~~~~TTI 4~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -137,8 +137,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.972e+06
-GPU scheduler sum cell throughput: 2.972e+06
+CPU scheduler sum cell throughput: 3.645e+05
+GPU scheduler sum cell throughput: 3.645e+05
 ~~~~~~~~~~~~~~~~~TTI 5~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -163,8 +163,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.611e+06
-GPU scheduler sum cell throughput: 3.611e+06
+CPU scheduler sum cell throughput: 5.100e+05
+GPU scheduler sum cell throughput: 5.100e+05
 ~~~~~~~~~~~~~~~~~TTI 6~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -189,8 +189,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.209e+06
-GPU scheduler sum cell throughput: 4.209e+06
+CPU scheduler sum cell throughput: 6.055e+05
+GPU scheduler sum cell throughput: 6.055e+05
 ~~~~~~~~~~~~~~~~~TTI 7~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -215,9 +215,425 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.788e+06
-GPU scheduler sum cell throughput: 4.788e+06
+CPU scheduler sum cell throughput: 9.209e+05
+GPU scheduler sum cell throughput: 9.209e+05
 ~~~~~~~~~~~~~~~~~TTI 8~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 1.112e+06
+GPU scheduler sum cell throughput: 1.112e+06
+~~~~~~~~~~~~~~~~~TTI 9~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 1.284e+06
+GPU scheduler sum cell throughput: 1.284e+06
+~~~~~~~~~~~~~~~~~TTI 10~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 1.433e+06
+GPU scheduler sum cell throughput: 1.433e+06
+~~~~~~~~~~~~~~~~~TTI 11~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 1.720e+06
+GPU scheduler sum cell throughput: 1.720e+06
+~~~~~~~~~~~~~~~~~TTI 12~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 1.999e+06
+GPU scheduler sum cell throughput: 1.999e+06
+~~~~~~~~~~~~~~~~~TTI 13~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 2.340e+06
+GPU scheduler sum cell throughput: 2.340e+06
+~~~~~~~~~~~~~~~~~TTI 14~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 2.679e+06
+GPU scheduler sum cell throughput: 2.679e+06
+~~~~~~~~~~~~~~~~~TTI 15~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 2.987e+06
+GPU scheduler sum cell throughput: 2.987e+06
+~~~~~~~~~~~~~~~~~TTI 16~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 3.299e+06
+GPU scheduler sum cell throughput: 3.299e+06
+~~~~~~~~~~~~~~~~~TTI 17~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 3.480e+06
+GPU scheduler sum cell throughput: 3.480e+06
+~~~~~~~~~~~~~~~~~TTI 18~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 3.700e+06
+GPU scheduler sum cell throughput: 3.700e+06
+~~~~~~~~~~~~~~~~~TTI 19~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 3.841e+06
+GPU scheduler sum cell throughput: 3.841e+06
+~~~~~~~~~~~~~~~~~TTI 20~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 4.019e+06
+GPU scheduler sum cell throughput: 4.019e+06
+~~~~~~~~~~~~~~~~~TTI 21~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 4.323e+06
+GPU scheduler sum cell throughput: 4.323e+06
+~~~~~~~~~~~~~~~~~TTI 22~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 4.645e+06
+GPU scheduler sum cell throughput: 4.645e+06
+~~~~~~~~~~~~~~~~~TTI 23~~~~~~~~~~~~~~~~~~~~
+GPU channel generated
+API setup completed
+CSI update: subband SINR calculation setup completed
+CSI update: subband SINR calculation run completed
+CSI update: wideband SINR calculation setup completed
+CSI update: wideband SINR calculation run completed
+CSI update: subband and wideband SINRS copied to CPU structures
+GPU PF UE selection setup completed
+GPU PF UE selection run completed
+GPU UE downselection completed
+CPU PF UE selection completed
+CPU UE downselection completed
+PRB scheduling solution computed
+GPU Layer selection solution computed
+CPU Layer selection solution computed
+GPU MCS selection solution computed
+CPU MCS selection solution computed
+Scheduling solution transferred to host
+Success: CPU and GPU UE selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
+Success: CPU and GPU MCS selection solutions match
+Success: CPU and GPU channels match
+CPU scheduler sum cell throughput: 4.947e+06
+GPU scheduler sum cell throughput: 4.947e+06
+~~~~~~~~~~~~~~~~~TTI 24~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
 CSI update: subband SINR calculation setup completed
@@ -243,422 +659,6 @@ Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
 CPU scheduler sum cell throughput: 5.193e+06
 GPU scheduler sum cell throughput: 5.193e+06
-~~~~~~~~~~~~~~~~~TTI 9~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.724e+06
-GPU scheduler sum cell throughput: 5.724e+06
-~~~~~~~~~~~~~~~~~TTI 10~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.361e+06
-GPU scheduler sum cell throughput: 6.361e+06
-~~~~~~~~~~~~~~~~~TTI 11~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.929e+06
-GPU scheduler sum cell throughput: 6.929e+06
-~~~~~~~~~~~~~~~~~TTI 12~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.414e+06
-GPU scheduler sum cell throughput: 7.414e+06
-~~~~~~~~~~~~~~~~~TTI 13~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.044e+06
-GPU scheduler sum cell throughput: 8.044e+06
-~~~~~~~~~~~~~~~~~TTI 14~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.717e+06
-GPU scheduler sum cell throughput: 8.717e+06
-~~~~~~~~~~~~~~~~~TTI 15~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.368e+06
-GPU scheduler sum cell throughput: 9.368e+06
-~~~~~~~~~~~~~~~~~TTI 16~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.010e+07
-GPU scheduler sum cell throughput: 1.010e+07
-~~~~~~~~~~~~~~~~~TTI 17~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.062e+07
-GPU scheduler sum cell throughput: 1.062e+07
-~~~~~~~~~~~~~~~~~TTI 18~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.107e+07
-GPU scheduler sum cell throughput: 1.107e+07
-~~~~~~~~~~~~~~~~~TTI 19~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.157e+07
-GPU scheduler sum cell throughput: 1.157e+07
-~~~~~~~~~~~~~~~~~TTI 20~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.212e+07
-GPU scheduler sum cell throughput: 1.212e+07
-~~~~~~~~~~~~~~~~~TTI 21~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.271e+07
-GPU scheduler sum cell throughput: 1.271e+07
-~~~~~~~~~~~~~~~~~TTI 22~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.328e+07
-GPU scheduler sum cell throughput: 1.328e+07
-~~~~~~~~~~~~~~~~~TTI 23~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.379e+07
-GPU scheduler sum cell throughput: 1.379e+07
-~~~~~~~~~~~~~~~~~TTI 24~~~~~~~~~~~~~~~~~~~~
-GPU channel generated
-API setup completed
-CSI update: subband SINR calculation setup completed
-CSI update: subband SINR calculation run completed
-CSI update: wideband SINR calculation setup completed
-CSI update: wideband SINR calculation run completed
-CSI update: subband and wideband SINRS copied to CPU structures
-GPU PF UE selection setup completed
-GPU PF UE selection run completed
-GPU UE downselection completed
-CPU PF UE selection completed
-CPU UE downselection completed
-PRB scheduling solution computed
-GPU Layer selection solution computed
-CPU Layer selection solution computed
-GPU MCS selection solution computed
-CPU MCS selection solution computed
-Scheduling solution transferred to host
-Success: CPU and GPU UE selection solutions match
-Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
-Success: CPU and GPU MCS selection solutions match
-Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.436e+07
-GPU scheduler sum cell throughput: 1.436e+07
 ~~~~~~~~~~~~~~~~~TTI 25~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -680,11 +680,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.483e+07
-GPU scheduler sum cell throughput: 1.483e+07
+CPU scheduler sum cell throughput: 5.460e+06
+GPU scheduler sum cell throughput: 5.460e+06
 ~~~~~~~~~~~~~~~~~TTI 26~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -706,11 +706,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.530e+07
-GPU scheduler sum cell throughput: 1.530e+07
+CPU scheduler sum cell throughput: 5.692e+06
+GPU scheduler sum cell throughput: 5.692e+06
 ~~~~~~~~~~~~~~~~~TTI 27~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -735,8 +735,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.598e+07
-GPU scheduler sum cell throughput: 1.598e+07
+CPU scheduler sum cell throughput: 6.012e+06
+GPU scheduler sum cell throughput: 6.012e+06
 ~~~~~~~~~~~~~~~~~TTI 28~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -758,11 +758,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.654e+07
-GPU scheduler sum cell throughput: 1.654e+07
+CPU scheduler sum cell throughput: 6.141e+06
+GPU scheduler sum cell throughput: 6.141e+06
 ~~~~~~~~~~~~~~~~~TTI 29~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -784,11 +784,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.697e+07
-GPU scheduler sum cell throughput: 1.697e+07
+CPU scheduler sum cell throughput: 6.425e+06
+GPU scheduler sum cell throughput: 6.425e+06
 ~~~~~~~~~~~~~~~~~TTI 30~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -810,11 +810,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.753e+07
-GPU scheduler sum cell throughput: 1.753e+07
+CPU scheduler sum cell throughput: 6.680e+06
+GPU scheduler sum cell throughput: 6.680e+06
 ~~~~~~~~~~~~~~~~~TTI 31~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -836,11 +836,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.804e+07
-GPU scheduler sum cell throughput: 1.804e+07
+CPU scheduler sum cell throughput: 7.061e+06
+GPU scheduler sum cell throughput: 7.061e+06
 ~~~~~~~~~~~~~~~~~TTI 32~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -862,11 +862,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.852e+07
-GPU scheduler sum cell throughput: 1.852e+07
+CPU scheduler sum cell throughput: 7.283e+06
+GPU scheduler sum cell throughput: 7.283e+06
 ~~~~~~~~~~~~~~~~~TTI 33~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -888,11 +888,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.911e+07
-GPU scheduler sum cell throughput: 1.911e+07
+CPU scheduler sum cell throughput: 7.504e+06
+GPU scheduler sum cell throughput: 7.504e+06
 ~~~~~~~~~~~~~~~~~TTI 34~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -917,8 +917,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.950e+07
-GPU scheduler sum cell throughput: 1.950e+07
+CPU scheduler sum cell throughput: 7.819e+06
+GPU scheduler sum cell throughput: 7.819e+06
 ~~~~~~~~~~~~~~~~~TTI 35~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -940,11 +940,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.006e+07
-GPU scheduler sum cell throughput: 2.006e+07
+CPU scheduler sum cell throughput: 8.022e+06
+GPU scheduler sum cell throughput: 8.022e+06
 ~~~~~~~~~~~~~~~~~TTI 36~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -966,11 +966,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.059e+07
-GPU scheduler sum cell throughput: 2.059e+07
+CPU scheduler sum cell throughput: 8.301e+06
+GPU scheduler sum cell throughput: 8.301e+06
 ~~~~~~~~~~~~~~~~~TTI 37~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -992,11 +992,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.125e+07
-GPU scheduler sum cell throughput: 2.125e+07
+CPU scheduler sum cell throughput: 8.764e+06
+GPU scheduler sum cell throughput: 8.764e+06
 ~~~~~~~~~~~~~~~~~TTI 38~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1021,8 +1021,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.185e+07
-GPU scheduler sum cell throughput: 2.185e+07
+CPU scheduler sum cell throughput: 9.135e+06
+GPU scheduler sum cell throughput: 9.135e+06
 ~~~~~~~~~~~~~~~~~TTI 39~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1044,11 +1044,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.241e+07
-GPU scheduler sum cell throughput: 2.241e+07
+CPU scheduler sum cell throughput: 9.394e+06
+GPU scheduler sum cell throughput: 9.394e+06
 ~~~~~~~~~~~~~~~~~TTI 40~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1070,11 +1070,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.307e+07
-GPU scheduler sum cell throughput: 2.307e+07
+CPU scheduler sum cell throughput: 9.645e+06
+GPU scheduler sum cell throughput: 9.645e+06
 ~~~~~~~~~~~~~~~~~TTI 41~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1096,11 +1096,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.377e+07
-GPU scheduler sum cell throughput: 2.377e+07
+CPU scheduler sum cell throughput: 9.863e+06
+GPU scheduler sum cell throughput: 9.863e+06
 ~~~~~~~~~~~~~~~~~TTI 42~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1122,11 +1122,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.421e+07
-GPU scheduler sum cell throughput: 2.421e+07
+CPU scheduler sum cell throughput: 1.009e+07
+GPU scheduler sum cell throughput: 1.009e+07
 ~~~~~~~~~~~~~~~~~TTI 43~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1148,11 +1148,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.487e+07
-GPU scheduler sum cell throughput: 2.487e+07
+CPU scheduler sum cell throughput: 1.049e+07
+GPU scheduler sum cell throughput: 1.049e+07
 ~~~~~~~~~~~~~~~~~TTI 44~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1177,8 +1177,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.538e+07
-GPU scheduler sum cell throughput: 2.538e+07
+CPU scheduler sum cell throughput: 1.071e+07
+GPU scheduler sum cell throughput: 1.071e+07
 ~~~~~~~~~~~~~~~~~TTI 45~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1203,8 +1203,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.600e+07
-GPU scheduler sum cell throughput: 2.600e+07
+CPU scheduler sum cell throughput: 1.108e+07
+GPU scheduler sum cell throughput: 1.108e+07
 ~~~~~~~~~~~~~~~~~TTI 46~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1229,8 +1229,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.650e+07
-GPU scheduler sum cell throughput: 2.650e+07
+CPU scheduler sum cell throughput: 1.146e+07
+GPU scheduler sum cell throughput: 1.146e+07
 ~~~~~~~~~~~~~~~~~TTI 47~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1252,11 +1252,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.687e+07
-GPU scheduler sum cell throughput: 2.687e+07
+CPU scheduler sum cell throughput: 1.182e+07
+GPU scheduler sum cell throughput: 1.182e+07
 ~~~~~~~~~~~~~~~~~TTI 48~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1278,11 +1278,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.734e+07
-GPU scheduler sum cell throughput: 2.734e+07
+CPU scheduler sum cell throughput: 1.220e+07
+GPU scheduler sum cell throughput: 1.220e+07
 ~~~~~~~~~~~~~~~~~TTI 49~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1304,11 +1304,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.782e+07
-GPU scheduler sum cell throughput: 2.782e+07
+CPU scheduler sum cell throughput: 1.265e+07
+GPU scheduler sum cell throughput: 1.265e+07
 ~~~~~~~~~~~~~~~~~TTI 50~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1333,8 +1333,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.825e+07
-GPU scheduler sum cell throughput: 2.825e+07
+CPU scheduler sum cell throughput: 1.295e+07
+GPU scheduler sum cell throughput: 1.295e+07
 ~~~~~~~~~~~~~~~~~TTI 51~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1359,8 +1359,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.878e+07
-GPU scheduler sum cell throughput: 2.878e+07
+CPU scheduler sum cell throughput: 1.324e+07
+GPU scheduler sum cell throughput: 1.324e+07
 ~~~~~~~~~~~~~~~~~TTI 52~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1382,11 +1382,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.934e+07
-GPU scheduler sum cell throughput: 2.934e+07
+CPU scheduler sum cell throughput: 1.341e+07
+GPU scheduler sum cell throughput: 1.341e+07
 ~~~~~~~~~~~~~~~~~TTI 53~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1408,11 +1408,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 2.996e+07
-GPU scheduler sum cell throughput: 2.996e+07
+CPU scheduler sum cell throughput: 1.363e+07
+GPU scheduler sum cell throughput: 1.363e+07
 ~~~~~~~~~~~~~~~~~TTI 54~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1434,11 +1434,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.056e+07
-GPU scheduler sum cell throughput: 3.056e+07
+CPU scheduler sum cell throughput: 1.377e+07
+GPU scheduler sum cell throughput: 1.377e+07
 ~~~~~~~~~~~~~~~~~TTI 55~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1463,8 +1463,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.117e+07
-GPU scheduler sum cell throughput: 3.117e+07
+CPU scheduler sum cell throughput: 1.402e+07
+GPU scheduler sum cell throughput: 1.402e+07
 ~~~~~~~~~~~~~~~~~TTI 56~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1486,11 +1486,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.180e+07
-GPU scheduler sum cell throughput: 3.180e+07
+CPU scheduler sum cell throughput: 1.431e+07
+GPU scheduler sum cell throughput: 1.431e+07
 ~~~~~~~~~~~~~~~~~TTI 57~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1512,11 +1512,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.243e+07
-GPU scheduler sum cell throughput: 3.243e+07
+CPU scheduler sum cell throughput: 1.445e+07
+GPU scheduler sum cell throughput: 1.445e+07
 ~~~~~~~~~~~~~~~~~TTI 58~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1541,8 +1541,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.295e+07
-GPU scheduler sum cell throughput: 3.295e+07
+CPU scheduler sum cell throughput: 1.459e+07
+GPU scheduler sum cell throughput: 1.459e+07
 ~~~~~~~~~~~~~~~~~TTI 59~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1564,11 +1564,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.328e+07
-GPU scheduler sum cell throughput: 3.328e+07
+CPU scheduler sum cell throughput: 1.478e+07
+GPU scheduler sum cell throughput: 1.478e+07
 ~~~~~~~~~~~~~~~~~TTI 60~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1590,11 +1590,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.361e+07
-GPU scheduler sum cell throughput: 3.361e+07
+CPU scheduler sum cell throughput: 1.501e+07
+GPU scheduler sum cell throughput: 1.501e+07
 ~~~~~~~~~~~~~~~~~TTI 61~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1616,11 +1616,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.412e+07
-GPU scheduler sum cell throughput: 3.412e+07
+CPU scheduler sum cell throughput: 1.530e+07
+GPU scheduler sum cell throughput: 1.530e+07
 ~~~~~~~~~~~~~~~~~TTI 62~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1642,11 +1642,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.470e+07
-GPU scheduler sum cell throughput: 3.470e+07
+CPU scheduler sum cell throughput: 1.548e+07
+GPU scheduler sum cell throughput: 1.548e+07
 ~~~~~~~~~~~~~~~~~TTI 63~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1668,11 +1668,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.519e+07
-GPU scheduler sum cell throughput: 3.519e+07
+CPU scheduler sum cell throughput: 1.571e+07
+GPU scheduler sum cell throughput: 1.571e+07
 ~~~~~~~~~~~~~~~~~TTI 64~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1697,8 +1697,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.564e+07
-GPU scheduler sum cell throughput: 3.564e+07
+CPU scheduler sum cell throughput: 1.597e+07
+GPU scheduler sum cell throughput: 1.597e+07
 ~~~~~~~~~~~~~~~~~TTI 65~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1723,8 +1723,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.615e+07
-GPU scheduler sum cell throughput: 3.615e+07
+CPU scheduler sum cell throughput: 1.635e+07
+GPU scheduler sum cell throughput: 1.635e+07
 ~~~~~~~~~~~~~~~~~TTI 66~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1746,11 +1746,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.671e+07
-GPU scheduler sum cell throughput: 3.671e+07
+CPU scheduler sum cell throughput: 1.664e+07
+GPU scheduler sum cell throughput: 1.664e+07
 ~~~~~~~~~~~~~~~~~TTI 67~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1775,8 +1775,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.719e+07
-GPU scheduler sum cell throughput: 3.719e+07
+CPU scheduler sum cell throughput: 1.689e+07
+GPU scheduler sum cell throughput: 1.689e+07
 ~~~~~~~~~~~~~~~~~TTI 68~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1798,11 +1798,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.771e+07
-GPU scheduler sum cell throughput: 3.771e+07
+CPU scheduler sum cell throughput: 1.718e+07
+GPU scheduler sum cell throughput: 1.718e+07
 ~~~~~~~~~~~~~~~~~TTI 69~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1827,8 +1827,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.826e+07
-GPU scheduler sum cell throughput: 3.826e+07
+CPU scheduler sum cell throughput: 1.751e+07
+GPU scheduler sum cell throughput: 1.751e+07
 ~~~~~~~~~~~~~~~~~TTI 70~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1850,11 +1850,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.880e+07
-GPU scheduler sum cell throughput: 3.880e+07
+CPU scheduler sum cell throughput: 1.781e+07
+GPU scheduler sum cell throughput: 1.781e+07
 ~~~~~~~~~~~~~~~~~TTI 71~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1876,11 +1876,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.940e+07
-GPU scheduler sum cell throughput: 3.940e+07
+CPU scheduler sum cell throughput: 1.809e+07
+GPU scheduler sum cell throughput: 1.809e+07
 ~~~~~~~~~~~~~~~~~TTI 72~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1902,11 +1902,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 3.996e+07
-GPU scheduler sum cell throughput: 3.996e+07
+CPU scheduler sum cell throughput: 1.824e+07
+GPU scheduler sum cell throughput: 1.824e+07
 ~~~~~~~~~~~~~~~~~TTI 73~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1931,8 +1931,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.055e+07
-GPU scheduler sum cell throughput: 4.055e+07
+CPU scheduler sum cell throughput: 1.846e+07
+GPU scheduler sum cell throughput: 1.846e+07
 ~~~~~~~~~~~~~~~~~TTI 74~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1957,8 +1957,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.113e+07
-GPU scheduler sum cell throughput: 4.113e+07
+CPU scheduler sum cell throughput: 1.871e+07
+GPU scheduler sum cell throughput: 1.871e+07
 ~~~~~~~~~~~~~~~~~TTI 75~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -1983,8 +1983,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.158e+07
-GPU scheduler sum cell throughput: 4.158e+07
+CPU scheduler sum cell throughput: 1.900e+07
+GPU scheduler sum cell throughput: 1.900e+07
 ~~~~~~~~~~~~~~~~~TTI 76~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2006,11 +2006,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.207e+07
-GPU scheduler sum cell throughput: 4.207e+07
+CPU scheduler sum cell throughput: 1.923e+07
+GPU scheduler sum cell throughput: 1.923e+07
 ~~~~~~~~~~~~~~~~~TTI 77~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2032,11 +2032,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.260e+07
-GPU scheduler sum cell throughput: 4.260e+07
+CPU scheduler sum cell throughput: 1.942e+07
+GPU scheduler sum cell throughput: 1.942e+07
 ~~~~~~~~~~~~~~~~~TTI 78~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2058,11 +2058,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.332e+07
-GPU scheduler sum cell throughput: 4.332e+07
+CPU scheduler sum cell throughput: 1.958e+07
+GPU scheduler sum cell throughput: 1.958e+07
 ~~~~~~~~~~~~~~~~~TTI 79~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2084,11 +2084,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.389e+07
-GPU scheduler sum cell throughput: 4.389e+07
+CPU scheduler sum cell throughput: 1.994e+07
+GPU scheduler sum cell throughput: 1.994e+07
 ~~~~~~~~~~~~~~~~~TTI 80~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2110,11 +2110,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.445e+07
-GPU scheduler sum cell throughput: 4.445e+07
+CPU scheduler sum cell throughput: 2.009e+07
+GPU scheduler sum cell throughput: 2.009e+07
 ~~~~~~~~~~~~~~~~~TTI 81~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2136,11 +2136,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.492e+07
-GPU scheduler sum cell throughput: 4.492e+07
+CPU scheduler sum cell throughput: 2.030e+07
+GPU scheduler sum cell throughput: 2.030e+07
 ~~~~~~~~~~~~~~~~~TTI 82~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2165,8 +2165,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.546e+07
-GPU scheduler sum cell throughput: 4.546e+07
+CPU scheduler sum cell throughput: 2.065e+07
+GPU scheduler sum cell throughput: 2.065e+07
 ~~~~~~~~~~~~~~~~~TTI 83~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2188,11 +2188,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.609e+07
-GPU scheduler sum cell throughput: 4.609e+07
+CPU scheduler sum cell throughput: 2.092e+07
+GPU scheduler sum cell throughput: 2.092e+07
 ~~~~~~~~~~~~~~~~~TTI 84~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2214,11 +2214,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.671e+07
-GPU scheduler sum cell throughput: 4.671e+07
+CPU scheduler sum cell throughput: 2.107e+07
+GPU scheduler sum cell throughput: 2.107e+07
 ~~~~~~~~~~~~~~~~~TTI 85~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2240,11 +2240,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.724e+07
-GPU scheduler sum cell throughput: 4.724e+07
+CPU scheduler sum cell throughput: 2.136e+07
+GPU scheduler sum cell throughput: 2.136e+07
 ~~~~~~~~~~~~~~~~~TTI 86~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2266,11 +2266,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.779e+07
-GPU scheduler sum cell throughput: 4.779e+07
+CPU scheduler sum cell throughput: 2.158e+07
+GPU scheduler sum cell throughput: 2.158e+07
 ~~~~~~~~~~~~~~~~~TTI 87~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2292,11 +2292,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.829e+07
-GPU scheduler sum cell throughput: 4.829e+07
+CPU scheduler sum cell throughput: 2.180e+07
+GPU scheduler sum cell throughput: 2.180e+07
 ~~~~~~~~~~~~~~~~~TTI 88~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2321,8 +2321,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.883e+07
-GPU scheduler sum cell throughput: 4.883e+07
+CPU scheduler sum cell throughput: 2.221e+07
+GPU scheduler sum cell throughput: 2.221e+07
 ~~~~~~~~~~~~~~~~~TTI 89~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2344,11 +2344,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.934e+07
-GPU scheduler sum cell throughput: 4.934e+07
+CPU scheduler sum cell throughput: 2.247e+07
+GPU scheduler sum cell throughput: 2.247e+07
 ~~~~~~~~~~~~~~~~~TTI 90~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2370,11 +2370,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 4.996e+07
-GPU scheduler sum cell throughput: 4.996e+07
+CPU scheduler sum cell throughput: 2.274e+07
+GPU scheduler sum cell throughput: 2.274e+07
 ~~~~~~~~~~~~~~~~~TTI 91~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2396,11 +2396,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.048e+07
-GPU scheduler sum cell throughput: 5.048e+07
+CPU scheduler sum cell throughput: 2.298e+07
+GPU scheduler sum cell throughput: 2.298e+07
 ~~~~~~~~~~~~~~~~~TTI 92~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2422,11 +2422,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.110e+07
-GPU scheduler sum cell throughput: 5.110e+07
+CPU scheduler sum cell throughput: 2.327e+07
+GPU scheduler sum cell throughput: 2.327e+07
 ~~~~~~~~~~~~~~~~~TTI 93~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2448,11 +2448,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.168e+07
-GPU scheduler sum cell throughput: 5.168e+07
+CPU scheduler sum cell throughput: 2.357e+07
+GPU scheduler sum cell throughput: 2.357e+07
 ~~~~~~~~~~~~~~~~~TTI 94~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2474,11 +2474,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.222e+07
-GPU scheduler sum cell throughput: 5.222e+07
+CPU scheduler sum cell throughput: 2.390e+07
+GPU scheduler sum cell throughput: 2.390e+07
 ~~~~~~~~~~~~~~~~~TTI 95~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2500,11 +2500,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.287e+07
-GPU scheduler sum cell throughput: 5.287e+07
+CPU scheduler sum cell throughput: 2.416e+07
+GPU scheduler sum cell throughput: 2.416e+07
 ~~~~~~~~~~~~~~~~~TTI 96~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2526,11 +2526,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.331e+07
-GPU scheduler sum cell throughput: 5.331e+07
+CPU scheduler sum cell throughput: 2.444e+07
+GPU scheduler sum cell throughput: 2.444e+07
 ~~~~~~~~~~~~~~~~~TTI 97~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2552,11 +2552,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.374e+07
-GPU scheduler sum cell throughput: 5.374e+07
+CPU scheduler sum cell throughput: 2.470e+07
+GPU scheduler sum cell throughput: 2.470e+07
 ~~~~~~~~~~~~~~~~~TTI 98~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2578,11 +2578,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.436e+07
-GPU scheduler sum cell throughput: 5.436e+07
+CPU scheduler sum cell throughput: 2.492e+07
+GPU scheduler sum cell throughput: 2.492e+07
 ~~~~~~~~~~~~~~~~~TTI 99~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2604,11 +2604,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.488e+07
-GPU scheduler sum cell throughput: 5.488e+07
+CPU scheduler sum cell throughput: 2.515e+07
+GPU scheduler sum cell throughput: 2.515e+07
 ~~~~~~~~~~~~~~~~~TTI 100~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2630,11 +2630,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.528e+07
-GPU scheduler sum cell throughput: 5.528e+07
+CPU scheduler sum cell throughput: 2.543e+07
+GPU scheduler sum cell throughput: 2.543e+07
 ~~~~~~~~~~~~~~~~~TTI 101~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2656,11 +2656,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.572e+07
-GPU scheduler sum cell throughput: 5.572e+07
+CPU scheduler sum cell throughput: 2.559e+07
+GPU scheduler sum cell throughput: 2.559e+07
 ~~~~~~~~~~~~~~~~~TTI 102~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2682,11 +2682,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.621e+07
-GPU scheduler sum cell throughput: 5.621e+07
+CPU scheduler sum cell throughput: 2.587e+07
+GPU scheduler sum cell throughput: 2.587e+07
 ~~~~~~~~~~~~~~~~~TTI 103~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2711,8 +2711,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.672e+07
-GPU scheduler sum cell throughput: 5.672e+07
+CPU scheduler sum cell throughput: 2.616e+07
+GPU scheduler sum cell throughput: 2.616e+07
 ~~~~~~~~~~~~~~~~~TTI 104~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2737,8 +2737,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.712e+07
-GPU scheduler sum cell throughput: 5.712e+07
+CPU scheduler sum cell throughput: 2.633e+07
+GPU scheduler sum cell throughput: 2.633e+07
 ~~~~~~~~~~~~~~~~~TTI 105~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2763,8 +2763,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.743e+07
-GPU scheduler sum cell throughput: 5.743e+07
+CPU scheduler sum cell throughput: 2.658e+07
+GPU scheduler sum cell throughput: 2.658e+07
 ~~~~~~~~~~~~~~~~~TTI 106~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2786,11 +2786,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.786e+07
-GPU scheduler sum cell throughput: 5.786e+07
+CPU scheduler sum cell throughput: 2.675e+07
+GPU scheduler sum cell throughput: 2.675e+07
 ~~~~~~~~~~~~~~~~~TTI 107~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2812,11 +2812,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.838e+07
-GPU scheduler sum cell throughput: 5.838e+07
+CPU scheduler sum cell throughput: 2.696e+07
+GPU scheduler sum cell throughput: 2.696e+07
 ~~~~~~~~~~~~~~~~~TTI 108~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2838,11 +2838,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.888e+07
-GPU scheduler sum cell throughput: 5.888e+07
+CPU scheduler sum cell throughput: 2.720e+07
+GPU scheduler sum cell throughput: 2.720e+07
 ~~~~~~~~~~~~~~~~~TTI 109~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2864,11 +2864,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.946e+07
-GPU scheduler sum cell throughput: 5.946e+07
+CPU scheduler sum cell throughput: 2.753e+07
+GPU scheduler sum cell throughput: 2.753e+07
 ~~~~~~~~~~~~~~~~~TTI 110~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2890,11 +2890,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 5.986e+07
-GPU scheduler sum cell throughput: 5.986e+07
+CPU scheduler sum cell throughput: 2.774e+07
+GPU scheduler sum cell throughput: 2.774e+07
 ~~~~~~~~~~~~~~~~~TTI 111~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2916,11 +2916,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.046e+07
-GPU scheduler sum cell throughput: 6.046e+07
+CPU scheduler sum cell throughput: 2.806e+07
+GPU scheduler sum cell throughput: 2.806e+07
 ~~~~~~~~~~~~~~~~~TTI 112~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2942,11 +2942,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.110e+07
-GPU scheduler sum cell throughput: 6.110e+07
+CPU scheduler sum cell throughput: 2.829e+07
+GPU scheduler sum cell throughput: 2.829e+07
 ~~~~~~~~~~~~~~~~~TTI 113~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2968,11 +2968,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.163e+07
-GPU scheduler sum cell throughput: 6.163e+07
+CPU scheduler sum cell throughput: 2.855e+07
+GPU scheduler sum cell throughput: 2.855e+07
 ~~~~~~~~~~~~~~~~~TTI 114~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -2994,11 +2994,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.216e+07
-GPU scheduler sum cell throughput: 6.216e+07
+CPU scheduler sum cell throughput: 2.884e+07
+GPU scheduler sum cell throughput: 2.884e+07
 ~~~~~~~~~~~~~~~~~TTI 115~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3019,12 +3019,12 @@ GPU MCS selection solution computed
 CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
-Failure: CPU and GPU PRG allocation solutions do not match
-Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.271e+07
-GPU scheduler sum cell throughput: 6.272e+07
+CPU scheduler sum cell throughput: 2.926e+07
+GPU scheduler sum cell throughput: 2.926e+07
 ~~~~~~~~~~~~~~~~~TTI 116~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3046,11 +3046,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.320e+07
-GPU scheduler sum cell throughput: 6.321e+07
+CPU scheduler sum cell throughput: 2.954e+07
+GPU scheduler sum cell throughput: 2.954e+07
 ~~~~~~~~~~~~~~~~~TTI 117~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3072,11 +3072,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.352e+07
-GPU scheduler sum cell throughput: 6.353e+07
+CPU scheduler sum cell throughput: 2.974e+07
+GPU scheduler sum cell throughput: 2.974e+07
 ~~~~~~~~~~~~~~~~~TTI 118~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3098,11 +3098,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.387e+07
-GPU scheduler sum cell throughput: 6.388e+07
+CPU scheduler sum cell throughput: 3.004e+07
+GPU scheduler sum cell throughput: 3.004e+07
 ~~~~~~~~~~~~~~~~~TTI 119~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3127,8 +3127,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.423e+07
-GPU scheduler sum cell throughput: 6.423e+07
+CPU scheduler sum cell throughput: 3.028e+07
+GPU scheduler sum cell throughput: 3.028e+07
 ~~~~~~~~~~~~~~~~~TTI 120~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3150,11 +3150,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.470e+07
-GPU scheduler sum cell throughput: 6.471e+07
+CPU scheduler sum cell throughput: 3.053e+07
+GPU scheduler sum cell throughput: 3.053e+07
 ~~~~~~~~~~~~~~~~~TTI 121~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3176,11 +3176,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.511e+07
-GPU scheduler sum cell throughput: 6.511e+07
+CPU scheduler sum cell throughput: 3.085e+07
+GPU scheduler sum cell throughput: 3.085e+07
 ~~~~~~~~~~~~~~~~~TTI 122~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3205,8 +3205,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.544e+07
-GPU scheduler sum cell throughput: 6.545e+07
+CPU scheduler sum cell throughput: 3.111e+07
+GPU scheduler sum cell throughput: 3.111e+07
 ~~~~~~~~~~~~~~~~~TTI 123~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3228,11 +3228,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.585e+07
-GPU scheduler sum cell throughput: 6.585e+07
+CPU scheduler sum cell throughput: 3.126e+07
+GPU scheduler sum cell throughput: 3.126e+07
 ~~~~~~~~~~~~~~~~~TTI 124~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3254,11 +3254,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.633e+07
-GPU scheduler sum cell throughput: 6.634e+07
+CPU scheduler sum cell throughput: 3.158e+07
+GPU scheduler sum cell throughput: 3.158e+07
 ~~~~~~~~~~~~~~~~~TTI 125~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3280,11 +3280,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.686e+07
-GPU scheduler sum cell throughput: 6.687e+07
+CPU scheduler sum cell throughput: 3.196e+07
+GPU scheduler sum cell throughput: 3.196e+07
 ~~~~~~~~~~~~~~~~~TTI 126~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3306,11 +3306,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.749e+07
-GPU scheduler sum cell throughput: 6.750e+07
+CPU scheduler sum cell throughput: 3.235e+07
+GPU scheduler sum cell throughput: 3.235e+07
 ~~~~~~~~~~~~~~~~~TTI 127~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3332,11 +3332,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.816e+07
-GPU scheduler sum cell throughput: 6.817e+07
+CPU scheduler sum cell throughput: 3.258e+07
+GPU scheduler sum cell throughput: 3.258e+07
 ~~~~~~~~~~~~~~~~~TTI 128~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3361,8 +3361,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.873e+07
-GPU scheduler sum cell throughput: 6.874e+07
+CPU scheduler sum cell throughput: 3.290e+07
+GPU scheduler sum cell throughput: 3.290e+07
 ~~~~~~~~~~~~~~~~~TTI 129~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3384,11 +3384,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.920e+07
-GPU scheduler sum cell throughput: 6.921e+07
+CPU scheduler sum cell throughput: 3.306e+07
+GPU scheduler sum cell throughput: 3.306e+07
 ~~~~~~~~~~~~~~~~~TTI 130~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3410,11 +3410,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 6.968e+07
-GPU scheduler sum cell throughput: 6.969e+07
+CPU scheduler sum cell throughput: 3.328e+07
+GPU scheduler sum cell throughput: 3.328e+07
 ~~~~~~~~~~~~~~~~~TTI 131~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3436,11 +3436,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.028e+07
-GPU scheduler sum cell throughput: 7.028e+07
+CPU scheduler sum cell throughput: 3.371e+07
+GPU scheduler sum cell throughput: 3.371e+07
 ~~~~~~~~~~~~~~~~~TTI 132~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3462,11 +3462,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.089e+07
-GPU scheduler sum cell throughput: 7.090e+07
+CPU scheduler sum cell throughput: 3.390e+07
+GPU scheduler sum cell throughput: 3.390e+07
 ~~~~~~~~~~~~~~~~~TTI 133~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3488,11 +3488,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.136e+07
-GPU scheduler sum cell throughput: 7.137e+07
+CPU scheduler sum cell throughput: 3.405e+07
+GPU scheduler sum cell throughput: 3.405e+07
 ~~~~~~~~~~~~~~~~~TTI 134~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3514,11 +3514,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.182e+07
-GPU scheduler sum cell throughput: 7.183e+07
+CPU scheduler sum cell throughput: 3.434e+07
+GPU scheduler sum cell throughput: 3.434e+07
 ~~~~~~~~~~~~~~~~~TTI 135~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3540,11 +3540,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.235e+07
-GPU scheduler sum cell throughput: 7.236e+07
+CPU scheduler sum cell throughput: 3.466e+07
+GPU scheduler sum cell throughput: 3.466e+07
 ~~~~~~~~~~~~~~~~~TTI 136~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3566,11 +3566,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.290e+07
-GPU scheduler sum cell throughput: 7.291e+07
+CPU scheduler sum cell throughput: 3.498e+07
+GPU scheduler sum cell throughput: 3.498e+07
 ~~~~~~~~~~~~~~~~~TTI 137~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3592,11 +3592,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.327e+07
-GPU scheduler sum cell throughput: 7.327e+07
+CPU scheduler sum cell throughput: 3.531e+07
+GPU scheduler sum cell throughput: 3.531e+07
 ~~~~~~~~~~~~~~~~~TTI 138~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3618,11 +3618,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.370e+07
-GPU scheduler sum cell throughput: 7.370e+07
+CPU scheduler sum cell throughput: 3.559e+07
+GPU scheduler sum cell throughput: 3.559e+07
 ~~~~~~~~~~~~~~~~~TTI 139~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3643,12 +3643,12 @@ GPU MCS selection solution computed
 CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
-Failure: CPU and GPU PRG allocation solutions do not match
-Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.416e+07
-GPU scheduler sum cell throughput: 7.412e+07
+CPU scheduler sum cell throughput: 3.572e+07
+GPU scheduler sum cell throughput: 3.572e+07
 ~~~~~~~~~~~~~~~~~TTI 140~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3670,11 +3670,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.454e+07
-GPU scheduler sum cell throughput: 7.450e+07
+CPU scheduler sum cell throughput: 3.601e+07
+GPU scheduler sum cell throughput: 3.601e+07
 ~~~~~~~~~~~~~~~~~TTI 141~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3696,11 +3696,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.510e+07
-GPU scheduler sum cell throughput: 7.506e+07
+CPU scheduler sum cell throughput: 3.622e+07
+GPU scheduler sum cell throughput: 3.622e+07
 ~~~~~~~~~~~~~~~~~TTI 142~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3722,11 +3722,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.570e+07
-GPU scheduler sum cell throughput: 7.565e+07
+CPU scheduler sum cell throughput: 3.652e+07
+GPU scheduler sum cell throughput: 3.652e+07
 ~~~~~~~~~~~~~~~~~TTI 143~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3748,11 +3748,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.623e+07
-GPU scheduler sum cell throughput: 7.619e+07
+CPU scheduler sum cell throughput: 3.674e+07
+GPU scheduler sum cell throughput: 3.674e+07
 ~~~~~~~~~~~~~~~~~TTI 144~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3774,11 +3774,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.670e+07
-GPU scheduler sum cell throughput: 7.666e+07
+CPU scheduler sum cell throughput: 3.705e+07
+GPU scheduler sum cell throughput: 3.705e+07
 ~~~~~~~~~~~~~~~~~TTI 145~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3800,11 +3800,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.706e+07
-GPU scheduler sum cell throughput: 7.701e+07
+CPU scheduler sum cell throughput: 3.728e+07
+GPU scheduler sum cell throughput: 3.728e+07
 ~~~~~~~~~~~~~~~~~TTI 146~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3825,12 +3825,12 @@ GPU MCS selection solution computed
 CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
-Failure: CPU and GPU PRG allocation solutions do not match
-Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.755e+07
-GPU scheduler sum cell throughput: 7.754e+07
+CPU scheduler sum cell throughput: 3.750e+07
+GPU scheduler sum cell throughput: 3.750e+07
 ~~~~~~~~~~~~~~~~~TTI 147~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3852,11 +3852,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.812e+07
-GPU scheduler sum cell throughput: 7.811e+07
+CPU scheduler sum cell throughput: 3.774e+07
+GPU scheduler sum cell throughput: 3.774e+07
 ~~~~~~~~~~~~~~~~~TTI 148~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3881,8 +3881,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.863e+07
-GPU scheduler sum cell throughput: 7.862e+07
+CPU scheduler sum cell throughput: 3.801e+07
+GPU scheduler sum cell throughput: 3.801e+07
 ~~~~~~~~~~~~~~~~~TTI 149~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3904,11 +3904,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.912e+07
-GPU scheduler sum cell throughput: 7.910e+07
+CPU scheduler sum cell throughput: 3.823e+07
+GPU scheduler sum cell throughput: 3.823e+07
 ~~~~~~~~~~~~~~~~~TTI 150~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3933,8 +3933,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.962e+07
-GPU scheduler sum cell throughput: 7.961e+07
+CPU scheduler sum cell throughput: 3.844e+07
+GPU scheduler sum cell throughput: 3.844e+07
 ~~~~~~~~~~~~~~~~~TTI 151~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3956,11 +3956,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 7.997e+07
-GPU scheduler sum cell throughput: 7.995e+07
+CPU scheduler sum cell throughput: 3.865e+07
+GPU scheduler sum cell throughput: 3.865e+07
 ~~~~~~~~~~~~~~~~~TTI 152~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -3982,11 +3982,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.050e+07
-GPU scheduler sum cell throughput: 8.048e+07
+CPU scheduler sum cell throughput: 3.885e+07
+GPU scheduler sum cell throughput: 3.885e+07
 ~~~~~~~~~~~~~~~~~TTI 153~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4008,11 +4008,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.112e+07
-GPU scheduler sum cell throughput: 8.110e+07
+CPU scheduler sum cell throughput: 3.904e+07
+GPU scheduler sum cell throughput: 3.904e+07
 ~~~~~~~~~~~~~~~~~TTI 154~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4034,11 +4034,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.162e+07
-GPU scheduler sum cell throughput: 8.160e+07
+CPU scheduler sum cell throughput: 3.933e+07
+GPU scheduler sum cell throughput: 3.933e+07
 ~~~~~~~~~~~~~~~~~TTI 155~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4063,8 +4063,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.213e+07
-GPU scheduler sum cell throughput: 8.211e+07
+CPU scheduler sum cell throughput: 3.958e+07
+GPU scheduler sum cell throughput: 3.958e+07
 ~~~~~~~~~~~~~~~~~TTI 156~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4086,11 +4086,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.262e+07
-GPU scheduler sum cell throughput: 8.260e+07
+CPU scheduler sum cell throughput: 3.977e+07
+GPU scheduler sum cell throughput: 3.977e+07
 ~~~~~~~~~~~~~~~~~TTI 157~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4112,11 +4112,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.299e+07
-GPU scheduler sum cell throughput: 8.298e+07
+CPU scheduler sum cell throughput: 3.989e+07
+GPU scheduler sum cell throughput: 3.989e+07
 ~~~~~~~~~~~~~~~~~TTI 158~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4138,11 +4138,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.341e+07
-GPU scheduler sum cell throughput: 8.340e+07
+CPU scheduler sum cell throughput: 4.003e+07
+GPU scheduler sum cell throughput: 4.003e+07
 ~~~~~~~~~~~~~~~~~TTI 159~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4164,11 +4164,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.403e+07
-GPU scheduler sum cell throughput: 8.402e+07
+CPU scheduler sum cell throughput: 4.025e+07
+GPU scheduler sum cell throughput: 4.025e+07
 ~~~~~~~~~~~~~~~~~TTI 160~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4190,11 +4190,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.463e+07
-GPU scheduler sum cell throughput: 8.461e+07
+CPU scheduler sum cell throughput: 4.042e+07
+GPU scheduler sum cell throughput: 4.042e+07
 ~~~~~~~~~~~~~~~~~TTI 161~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4219,8 +4219,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.518e+07
-GPU scheduler sum cell throughput: 8.517e+07
+CPU scheduler sum cell throughput: 4.064e+07
+GPU scheduler sum cell throughput: 4.064e+07
 ~~~~~~~~~~~~~~~~~TTI 162~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4242,11 +4242,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.571e+07
-GPU scheduler sum cell throughput: 8.570e+07
+CPU scheduler sum cell throughput: 4.095e+07
+GPU scheduler sum cell throughput: 4.095e+07
 ~~~~~~~~~~~~~~~~~TTI 163~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4271,8 +4271,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.628e+07
-GPU scheduler sum cell throughput: 8.627e+07
+CPU scheduler sum cell throughput: 4.116e+07
+GPU scheduler sum cell throughput: 4.116e+07
 ~~~~~~~~~~~~~~~~~TTI 164~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4297,8 +4297,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.690e+07
-GPU scheduler sum cell throughput: 8.689e+07
+CPU scheduler sum cell throughput: 4.125e+07
+GPU scheduler sum cell throughput: 4.125e+07
 ~~~~~~~~~~~~~~~~~TTI 165~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4320,11 +4320,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.750e+07
-GPU scheduler sum cell throughput: 8.749e+07
+CPU scheduler sum cell throughput: 4.145e+07
+GPU scheduler sum cell throughput: 4.145e+07
 ~~~~~~~~~~~~~~~~~TTI 166~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4346,11 +4346,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.805e+07
-GPU scheduler sum cell throughput: 8.804e+07
+CPU scheduler sum cell throughput: 4.174e+07
+GPU scheduler sum cell throughput: 4.174e+07
 ~~~~~~~~~~~~~~~~~TTI 167~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4372,11 +4372,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.840e+07
-GPU scheduler sum cell throughput: 8.838e+07
+CPU scheduler sum cell throughput: 4.194e+07
+GPU scheduler sum cell throughput: 4.194e+07
 ~~~~~~~~~~~~~~~~~TTI 168~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4398,11 +4398,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.882e+07
-GPU scheduler sum cell throughput: 8.880e+07
+CPU scheduler sum cell throughput: 4.218e+07
+GPU scheduler sum cell throughput: 4.218e+07
 ~~~~~~~~~~~~~~~~~TTI 169~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4424,11 +4424,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.940e+07
-GPU scheduler sum cell throughput: 8.939e+07
+CPU scheduler sum cell throughput: 4.250e+07
+GPU scheduler sum cell throughput: 4.250e+07
 ~~~~~~~~~~~~~~~~~TTI 170~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4450,11 +4450,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 8.988e+07
-GPU scheduler sum cell throughput: 8.987e+07
+CPU scheduler sum cell throughput: 4.274e+07
+GPU scheduler sum cell throughput: 4.274e+07
 ~~~~~~~~~~~~~~~~~TTI 171~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4476,11 +4476,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.032e+07
-GPU scheduler sum cell throughput: 9.030e+07
+CPU scheduler sum cell throughput: 4.302e+07
+GPU scheduler sum cell throughput: 4.302e+07
 ~~~~~~~~~~~~~~~~~TTI 172~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4502,11 +4502,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.099e+07
-GPU scheduler sum cell throughput: 9.097e+07
+CPU scheduler sum cell throughput: 4.320e+07
+GPU scheduler sum cell throughput: 4.320e+07
 ~~~~~~~~~~~~~~~~~TTI 173~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4528,11 +4528,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.140e+07
-GPU scheduler sum cell throughput: 9.139e+07
+CPU scheduler sum cell throughput: 4.340e+07
+GPU scheduler sum cell throughput: 4.340e+07
 ~~~~~~~~~~~~~~~~~TTI 174~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4554,11 +4554,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.184e+07
-GPU scheduler sum cell throughput: 9.183e+07
+CPU scheduler sum cell throughput: 4.378e+07
+GPU scheduler sum cell throughput: 4.378e+07
 ~~~~~~~~~~~~~~~~~TTI 175~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4580,11 +4580,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.236e+07
-GPU scheduler sum cell throughput: 9.234e+07
+CPU scheduler sum cell throughput: 4.390e+07
+GPU scheduler sum cell throughput: 4.390e+07
 ~~~~~~~~~~~~~~~~~TTI 176~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4606,11 +4606,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.267e+07
-GPU scheduler sum cell throughput: 9.265e+07
+CPU scheduler sum cell throughput: 4.410e+07
+GPU scheduler sum cell throughput: 4.410e+07
 ~~~~~~~~~~~~~~~~~TTI 177~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4632,11 +4632,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.325e+07
-GPU scheduler sum cell throughput: 9.323e+07
+CPU scheduler sum cell throughput: 4.434e+07
+GPU scheduler sum cell throughput: 4.434e+07
 ~~~~~~~~~~~~~~~~~TTI 178~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4658,11 +4658,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.388e+07
-GPU scheduler sum cell throughput: 9.386e+07
+CPU scheduler sum cell throughput: 4.460e+07
+GPU scheduler sum cell throughput: 4.460e+07
 ~~~~~~~~~~~~~~~~~TTI 179~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4687,8 +4687,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.439e+07
-GPU scheduler sum cell throughput: 9.438e+07
+CPU scheduler sum cell throughput: 4.498e+07
+GPU scheduler sum cell throughput: 4.498e+07
 ~~~~~~~~~~~~~~~~~TTI 180~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4710,11 +4710,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.494e+07
-GPU scheduler sum cell throughput: 9.493e+07
+CPU scheduler sum cell throughput: 4.522e+07
+GPU scheduler sum cell throughput: 4.522e+07
 ~~~~~~~~~~~~~~~~~TTI 181~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4735,12 +4735,12 @@ GPU MCS selection solution computed
 CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
-Failure: CPU and GPU PRG allocation solutions do not match
-Success: CPU and GPU layer selection solutions match
+Success: CPU and GPU PRG allocation solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.539e+07
-GPU scheduler sum cell throughput: 9.537e+07
+CPU scheduler sum cell throughput: 4.563e+07
+GPU scheduler sum cell throughput: 4.563e+07
 ~~~~~~~~~~~~~~~~~TTI 182~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4762,11 +4762,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.593e+07
-GPU scheduler sum cell throughput: 9.592e+07
+CPU scheduler sum cell throughput: 4.588e+07
+GPU scheduler sum cell throughput: 4.588e+07
 ~~~~~~~~~~~~~~~~~TTI 183~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4788,11 +4788,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.646e+07
-GPU scheduler sum cell throughput: 9.644e+07
+CPU scheduler sum cell throughput: 4.625e+07
+GPU scheduler sum cell throughput: 4.625e+07
 ~~~~~~~~~~~~~~~~~TTI 184~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4814,11 +4814,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.697e+07
-GPU scheduler sum cell throughput: 9.696e+07
+CPU scheduler sum cell throughput: 4.636e+07
+GPU scheduler sum cell throughput: 4.636e+07
 ~~~~~~~~~~~~~~~~~TTI 185~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4840,11 +4840,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.752e+07
-GPU scheduler sum cell throughput: 9.751e+07
+CPU scheduler sum cell throughput: 4.654e+07
+GPU scheduler sum cell throughput: 4.654e+07
 ~~~~~~~~~~~~~~~~~TTI 186~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4866,11 +4866,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.802e+07
-GPU scheduler sum cell throughput: 9.800e+07
+CPU scheduler sum cell throughput: 4.690e+07
+GPU scheduler sum cell throughput: 4.690e+07
 ~~~~~~~~~~~~~~~~~TTI 187~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4892,11 +4892,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.850e+07
-GPU scheduler sum cell throughput: 9.849e+07
+CPU scheduler sum cell throughput: 4.721e+07
+GPU scheduler sum cell throughput: 4.721e+07
 ~~~~~~~~~~~~~~~~~TTI 188~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4918,11 +4918,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.891e+07
-GPU scheduler sum cell throughput: 9.890e+07
+CPU scheduler sum cell throughput: 4.761e+07
+GPU scheduler sum cell throughput: 4.761e+07
 ~~~~~~~~~~~~~~~~~TTI 189~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4944,11 +4944,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.939e+07
-GPU scheduler sum cell throughput: 9.938e+07
+CPU scheduler sum cell throughput: 4.786e+07
+GPU scheduler sum cell throughput: 4.786e+07
 ~~~~~~~~~~~~~~~~~TTI 190~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4970,11 +4970,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 9.981e+07
-GPU scheduler sum cell throughput: 9.980e+07
+CPU scheduler sum cell throughput: 4.800e+07
+GPU scheduler sum cell throughput: 4.800e+07
 ~~~~~~~~~~~~~~~~~TTI 191~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -4999,8 +4999,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.003e+08
-GPU scheduler sum cell throughput: 1.003e+08
+CPU scheduler sum cell throughput: 4.823e+07
+GPU scheduler sum cell throughput: 4.823e+07
 ~~~~~~~~~~~~~~~~~TTI 192~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5025,8 +5025,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.008e+08
-GPU scheduler sum cell throughput: 1.008e+08
+CPU scheduler sum cell throughput: 4.838e+07
+GPU scheduler sum cell throughput: 4.838e+07
 ~~~~~~~~~~~~~~~~~TTI 193~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5051,8 +5051,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.013e+08
-GPU scheduler sum cell throughput: 1.013e+08
+CPU scheduler sum cell throughput: 4.851e+07
+GPU scheduler sum cell throughput: 4.851e+07
 ~~~~~~~~~~~~~~~~~TTI 194~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5074,11 +5074,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.015e+08
-GPU scheduler sum cell throughput: 1.015e+08
+CPU scheduler sum cell throughput: 4.866e+07
+GPU scheduler sum cell throughput: 4.866e+07
 ~~~~~~~~~~~~~~~~~TTI 195~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5100,11 +5100,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.017e+08
-GPU scheduler sum cell throughput: 1.017e+08
+CPU scheduler sum cell throughput: 4.872e+07
+GPU scheduler sum cell throughput: 4.872e+07
 ~~~~~~~~~~~~~~~~~TTI 196~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5126,11 +5126,11 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.021e+08
-GPU scheduler sum cell throughput: 1.021e+08
+CPU scheduler sum cell throughput: 4.900e+07
+GPU scheduler sum cell throughput: 4.900e+07
 ~~~~~~~~~~~~~~~~~TTI 197~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5155,8 +5155,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.025e+08
-GPU scheduler sum cell throughput: 1.025e+08
+CPU scheduler sum cell throughput: 4.943e+07
+GPU scheduler sum cell throughput: 4.943e+07
 ~~~~~~~~~~~~~~~~~TTI 198~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5181,8 +5181,8 @@ Success: CPU and GPU PRG allocation solutions match
 Success: CPU and GPU layer selection solutions match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.029e+08
-GPU scheduler sum cell throughput: 1.029e+08
+CPU scheduler sum cell throughput: 4.969e+07
+GPU scheduler sum cell throughput: 4.969e+07
 ~~~~~~~~~~~~~~~~~TTI 199~~~~~~~~~~~~~~~~~~~~
 GPU channel generated
 API setup completed
@@ -5204,14 +5204,16 @@ CPU MCS selection solution computed
 Scheduling solution transferred to host
 Success: CPU and GPU UE selection solutions match
 Success: CPU and GPU PRG allocation solutions match
-Success: CPU and GPU layer selection solutions match
+Failure: CPU and GPU layer selection solutions do not match
 Success: CPU and GPU MCS selection solutions match
 Success: CPU and GPU channels match
-CPU scheduler sum cell throughput: 1.034e+08
-GPU scheduler sum cell throughput: 1.034e+08
+CPU scheduler sum cell throughput: 4.985e+07
+GPU scheduler sum cell throughput: 4.985e+07
 CPU and GPU scheduler per-UE throughput performance check result: PASS
 Largest gap (in percentage) between CPU and GPU per-UE throughput CDFs = 0.000000%
 CPU and GPU scheduler sum throughput performance check result: PASS
-Largest gap (in percentage) between CPU and GPU sum throughput curves = 0.056653%
+Largest gap (in percentage) between CPU and GPU sum throughput curves = 0.000000%
 CPU and GPU scheduler performance check result: PASS
-01:55:36.066311 trafficGenerator.hpp:142 INF[1049  ] [CUMAC.UTILS] Configuring Observer for 0 flows
+TRAFFIC_KPI flows=24 generated_pkts=7415 generated_bytes=37075000 accepted_bytes=37075000 dropped_bytes=0 flow_queued_bytes=0 mac_buffer_bytes=8037592 served_bytes_est=29037408
+TRAFFIC_KPI offered_mbps=2966.000000 served_mbps_est=2322.992640 drop_rate=0.000000 queue_delay_est_ms=27.680129
+02:28:29.190017 trafficGenerator.hpp:144 INF[2326  ] [CUMAC.UTILS] Configuring Observer for 24 flows

@@ -15,12 +15,154 @@
  * limitations under the License.
  */
 
- #include "network.h"
- #include "../src/api.h"
- #include "../src/cumac.h"
+#include "network.h"
+#include "../src/api.h"
+#include "../src/cumac.h"
+#include <algorithm>
+#include <array>
+#include <cstdlib>
+#include <cctype>
+#include <cstring>
+#include <limits>
+#include <cstdio>
+#include <utility>
 
 // cuMAC namespace
 namespace cumac {
+
+namespace {
+
+struct HexCoord {
+    int q;
+    int r;
+};
+
+std::vector<HexCoord> buildHexSiteLayout()
+{
+    // Standard 1+6 cluster plus one outer ring of 12 interferer sites.
+    return {
+        {0, 0},
+        {1, 0}, {0, 1}, {-1, 1}, {-1, 0}, {0, -1}, {1, -1},
+        {2, 0}, {1, 1}, {0, 2}, {-1, 2}, {-2, 2}, {-2, 1},
+        {-2, 0}, {-1, -1}, {0, -2}, {1, -2}, {2, -2}, {2, -1},
+    };
+}
+
+inline std::pair<float, float> axialToCartesian(const HexCoord& coord, float siteSpacing)
+{
+    const float x = siteSpacing * (static_cast<float>(coord.q) + 0.5f * static_cast<float>(coord.r));
+    const float y = siteSpacing * (std::sqrt(3.0f) * 0.5f * static_cast<float>(coord.r));
+    return {x, y};
+}
+
+enum class UePlacementMode {
+    Uniform,
+    Stratified,
+};
+
+struct UePlacementConfig {
+    UePlacementMode mode;
+    float centerMaxRatio;
+    float midMaxRatio;
+    bool hasCustomStrataCounts;
+    bool enforceVoronoiClip;
+    std::array<int, 3> strataCounts;
+};
+
+inline float computeVoronoiRadialLimit(const networkData* netData, int servingCellIdx, float dirX, float dirY)
+{
+    const float servingX = netData->bsPos[servingCellIdx][0];
+    const float servingY = netData->bsPos[servingCellIdx][1];
+    float maxRadius = std::numeric_limits<float>::infinity();
+
+    for (int otherCellIdx = 0; otherCellIdx < netData->numCoorCell; ++otherCellIdx) {
+        if (otherCellIdx == servingCellIdx) {
+            continue;
+        }
+
+        const float deltaX = netData->bsPos[otherCellIdx][0] - servingX;
+        const float deltaY = netData->bsPos[otherCellIdx][1] - servingY;
+        const float projection = dirX * deltaX + dirY * deltaY;
+        if (projection <= 0.0f) {
+            continue;
+        }
+
+        const float boundaryRadius = (deltaX * deltaX + deltaY * deltaY) / (2.0f * projection);
+        maxRadius = std::min(maxRadius, boundaryRadius);
+    }
+
+    return maxRadius;
+}
+
+static unsigned int getTopologySeed()
+{
+    const char* env = std::getenv("CUMAC_TOPOLOGY_SEED");
+    if (env == nullptr || env[0] == '\0') {
+        return static_cast<unsigned int>(seedConst);
+    }
+
+    char* endPtr = nullptr;
+    unsigned long parsed = std::strtoul(env, &endPtr, 10);
+    if (endPtr == env || (endPtr != nullptr && *endPtr != '\0')) {
+        return static_cast<unsigned int>(seedConst);
+    }
+    return static_cast<unsigned int>(parsed);
+}
+
+static UePlacementConfig getUePlacementConfig()
+{
+    UePlacementConfig cfg{UePlacementMode::Uniform, 0.33f, 0.66f, false, true, {0, 0, 0}};
+
+    const char* envMode = std::getenv("CUMAC_UE_PLACEMENT_MODE");
+    if (envMode != nullptr && envMode[0] != '\0' && std::strcmp(envMode, "stratified") == 0) {
+        cfg.mode = UePlacementMode::Stratified;
+    }
+
+    const char* envSplits = std::getenv("CUMAC_UE_RADIUS_SPLITS");
+    if (envSplits != nullptr && envSplits[0] != '\0') {
+        float centerMax = cfg.centerMaxRatio;
+        float midMax = cfg.midMaxRatio;
+        if (std::sscanf(envSplits, "%f,%f", &centerMax, &midMax) == 2 &&
+            centerMax > 0.0f && centerMax < midMax && midMax < 1.0f) {
+            cfg.centerMaxRatio = centerMax;
+            cfg.midMaxRatio = midMax;
+        }
+    }
+
+    const char* envCounts = std::getenv("CUMAC_UE_STRATA_COUNTS");
+    if (envCounts != nullptr && envCounts[0] != '\0') {
+        int centerCount = 0;
+        int midCount = 0;
+        int edgeCount = 0;
+        if (std::sscanf(envCounts, "%d,%d,%d", &centerCount, &midCount, &edgeCount) == 3 &&
+            centerCount >= 0 && midCount >= 0 && edgeCount >= 0) {
+            cfg.hasCustomStrataCounts = true;
+            cfg.strataCounts = {centerCount, midCount, edgeCount};
+        }
+    }
+
+    const char* envVoronoiClip = std::getenv("CUMAC_UE_VORONOI_CLIP");
+    if (envVoronoiClip != nullptr && envVoronoiClip[0] != '\0') {
+        cfg.enforceVoronoiClip = std::atoi(envVoronoiClip) != 0;
+    }
+
+    return cfg;
+}
+
+} // namespace
+
+static int getTtiKpiLogInterval()
+{
+    static int interval = []() {
+        const char* env = std::getenv("CUMAC_TTI_KPI_LOG_INTERVAL");
+        if (env == nullptr || env[0] == '\0') {
+            return 100;
+        }
+        int v = std::atoi(env);
+        return v >= 0 ? v : 100;
+    }();
+    return interval;
+}
 
  network::network(uint8_t in_DL, uint8_t extSchedulerType, uint8_t fixCellAssoc, uint8_t fastFadingType, bool en_traffic_gen, cudaStream_t strm) : m_en_traffic_gen(en_traffic_gen)
  {
@@ -52,7 +194,7 @@ namespace cumac {
     numUeSchdPerCellTTI    = numUePerCellConst; // number of UEs scheduled per TTI per cell
     numUeForGrpPerCell     = numUeForGrpConst; // number of UEs considered for MU-MIMO UE grouping per TTI per cell
     nMaxActUePerCell       = maxNumActUePerCell_; // maximum number of active UEs per cell currently supported
-    nCell                  = numCellConst; // number of coordinated cells
+    nCell                  = numCoorCellConst; // number of coordinated cells
     nInterfCell            = totNumCell - nCell;
     nPrbGrp                = nPrbGrpsConst;
     nPrbPerGrp             = nPrbsPerGrpConst;
@@ -84,7 +226,7 @@ namespace cumac {
     // chanCorrThr set to default value 
 
     // randomness seed
-    seed = std::chrono::system_clock::now().time_since_epoch().count();
+    seed = getTopologySeed();
     randomEngine = std::default_random_engine(seed);
     uniformRealDist = std::uniform_real_distribution<float>(0.0,1.0);
     // PF scheduling
@@ -291,24 +433,23 @@ namespace cumac {
      netData->bsTxPower_perAntPrg = netData->bsTxPower - 10.0*log10(static_cast<float>(nBsAnt)*static_cast<float>(nPrbGrp)); // dBm
      netData->ueTxPower = 23.0; // dBm, 79.4328 W
      netData->ueTxPower_perAntPrg = netData->ueTxPower - 10.0*log10(static_cast<float>(nUeAnt)*static_cast<float>(nPrbGrp)); // dBm
-     netData->numCell = nCell; // assume all cells are coordinated cells
+     netData->numCell = totNumCell;
+     netData->numCoorCell = nCell;
      netData->numActiveUesPerCell = numActiveUePerCellConst;
-     netData->sectorOrien[0] = M_PI/3.0;
-     netData->sectorOrien[1] = M_PI;
-     netData->sectorOrien[2] = M_PI*5.0/3.0;
      netData->minD2Bs = 30;
      netData->rho = 0.9938; // for 2.5 GHz carrier frequency, 1 ms time slot duration, 3 m/s UE moving speed
      netData->rhoPrime = 0.0786; // sqrt(1-0.9938^2)*sqrt(0.5), for 2.5 GHz carrier frequency, 1 ms time slot duration, 3 m/s UE moving speed
 
      netData->bsPos.resize(netData->numCell);
-     netData->rxSigPowDB = std::make_unique<float []>(netData->numCell*netData->numCell*netData->numActiveUesPerCell);
-     netData->rxSigPowDB_UL = std::make_unique<float []>(netData->numCell*netData->numCell*netData->numActiveUesPerCell);
-     netData->uePos.resize(netData->numCell*netData->numActiveUesPerCell);
-     netData->avgRatesGPU = std::make_unique<float []>(netData->numCell*netData->numActiveUesPerCell);
-     netData->avgRatesCPU = std::make_unique<float []>(netData->numCell*netData->numActiveUesPerCell);
+     netData->cellOrien.resize(netData->numCell, 0.0f);
+     netData->rxSigPowDB = std::make_unique<float []>(netData->numCell * nActiveUe);
+     netData->rxSigPowDB_UL = std::make_unique<float []>(netData->numCell * nActiveUe);
+     netData->uePos.resize(nActiveUe);
+     netData->avgRatesGPU = std::make_unique<float []>(nActiveUe);
+     netData->avgRatesCPU = std::make_unique<float []>(nActiveUe);
      for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
         netData->bsPos[cIdx].resize(3);
-        for (int uIdx = 0; uIdx < netData->numActiveUesPerCell; uIdx++) {
+        for (int uIdx = 0; uIdx < netData->numActiveUesPerCell && cIdx < netData->numCoorCell; uIdx++) {
             netData->uePos[cIdx*netData->numActiveUesPerCell + uIdx].resize(3);
             netData->avgRatesGPU[cIdx*netData->numActiveUesPerCell + uIdx] = 1.0;
             netData->avgRatesCPU[cIdx*netData->numActiveUesPerCell + uIdx] = 1.0;
@@ -318,11 +459,11 @@ namespace cumac {
      netData->numThrdBlk = nPrbGrp*netData->numCell;
      netData->numThrdPerBlk = nBsAnt*nUeAnt*floor(1024.0/static_cast<float>(nBsAnt*nUeAnt));
      
-     CUDA_CHECK_ERR(cudaMalloc((void **)&netData->rxSigPowDBGpu, netData->numCell*netData->numCell*netData->numActiveUesPerCell*sizeof(float)));
-     CUDA_CHECK_ERR(cudaMalloc((void **)&netData->rxSigPowDBGpu_UL, netData->numCell*netData->numCell*netData->numActiveUesPerCell*sizeof(float)));
+     CUDA_CHECK_ERR(cudaMalloc((void **)&netData->rxSigPowDBGpu, netData->numCell * nActiveUe * sizeof(float)));
+     CUDA_CHECK_ERR(cudaMalloc((void **)&netData->rxSigPowDBGpu_UL, netData->numCell * nActiveUe * sizeof(float)));
      CUDA_CHECK_ERR(cudaMalloc((void **)&netData->states, netData->numThrdBlk*netData->numThrdPerBlk*sizeof(curandState_t)));
      
-     init_curand<<<netData->numThrdBlk, netData->numThrdPerBlk>>>(time(NULL), 0, netData->states);
+     init_curand<<<netData->numThrdBlk, netData->numThrdPerBlk>>>(seed, 0, netData->states);
 
      CUDA_CHECK_ERR(cudaMalloc((void **)&estH_fr_GPUforCpuSchd, hSize));
      CUDA_CHECK_ERR(cudaMalloc((void **)&estH_fr_GPUforCpuSchd_half, hHalfSize));
@@ -337,23 +478,8 @@ namespace cumac {
      CUDA_CHECK_ERR(cudaMalloc((void **)&sinValGpuforCpuSchd, sinValSize));
 
      if (fixCellAssociation) {
-        for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
-            for (int uIdx = 0; uIdx < totNumUesConst; uIdx++) {
-                int cellIdx = floor(static_cast<float>(uIdx)/static_cast<float>(numUeSchdPerCellTTI));
-                if (cellIdx == cIdx)
-                    cellAssoc[cIdx*totNumUesConst + uIdx] = 1;
-                else
-                    cellAssoc[cIdx*totNumUesConst + uIdx] = 0;
-            }
-
-            for (int uIdx = 0; uIdx < totNumActiveUesConst; uIdx++) {
-                int cellIdx = floor(static_cast<float>(uIdx)/static_cast<float>(netData->numActiveUesPerCell));
-                if (cellIdx == cIdx)
-                    cellAssocActUe[cIdx*totNumActiveUesConst + uIdx] = 1;
-                else
-                    cellAssocActUe[cIdx*totNumActiveUesConst + uIdx] = 0;
-            }
-        }
+        std::fill(cellAssoc.get(), cellAssoc.get() + numCellConst*totNumUesConst, static_cast<uint8_t>(0));
+        std::fill(cellAssocActUe.get(), cellAssocActUe.get() + numCellConst*totNumActiveUesConst, static_cast<uint8_t>(0));
      }
 
      // noise variance
@@ -364,6 +490,7 @@ namespace cumac {
      // MCS selection records
      mcsSelRecordsCpu       = std::make_unique<std::unique_ptr<int16_t []> []>(nUe);
      tbErrRecordsCpu        = std::make_unique<std::unique_ptr<int8_t []> []>(nUe);
+     predBlerRecordsCpu     = std::make_unique<std::unique_ptr<float []> []>(nUe);
      mcsSelRecordsGpu       = std::make_unique<std::unique_ptr<int16_t []> []>(nUe);
      tbErrRecordsGpu        = std::make_unique<std::unique_ptr<int8_t []> []>(nUe);
      layerSelRecordsCpu     = std::make_unique<std::unique_ptr<uint8_t []> []>(nUe);
@@ -371,10 +498,12 @@ namespace cumac {
      for (int ueIdx = 0; ueIdx < nUe; ueIdx++) {
         mcsSelRecordsCpu[ueIdx] = std::make_unique<int16_t []>(numSimChnRlz);
         tbErrRecordsCpu[ueIdx] = std::make_unique<int8_t []>(numSimChnRlz);
+        predBlerRecordsCpu[ueIdx] = std::make_unique<float []>(numSimChnRlz);
         mcsSelRecordsGpu[ueIdx] = std::make_unique<int16_t []>(numSimChnRlz);
         tbErrRecordsGpu[ueIdx] = std::make_unique<int8_t []>(numSimChnRlz);
         layerSelRecordsCpu[ueIdx] = std::make_unique<uint8_t []>(numSimChnRlz);
         layerSelRecordsGpu[ueIdx] = std::make_unique<uint8_t []>(numSimChnRlz);
+        std::fill(predBlerRecordsCpu[ueIdx].get(), predBlerRecordsCpu[ueIdx].get() + numSimChnRlz, -1.0f);
      }
 
      if (nInterfCell > 0) {
@@ -525,11 +654,49 @@ namespace cumac {
         // check antenna size configuration
         assert(nBsAnt == std::accumulate(bsAntSize.begin(), bsAntSize.end(), 1U, std::multiplies<uint32_t>()));
         assert(nBsAnt == std::accumulate(ueAntSize.begin(), ueAntSize.end(), 1U, std::multiplies<uint32_t>()));
-        // default CDLA30-5-Low
-        m_cdlCfg->delayProfile = 'A';
-        m_cdlCfg->delaySpread = 30;
-        m_cdlCfg->maxDopplerShift = 10;
-        m_cdlCfg->cfoHz = 200.0f;
+        // default CDLA30-10-Low, overridable by env vars:
+        // CUMAC_CDL_PROFILE=[A|B|C|D|E], CUMAC_CDL_DELAY_SPREAD_NS=<int>,
+        // CUMAC_CDL_MAX_DOPPLER_HZ=<int>, CUMAC_CDL_CFO_HZ=<float>
+        char cdlProfile = 'A';
+        int cdlDelaySpreadNs = 30;
+        int cdlMaxDopplerHz = 10;
+        float cdlCfoHz = 200.0f;
+
+        const char* envProfile = std::getenv("CUMAC_CDL_PROFILE");
+        if (envProfile && std::strlen(envProfile) > 0) {
+            char p = static_cast<char>(std::toupper(envProfile[0]));
+            if (p == 'A' || p == 'B' || p == 'C' || p == 'D' || p == 'E') {
+                cdlProfile = p;
+            } else {
+                printf("WARNING: invalid CUMAC_CDL_PROFILE=%c, fallback to A\n", envProfile[0]);
+            }
+        }
+        const char* envDelay = std::getenv("CUMAC_CDL_DELAY_SPREAD_NS");
+        if (envDelay) {
+            int v = std::atoi(envDelay);
+            if (v > 0) {
+                cdlDelaySpreadNs = v;
+            }
+        }
+        const char* envDoppler = std::getenv("CUMAC_CDL_MAX_DOPPLER_HZ");
+        if (envDoppler) {
+            int v = std::atoi(envDoppler);
+            if (v > 0) {
+                cdlMaxDopplerHz = v;
+            }
+        }
+        const char* envCfo = std::getenv("CUMAC_CDL_CFO_HZ");
+        if (envCfo) {
+            float v = static_cast<float>(std::atof(envCfo));
+            if (v >= 0.0f) {
+                cdlCfoHz = v;
+            }
+        }
+
+        m_cdlCfg->delayProfile = cdlProfile;
+        m_cdlCfg->delaySpread = cdlDelaySpreadNs;
+        m_cdlCfg->maxDopplerShift = cdlMaxDopplerHz;
+        m_cdlCfg->cfoHz = cdlCfoHz;
         m_cdlCfg->numRay = 20;
         // network size, TODO: currently CDL generates CFR for all UEs and all cells
         m_cdlCfg->nCell = totNumCell;
@@ -734,23 +901,12 @@ namespace cumac {
      std::memcpy(cellGrpPrmsCpu->blerTargetActUe, blerTargetActUe.data(), nActiveUe * sizeof(float));
      
      if (fixCellAssociation) {
-        for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
-            for (int uIdx = 0; uIdx < totNumUesConst; uIdx++) {
-                int cellIdx = floor(static_cast<float>(uIdx)/static_cast<float>(numUeSchdPerCellTTI));
-                if (cellIdx == cIdx)
-                    cellGrpPrmsCpu->cellAssoc[cIdx*totNumUesConst + uIdx] = 1;
-                else
-                    cellGrpPrmsCpu->cellAssoc[cIdx*totNumUesConst + uIdx] = 0;
-            }
-
-            for (int uIdx = 0; uIdx < totNumActiveUesConst; uIdx++) {
-                int cellIdx = floor(static_cast<float>(uIdx)/static_cast<float>(netData->numActiveUesPerCell));
-                if (cellIdx == cIdx)
-                    cellGrpPrmsCpu->cellAssocActUe[cIdx*totNumActiveUesConst + uIdx] = 1;
-                else
-                    cellGrpPrmsCpu->cellAssocActUe[cIdx*totNumActiveUesConst + uIdx] = 0;
-            }
-        }
+        std::fill(cellGrpPrmsCpu->cellAssoc,
+                  cellGrpPrmsCpu->cellAssoc + totNumCell*nUe,
+                  static_cast<uint8_t>(0));
+        std::fill(cellGrpPrmsCpu->cellAssocActUe,
+                  cellGrpPrmsCpu->cellAssocActUe + totNumCell*nActiveUe,
+                  static_cast<uint8_t>(0));
      }
      cellGrpPrmsCpu->prdMat       = new cuComplex[nUe*nPrbGrp*nBsAnt*nBsAnt];
      cellGrpPrmsCpu->prdMat_actUe = new cuComplex[nActiveUe*nPrbGrp*nBsAnt*nBsAnt];
@@ -775,6 +931,7 @@ namespace cumac {
      cellGrpPrmsGpu->nActiveUe             = nActiveUe; // number of active UEs for all coordinated cells
      cellGrpPrmsGpu->numUeSchdPerCellTTI   = numUeSchdPerCellTTI; // number of UEs scheduled per TTI per cell
      cellGrpPrmsGpu->nCell                 = nCell; // number of coordinated cells
+     cellGrpPrmsGpu->totNumCell            = totNumCell;
      cellGrpPrmsGpu->nPrbGrp               = nPrbGrp;
      cellGrpPrmsGpu->nBsAnt                = nBsAnt;
      cellGrpPrmsGpu->nUeAnt                = nUeAnt;
@@ -796,6 +953,7 @@ namespace cumac {
      cellGrpPrmsCpu->nActiveUe             = nActiveUe; // number of active UEs for all coordinated cells
      cellGrpPrmsCpu->numUeSchdPerCellTTI   = numUeSchdPerCellTTI; // number of UEs scheduled per TTI per cell
      cellGrpPrmsCpu->nCell                 = nCell; // number of coordinated cells
+     cellGrpPrmsCpu->totNumCell            = totNumCell;
      cellGrpPrmsCpu->nPrbGrp               = nPrbGrp;
      cellGrpPrmsCpu->nBsAnt                = nBsAnt;
      cellGrpPrmsCpu->nUeAnt                = nUeAnt;
@@ -810,6 +968,12 @@ namespace cumac {
      cellGrpPrmsCpu->sinValThr             = sinValThr;
      cellGrpPrmsCpu->prioWeightStep        = prioWeightStep;
      cellGrpPrmsCpu->harqEnabledInd        = 0; // disable HARQ by default
+
+     if (fixCellAssociation) {
+        initStrongestCellAssociation();
+        CUDA_CHECK_ERR(cudaMemcpy(cellGrpPrmsGpu->cellAssoc, cellAssoc.get(), assocSize, cudaMemcpyHostToDevice));
+        CUDA_CHECK_ERR(cudaMemcpy(cellGrpPrmsGpu->cellAssocActUe, cellAssocActUe.get(), assocActUeSize, cudaMemcpyHostToDevice));
+     }
 
     // Simulation parameter
      simParam.get()->totNumCell            = totNumCell;
@@ -1255,7 +1419,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 nrAllocRbg = 0;
             } else {
                 for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) {
-                    if (allocSol[prgIdx*nCell + assocCellIdx[ueIdx]] == ueIdx) {
+                    if (allocSol[prgIdx*totNumCell + assocCellIdx[ueIdx]] == ueIdx) {
                         nrAllocRbg++;
                     }
                 }
@@ -1272,7 +1436,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 float avgSinr = 0;
 
                 for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
-                    if (allocSol[rbgIdx*nCell + assocCellIdx[ueIdx]] != ueIdx) {
+                    if (allocSol[rbgIdx*totNumCell + assocCellIdx[ueIdx]] != ueIdx) {
                         continue;
                     }
 
@@ -1518,6 +1682,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             if (nrAllocRbg == 0) { // not scheduled for the last time slot
                 cellGrpUeStatusCpu->avgRates[ueIdx] = (1.0-pfAvgRateUpd)*cellGrpUeStatusCpu->avgRates[ueIdx];
                 tbErrRecordsCpu[ueIdx][slotIdx] = -1;
+                predBlerRecordsCpu[ueIdx][slotIdx] = -1.0f;
                 perUeThr[ueIdx] = 0;
             } else { // scheduled for the last time slot
                 int mcsSel = schdSolCpu->mcsSelSol[ueIdx];
@@ -1660,6 +1825,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 
                 cellGrpUeStatusCpu->tbErrLast[ueIdx] = tbErr;
                 tbErrRecordsCpu[ueIdx][slotIdx] = tbErr;
+                predBlerRecordsCpu[ueIdx][slotIdx] = blerCurr;
 
                 uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, schdSolCpu->layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
@@ -1700,7 +1866,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 nrAllocRbg = 0;
             } else {
                 for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) {
-                    if (schdSolCpu->allocSol[prgIdx*nCell + assocCellIdx[ueIdx]] == ueIdx) {
+                    if (schdSolCpu->allocSol[prgIdx*totNumCell + assocCellIdx[ueIdx]] == ueIdx) {
                         nrAllocRbg++;
                     }
                 }
@@ -1710,6 +1876,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             if (nrAllocRbg == 0) { // not scheduled for the last time slot
                 cellGrpUeStatusCpu->avgRates[ueIdx] = (1.0-pfAvgRateUpd)*cellGrpUeStatusCpu->avgRates[ueIdx];
                 tbErrRecordsCpu[ueIdx][slotIdx] = -1;
+                predBlerRecordsCpu[ueIdx][slotIdx] = -1.0f;
                 perUeThr[ueIdx] = 0;
             } else { // scheduled for the last time slot
                 int mcsSel = schdSolCpu->mcsSelSol[ueIdx];
@@ -1717,7 +1884,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 float avgSinr = 0;
                 
                 for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
-                        if (schdSolCpu->allocSol[rbgIdx*nCell + assocCellIdx[ueIdx]] != ueIdx) {
+                        if (schdSolCpu->allocSol[rbgIdx*totNumCell + assocCellIdx[ueIdx]] != ueIdx) {
                             continue;
                         }
 
@@ -1856,6 +2023,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 
                 cellGrpUeStatusCpu->tbErrLast[ueIdx] = tbErr;
                 tbErrRecordsCpu[ueIdx][slotIdx] = tbErr;
+                predBlerRecordsCpu[ueIdx][slotIdx] = blerCurr;
 
                 uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, schdSolCpu->layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
@@ -2940,6 +3108,10 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
     bool matchLayerSel  = true;
     bool matchMcsSel    = true;
     bool matchPrg       = true;
+    int mismatchPrgRbgIdx = -1;
+    int mismatchPrgCellIdx = -1;
+    int mismatchPrgCpuVal = -1;
+    int mismatchPrgGpuVal = -1;
 
     for (int uIdx = 0; uIdx<nUe; uIdx++) {
         if (schdSolCpu->setSchdUePerCellTTI[ueSelIdxCpu[uIdx]] != setSchdUePerCellTTI[ueSelIdxGpu[uIdx]]) {
@@ -2970,6 +3142,10 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 //printf("rbgIdx*totNumCell+cIdx = %d, schdSolCpu->allocSol[rbgIdx*totNumCell+cIdx] = %d, allocSol[rbgIdx*totNumCell+cIdx] = %d\n", rbgIdx*totNumCell+cIdx, schdSolCpu->allocSol[rbgIdx*totNumCell+cIdx], allocSol[rbgIdx*totNumCell+cIdx]);
                 if (schdSolCpu->allocSol[rbgIdx*totNumCell+cIdx] != allocSol[rbgIdx*totNumCell+cIdx]) {
                     matchPrg = false;
+                    mismatchPrgRbgIdx = rbgIdx;
+                    mismatchPrgCellIdx = cIdx;
+                    mismatchPrgCpuVal = schdSolCpu->allocSol[rbgIdx*totNumCell+cIdx];
+                    mismatchPrgGpuVal = allocSol[rbgIdx*totNumCell+cIdx];
                     //printf("cellAssoc[cIdx*nUe + allocSol[rbgIdx*totNumCell+cIdx]] = %d\n", cellAssoc[cIdx*nUe + allocSol[rbgIdx*totNumCell+cIdx]]);
                     //printf("cellAssoc[cIdx*nUe + schdSolCpu->allocSol[rbgIdx*totNumCell+cIdx]] = %d\n", cellAssoc[cIdx*nUe + schdSolCpu->allocSol[rbgIdx*totNumCell+cIdx]]);
                     break;
@@ -2988,6 +3164,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         printf("Success: CPU and GPU PRG allocation solutions match\n");
     } else {
         printf("Failure: CPU and GPU PRG allocation solutions do not match\n");
+        if (mismatchPrgRbgIdx >= 0) {
+            printf("First Type-0 alloc mismatch: rbgIdx=%d cellIdx=%d cpu=%d gpu=%d\n",
+                   mismatchPrgRbgIdx,
+                   mismatchPrgCellIdx,
+                   mismatchPrgCpuVal,
+                   mismatchPrgGpuVal);
+        }
     }
 
     if (matchLayerSel) {
@@ -3373,40 +3556,170 @@ uint32_t network::determineTbsPdsch(int rbSize, int nDataSymb, int nrOfLayers, f
 
 void network::genNetTopology()
 {
-    float Angle = M_PI/6.0;
-    int bsIdx = 0;
+    const float siteSpacing = 2.0f * netData->cellRadius;
+    const std::vector<HexCoord> layout = buildHexSiteLayout();
+    const UePlacementConfig placementCfg = getUePlacementConfig();
+    std::array<int, 3> strataCounts = {0, 0, 0};
+    if (netData->numCell > layout.size()) {
+        throw std::runtime_error("Requested cell count exceeds hardcoded 2-ring hex layout capacity");
+    }
 
-    for (int celli = 0; celli < 7; celli++) {
-        float coorX = 0;
-        float coorY = 0;
-        if (celli > 0) {
-            coorX = sin(Angle)*2.0*netData->cellRadius;
-            coorY = cos(Angle)*2.0*netData->cellRadius;
-            Angle += M_PI/3.0;
+    if (placementCfg.mode == UePlacementMode::Stratified) {
+        if (placementCfg.hasCustomStrataCounts) {
+            const int totalStrataUe = placementCfg.strataCounts[0] + placementCfg.strataCounts[1] + placementCfg.strataCounts[2];
+            if (totalStrataUe == static_cast<int>(netData->numActiveUesPerCell)) {
+                strataCounts = placementCfg.strataCounts;
+            } else {
+                printf("WARNING: invalid CUMAC_UE_STRATA_COUNTS sum=%d, expected %d. Falling back to balanced stratification.\n",
+                       totalStrataUe,
+                       netData->numActiveUesPerCell);
+            }
         }
 
-        for (int secIdx = 0; secIdx < 3; secIdx++) {
-            if (bsIdx < netData->numCell) {
-                netData->bsPos[bsIdx][0] = coorX;
-                netData->bsPos[bsIdx][1] = coorY;
-                netData->bsPos[bsIdx][2] = netData->bsHeight;
+        if (strataCounts == std::array<int, 3>{0, 0, 0}) {
+            const int baseCount = static_cast<int>(netData->numActiveUesPerCell) / 3;
+            const int remainder = static_cast<int>(netData->numActiveUesPerCell) % 3;
+            strataCounts = {baseCount, baseCount, baseCount};
+            for (int idx = 0; idx < remainder; ++idx) {
+                strataCounts[idx]++;
+            }
+        }
+    }
 
-                for (int uIdx = 0; uIdx < netData->numActiveUesPerCell; uIdx++) {
-                    float randomAngle = 2.0*M_PI*uniformRealDist(randomEngine)/3.0 - M_PI/3.0; // centered at 0 degree
-                    randomAngle += netData->sectorOrien[secIdx];
-                    float randomDistance = (netData->cellRadius - netData->minD2Bs)*uniformRealDist(randomEngine) + netData->minD2Bs;
+    printf("Topology configuration: seed=%u, ue_placement=%s, radius_splits=(%.2f, %.2f), strata_counts=(%d,%d,%d), voronoi_clip=%s\n",
+           seed,
+           placementCfg.mode == UePlacementMode::Stratified ? "stratified" : "uniform",
+           placementCfg.centerMaxRatio,
+           placementCfg.midMaxRatio,
+           strataCounts[0],
+           strataCounts[1],
+           strataCounts[2],
+           placementCfg.enforceVoronoiClip ? "on" : "off");
 
-                    netData->uePos[bsIdx*netData->numActiveUesPerCell+uIdx][0] = cos(randomAngle)*randomDistance+netData->bsPos[bsIdx][0];
-                    netData->uePos[bsIdx*netData->numActiveUesPerCell+uIdx][1] = sin(randomAngle)*randomDistance+netData->bsPos[bsIdx][1];
-                    netData->uePos[bsIdx*netData->numActiveUesPerCell+uIdx][2] = netData->ueHeight;
+    for (int cIdx = 0; cIdx < netData->numCell; ++cIdx) {
+        const auto [coorX, coorY] = axialToCartesian(layout[cIdx], siteSpacing);
+        netData->bsPos[cIdx][0] = coorX;
+        netData->bsPos[cIdx][1] = coorY;
+        netData->bsPos[cIdx][2] = netData->bsHeight;
+
+        float orientation = 0.0f;
+        if (cIdx > 0) {
+            orientation = std::atan2(-coorY, -coorX);
+        }
+        netData->cellOrien[cIdx] = orientation;
+
+        if (cIdx >= netData->numCoorCell) {
+            continue;
+        }
+
+        for (int uIdx = 0; uIdx < netData->numActiveUesPerCell; ++uIdx) {
+            float innerDist = netData->minD2Bs;
+            float outerDist = netData->cellRadius;
+            if (placementCfg.mode == UePlacementMode::Stratified) {
+                int stratum = 2;
+                if (uIdx < strataCounts[0]) {
+                    stratum = 0;
+                } else if (uIdx < (strataCounts[0] + strataCounts[1])) {
+                    stratum = 1;
                 }
-                bsIdx++;
-            } else
+                const float radialSpan = netData->cellRadius - netData->minD2Bs;
+                float innerRatio = 0.0f;
+                float outerRatio = 1.0f;
+                if (stratum == 0) {
+                    outerRatio = placementCfg.centerMaxRatio;
+                } else if (stratum == 1) {
+                    innerRatio = placementCfg.centerMaxRatio;
+                    outerRatio = placementCfg.midMaxRatio;
+                } else {
+                    innerRatio = placementCfg.midMaxRatio;
+                }
+
+                innerDist = netData->minD2Bs + radialSpan * innerRatio;
+                outerDist = netData->minD2Bs + radialSpan * outerRatio;
+            }
+
+            bool placed = false;
+            constexpr int maxPlacementAttempts = 512;
+            for (int attemptIdx = 0; attemptIdx < maxPlacementAttempts; ++attemptIdx) {
+                float randomAngle = 2.0f * static_cast<float>(M_PI) * uniformRealDist(randomEngine) / 3.0f
+                                    - static_cast<float>(M_PI) / 3.0f;
+                randomAngle += orientation;
+
+                const float dirX = std::cos(randomAngle);
+                const float dirY = std::sin(randomAngle);
+                float clippedOuterDist = outerDist;
+                if (placementCfg.enforceVoronoiClip) {
+                    clippedOuterDist = std::min(clippedOuterDist, computeVoronoiRadialLimit(netData.get(), cIdx, dirX, dirY));
+                }
+                if (clippedOuterDist < innerDist) {
+                    continue;
+                }
+
+                const float randomDistance = innerDist + (clippedOuterDist - innerDist) * uniformRealDist(randomEngine);
+                netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][0] = dirX * randomDistance + coorX;
+                netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][1] = dirY * randomDistance + coorY;
+                placed = true;
                 break;
+            }
+
+            if (!placed) {
+                throw std::runtime_error("Failed to place UE inside serving Voronoi region with the requested radial layer");
+            }
+            netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][2] = netData->ueHeight;
+        }
+    }
+}
+
+void network::initStrongestCellAssociation()
+{
+    if (!fixCellAssociation) {
+        return;
+    }
+
+    std::fill(cellAssoc.get(), cellAssoc.get() + totNumCell*nUe, static_cast<uint8_t>(0));
+    std::fill(cellAssocActUe.get(), cellAssocActUe.get() + totNumCell*nActiveUe, static_cast<uint8_t>(0));
+    const bool cpuAssocReady = cellGrpPrmsCpu != nullptr &&
+                               cellGrpPrmsCpu->cellAssoc != nullptr &&
+                               cellGrpPrmsCpu->cellAssocActUe != nullptr;
+    if (cpuAssocReady) {
+        std::fill(cellGrpPrmsCpu->cellAssoc,
+                  cellGrpPrmsCpu->cellAssoc + totNumCell*nUe,
+                  static_cast<uint8_t>(0));
+        std::fill(cellGrpPrmsCpu->cellAssocActUe,
+                  cellGrpPrmsCpu->cellAssocActUe + totNumCell*nActiveUe,
+                  static_cast<uint8_t>(0));
+    }
+
+    std::vector<int> strongestCellPerActiveUe(nActiveUe, 0);
+    for (int uIdx = 0; uIdx < nActiveUe; ++uIdx) {
+        int bestCellIdx = 0;
+        float bestRxPowDb = -std::numeric_limits<float>::infinity();
+        for (int cIdx = 0; cIdx < nCell; ++cIdx) {
+            const float rxPowDb = netData->rxSigPowDB[cIdx * nActiveUe + uIdx];
+            if (rxPowDb >= bestRxPowDb) {
+                bestRxPowDb = rxPowDb;
+                bestCellIdx = cIdx;
+            }
         }
 
-        if (bsIdx == netData->numCell)
-            break;
+        strongestCellPerActiveUe[uIdx] = bestCellIdx;
+        cellAssocActUe[bestCellIdx*nActiveUe + uIdx] = 1;
+        if (cpuAssocReady) {
+            cellGrpPrmsCpu->cellAssocActUe[bestCellIdx*nActiveUe + uIdx] = 1;
+        }
+    }
+
+    for (int uIdx = 0; uIdx < nUe; ++uIdx) {
+        int assocCellIdx = 0;
+        if (uIdx < nActiveUe) {
+            assocCellIdx = strongestCellPerActiveUe[uIdx];
+        } else {
+            assocCellIdx = std::min(static_cast<int>(uIdx / numUeSchdPerCellTTI), static_cast<int>(nCell) - 1);
+        }
+        cellAssoc[assocCellIdx*nUe + uIdx] = 1;
+        if (cpuAssocReady) {
+            cellGrpPrmsCpu->cellAssoc[assocCellIdx*nUe + uIdx] = 1;
+        }
     }
 }
 
@@ -3419,9 +3732,8 @@ void network::genLSFading()
 
     for (int cIdx = 0; cIdx < netData->numCell; cIdx++) { // loop through all cells
         snrDBAssoc[cIdx] = new float[netData->numActiveUesPerCell]; 
-        int sectorIdx = cIdx % 3;
-        float sectorOrien = netData->sectorOrien[sectorIdx];
-        for (int uIdx = 0; uIdx < netData->numCell*netData->numActiveUesPerCell; uIdx++) { // loop through all active UEs
+        float sectorOrien = netData->cellOrien[cIdx];
+        for (int uIdx = 0; uIdx < nActiveUe; uIdx++) { // loop through all active UEs in coordinated cells
             
             float distanceBsUe_2D = sqrt(pow(netData->bsPos[cIdx][0] - netData->uePos[uIdx][0], 2.0)+
                                     pow(netData->bsPos[cIdx][1] - netData->uePos[uIdx][1], 2.0));
@@ -3449,14 +3761,14 @@ void network::genLSFading()
             float PL = 32.4+20.0*log10(netData->carrierFreq)+30.0*log10(distanceBsUe_3D);
             float SF=10.0*log10(ln_distribution(randomEngine));
 
-            netData->rxSigPowDB[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx] = netData->bsTxPower_perAntPrg + antGain - PL - SF;
-            netData->rxSigPowDB_UL[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx] = netData->ueTxPower_perAntPrg + antGain - PL - SF;
+            netData->rxSigPowDB[cIdx * nActiveUe + uIdx] = netData->bsTxPower_perAntPrg + antGain - PL - SF;
+            netData->rxSigPowDB_UL[cIdx * nActiveUe + uIdx] = netData->ueTxPower_perAntPrg + antGain - PL - SF;
 
-            if (floor(uIdx/netData->numActiveUesPerCell) == cIdx) {
+            if (floor(uIdx / netData->numActiveUesPerCell) == cIdx) {
                 if (DL == 1) { // DL
-                    snrDBAssoc[cIdx][uIdx%netData->numActiveUesPerCell] = netData->rxSigPowDB[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx] - netData->noiseFloor;
+                    snrDBAssoc[cIdx][uIdx%netData->numActiveUesPerCell] = netData->rxSigPowDB[cIdx * nActiveUe + uIdx] - netData->noiseFloor;
                 } else { // UL
-                    snrDBAssoc[cIdx][uIdx%netData->numActiveUesPerCell] = netData->rxSigPowDB_UL[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx] - netData->noiseFloor;
+                    snrDBAssoc[cIdx][uIdx%netData->numActiveUesPerCell] = netData->rxSigPowDB_UL[cIdx * nActiveUe + uIdx] - netData->noiseFloor;
                 }
             }
         }
@@ -3466,9 +3778,9 @@ void network::genLSFading()
     file.open("snr.txt", std::fstream::out);
 
     file << "snrDBAssoc = [";
-    for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
+    for (int cIdx = 0; cIdx < netData->numCoorCell; cIdx++) {
         for (int uIdx = 0; uIdx < netData->numActiveUesPerCell; uIdx++) {
-            if ((cIdx*netData->numActiveUesPerCell + uIdx)<(netData->numCell*netData->numActiveUesPerCell-1)) {
+            if ((cIdx*netData->numActiveUesPerCell + uIdx)<(netData->numCoorCell*netData->numActiveUesPerCell-1)) {
                 file << snrDBAssoc[cIdx][uIdx] << " ";
             } else {
                 file << snrDBAssoc[cIdx][uIdx] << "];\n\n";
@@ -3480,14 +3792,16 @@ void network::genLSFading()
     for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
         for (int uIdx = 0; uIdx < netData->numCell*netData->numActiveUesPerCell; uIdx++) {
             if ((cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx)<(netData->numCell*netData->numCell*netData->numActiveUesPerCell-1)) {
-                file << netData->rxSigPowDB[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx] - netData->noiseFloor<< " ";
+                file << netData->rxSigPowDB[cIdx * nActiveUe + uIdx] - netData->noiseFloor<< " ";
             } else {
-                file << netData->rxSigPowDB[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx] - netData->noiseFloor<< "];\n";
+                file << netData->rxSigPowDB[cIdx * nActiveUe + uIdx] - netData->noiseFloor<< "];\n";
             }
         }
     }
 */
     file.close();
+
+    initStrongestCellAssociation();
 
     for (int cIdx = 0; cIdx < netData->numCell; cIdx++) delete snrDBAssoc[cIdx];
     delete snrDBAssoc;
@@ -3763,14 +4077,14 @@ void network::rrUeSelectionCpu(const int TTIidx)
     // assume that the cell assocation of all active UEs are fixed and that numActiveUesPerCell is no less than numUeSchdPerCellTTI
     // round-robin UE selection
     if (TTIidx == 0) { // first TTI
-        for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
+        for (int cIdx = 0; cIdx < netData->numCoorCell; cIdx++) {
             for (int uIdx = 0; uIdx < numUeSchdPerCellTTI; uIdx++) {
                 schdSolCpu->setSchdUePerCellTTI[cIdx*numUeSchdPerCellTTI + uIdx] = cIdx*netData->numActiveUesPerCell + uIdx; // global UE ID
                 cellGrpUeStatusCpu->avgRates[cIdx*numUeSchdPerCellTTI + uIdx] = netData->avgRatesCPU[schdSolCpu->setSchdUePerCellTTI[cIdx*numUeSchdPerCellTTI + uIdx]];
             }
         }
     } else {
-        for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
+        for (int cIdx = 0; cIdx < netData->numCoorCell; cIdx++) {
             uint16_t lastSchdUeId = schdSolCpu->setSchdUePerCellTTI[cIdx*numUeSchdPerCellTTI + numUeSchdPerCellTTI-1];
             for (int uIdx = 0; uIdx < numUeSchdPerCellTTI; uIdx++) {
                 uint16_t schdUeId = lastSchdUeId+uIdx+1;
@@ -3779,7 +4093,7 @@ void network::rrUeSelectionCpu(const int TTIidx)
                 }
 
                 schdSolCpu->setSchdUePerCellTTI[cIdx*numUeSchdPerCellTTI + uIdx] = schdUeId;
-                cellGrpUeStatusCpu->avgRates[cIdx* + uIdx] = netData->avgRatesCPU[schdUeId];
+                cellGrpUeStatusCpu->avgRates[cIdx*numUeSchdPerCellTTI + uIdx] = netData->avgRatesCPU[schdUeId];
             }
         }
     }
@@ -3806,18 +4120,18 @@ void network::genFastFadingGpu(const int TTIidx)
 
     CUDA_CHECK_ERR(cudaMemcpy(cellGrpPrmsGpu->estH_fr_actUe, estH_fr_actUe.get(), hActUeSize, cudaMemcpyHostToDevice));
     if (DL == 1) { // DL
-        CUDA_CHECK_ERR(cudaMemcpy(netData->rxSigPowDBGpu, netData->rxSigPowDB.get(), netData->numCell*netData->numCell*netData->numActiveUesPerCell*sizeof(float), cudaMemcpyHostToDevice));
+        CUDA_CHECK_ERR(cudaMemcpy(netData->rxSigPowDBGpu, netData->rxSigPowDB.get(), netData->numCell * nActiveUe * sizeof(float), cudaMemcpyHostToDevice));
     } else { // UL
-        CUDA_CHECK_ERR(cudaMemcpy(netData->rxSigPowDBGpu_UL, netData->rxSigPowDB_UL.get(), netData->numCell*netData->numCell*netData->numActiveUesPerCell*sizeof(float), cudaMemcpyHostToDevice));
+        CUDA_CHECK_ERR(cudaMemcpy(netData->rxSigPowDBGpu_UL, netData->rxSigPowDB_UL.get(), netData->numCell * nActiveUe * sizeof(float), cudaMemcpyHostToDevice));
     }
     
     if (DL == 1) { // DL
-        genChann4TrKernel<<<netData->numThrdBlk, netData->numThrdPerBlk>>>(cellGrpPrmsGpu->estH_fr_actUe, cellGrpPrmsGpu->estH_fr_actUe_prd, netData->rxSigPowDBGpu, nPrbGrp, netData->numCell, 
-            netData->numActiveUesPerCell, nBsAnt, nUeAnt, netData->rho, netData->rhoPrime, scalingFactor, 
+        genChann4TrKernel<<<netData->numThrdBlk, netData->numThrdPerBlk>>>(cellGrpPrmsGpu->estH_fr_actUe, cellGrpPrmsGpu->estH_fr_actUe_prd, netData->rxSigPowDBGpu, nPrbGrp, netData->numCell,
+            nActiveUe, netData->numActiveUesPerCell, nBsAnt, nUeAnt, netData->rho, netData->rhoPrime, scalingFactor,
             TTIidx, netData->states, 1 /*DL = 1*/, m_externFastFadingPrbgPtr);
     } else { // UL
-        genChann4TrKernel<<<netData->numThrdBlk, netData->numThrdPerBlk>>>(cellGrpPrmsGpu->estH_fr_actUe, cellGrpPrmsGpu->estH_fr_actUe_prd, netData->rxSigPowDBGpu_UL, nPrbGrp, netData->numCell, 
-            netData->numActiveUesPerCell, nBsAnt, nUeAnt, netData->rho, netData->rhoPrime, scalingFactor, 
+        genChann4TrKernel<<<netData->numThrdBlk, netData->numThrdPerBlk>>>(cellGrpPrmsGpu->estH_fr_actUe, cellGrpPrmsGpu->estH_fr_actUe_prd, netData->rxSigPowDBGpu_UL, nPrbGrp, netData->numCell,
+            nActiveUe, netData->numActiveUesPerCell, nBsAnt, nUeAnt, netData->rho, netData->rhoPrime, scalingFactor,
             TTIidx, netData->states, 0 /*DL = 0*/, m_externFastFadingPrbgPtr);
     }
     
@@ -3854,6 +4168,7 @@ __global__ void genChann4TrKernel(cuComplex*       channMatGpu,
                                   float*           rxSigPowDBGpu,
                                   const int        nPrbGrp, 
                                   const int        numCell, 
+                                  const int        totNumActUe,
                                   const int        numActUePerCell, 
                                   const int        numBsAnt,
                                   const int        numUeAnt,
@@ -3868,7 +4183,6 @@ __global__ void genChann4TrKernel(cuComplex*       channMatGpu,
     int globalThdIdx = blockIdx.x*blockDim.x + threadIdx.x;
     int prgIdx = floor(static_cast<float>(blockIdx.x)/static_cast<float>(numCell));
     int cIdx = blockIdx.x - prgIdx*numCell; 
-    int totNumActUe = numCell*numActUePerCell;
     int nBsUeAntPrd = numBsAnt*numUeAnt;
     int uIdx = floor(static_cast<float>(threadIdx.x)/static_cast<float>(nBsUeAntPrd));
     int channIdx = prgIdx*numCell*totNumActUe*nBsUeAntPrd;
@@ -3889,7 +4203,7 @@ __global__ void genChann4TrKernel(cuComplex*       channMatGpu,
         int currUeIdx = uIdx + rndIdx*numUePerRnd; 
         if (currUeIdx < totNumActUe) {
             int currChannIdx = channIdx + currUeIdx*numCell*nBsUeAntPrd;
-            float amplDBm = rxSigPowDBGpu[cIdx*totNumActUe + currUeIdx];
+            float amplDBm = rxSigPowDBGpu[cIdx * totNumActUe + currUeIdx];
             float sqrtAmpl = pow(10.0, ((amplDBm - 30.0)/20.0));
             sqrtAmpl *= scalingFactor;
 
@@ -3906,7 +4220,7 @@ __global__ void genChann4TrKernel(cuComplex*       channMatGpu,
             else
             {
                 // get global tdl chan idx to read tdl channel coe on Prg
-                uint32_t globalTdlChanIdx = ((cIdx * totNumActUe + currUeIdx) * nBsUeAntPrd + tdlCdlTxUeAntOffset) * nPrbGrp + prgIdx; // GPU TDL channel 1D dims: [nCell, nActiveUe, nUeAnt, nBsAnt, nPrg]; cuMAC channel dims: [nPrbGrp, nActiveUe, nCell, numBsAnt, numUeAnt]
+                uint32_t globalTdlChanIdx = ((cIdx * totNumActUe + currUeIdx) * nBsUeAntPrd + tdlCdlTxUeAntOffset) * nPrbGrp + prgIdx; // GPU TDL/CDL channel dims: [nCell, nActiveUe, nUeAnt, nBsAnt, nPrg]
                 channMatGpu_real = sqrtAmpl * freqChanPrgPtr[globalTdlChanIdx].x;
                 channMatGpu_imag = sqrtAmpl * freqChanPrgPtr[globalTdlChanIdx].y;
             }
@@ -3928,17 +4242,17 @@ void network::genFastFading()
     std::normal_distribution<double> distribution(0.0, stddev);
 
     for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) { // loop through PRGs
-        for (int uIdx = 0; uIdx < netData->numCell*numUeSchdPerCellTTI; uIdx++) {
+        for (int uIdx = 0; uIdx < nUe; uIdx++) {
             for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
                 int assocCellId = floor(static_cast<float>(uIdx)/static_cast<float>(numUeSchdPerCellTTI));
 
                 int globalUeId = setSchdUePerCellTTI[assocCellId*numUeSchdPerCellTTI + uIdx%numUeSchdPerCellTTI];
                 
-                float amplDBm = netData->rxSigPowDB[cIdx*netData->numCell*netData->numActiveUesPerCell + globalUeId];
+                float amplDBm = netData->rxSigPowDB[cIdx * nActiveUe + globalUeId];
                 float sqrtAmpl = pow(10.0, ((amplDBm - 30.0)/20.0));
                 for (int txAntIdx = 0; txAntIdx < nBsAnt; txAntIdx++) {
                     for (int rxAntIdx = 0; rxAntIdx < nUeAnt; rxAntIdx++) {
-                        int index = prgIdx*netData->numCell*numUeSchdPerCellTTI*netData->numCell*nBsAnt*nUeAnt;
+                        int index = prgIdx * nUe * netData->numCell * nBsAnt * nUeAnt;
                         index += uIdx*netData->numCell*nBsAnt*nUeAnt;
                         index += cIdx*nBsAnt*nUeAnt;
                         index += txAntIdx*nUeAnt;
@@ -3957,6 +4271,17 @@ void network::cpySinrGpu2Cpu()
 {
     CUDA_CHECK_ERR(cudaMemcpy(cellGrpPrmsCpu->postEqSinr, cellGrpPrmsGpu->postEqSinr, postEqSinrSize, cudaMemcpyDeviceToHost));
     CUDA_CHECK_ERR(cudaMemcpy(cellGrpPrmsCpu->wbSinr, cellGrpPrmsGpu->wbSinr, wbSinrSize, cudaMemcpyDeviceToHost));
+}
+
+float network::getPredictedBlerCpu(int schedUeIdx, int slotIdx) const
+{
+    if (schedUeIdx < 0 || schedUeIdx >= static_cast<int>(nUe) || predBlerRecordsCpu == nullptr) {
+        return -1.0f;
+    }
+    if (slotIdx < 0 || slotIdx >= numSimChnRlz || predBlerRecordsCpu[schedUeIdx] == nullptr) {
+        return -1.0f;
+    }
+    return predBlerRecordsCpu[schedUeIdx][slotIdx];
 }
 
 void network::updateDataRateAllActiveUeGpu(const int slotIdx)
@@ -3987,7 +4312,10 @@ void network::updateDataRateAllActiveUeGpu(const int slotIdx)
     }
     //printf("\n");
 
-    printf("GPU scheduler sum cell throughput: %4.3e\n", sumCellThrRecordsGpu[slotIdx]);
+    const int logInterval = getTtiKpiLogInterval();
+    if (logInterval > 0 && ((slotIdx % logInterval) == 0 || slotIdx == (numSimChnRlz - 1))) {
+        printf("GPU scheduler sum cell throughput: %4.3e\n", sumCellThrRecordsGpu[slotIdx]);
+    }
 }
 
 void network::updateDataRateAllActiveUeCpu(const int slotIdx)
@@ -4014,7 +4342,10 @@ void network::updateDataRateAllActiveUeCpu(const int slotIdx)
         sumCellPfRecordsCpu[slotIdx] += log2f(cellGrpUeStatusCpu->avgRatesActUe[uIdx]);
     }
 
-    printf("CPU scheduler sum cell throughput: %4.3e\n", sumCellThrRecordsCpu[slotIdx]);
+    const int logInterval = getTtiKpiLogInterval();
+    if (logInterval > 0 && ((slotIdx % logInterval) == 0 || slotIdx == (numSimChnRlz - 1))) {
+        printf("CPU scheduler sum cell throughput: %4.3e\n", sumCellThrRecordsCpu[slotIdx]);
+    }
 }
 
 void network::testChannGen()
@@ -4023,13 +4354,13 @@ void network::testChannGen()
     std::normal_distribution<double> distribution(0.0, stddev);
 
     for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) { // loop through PRGs
-        for (int uIdx = 0; uIdx < netData->numCell*netData->numActiveUesPerCell; uIdx++) {
+        for (int uIdx = 0; uIdx < nActiveUe; uIdx++) {
             for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {                
-                float amplDBm = netData->rxSigPowDB[cIdx*netData->numCell*netData->numActiveUesPerCell + uIdx];
+                float amplDBm = netData->rxSigPowDB[cIdx * nActiveUe + uIdx];
                 float sqrtAmpl = pow(10.0, ((amplDBm - 30.0)/20.0));
                 for (int txAntIdx = 0; txAntIdx < nBsAnt; txAntIdx++) {
                     for (int rxAntIdx = 0; rxAntIdx < nUeAnt; rxAntIdx++) {
-                        int index = prgIdx*netData->numCell*netData->numActiveUesPerCell*netData->numCell*nBsAnt*nUeAnt;
+                        int index = prgIdx * nActiveUe * netData->numCell * nBsAnt * nUeAnt;
                         index += uIdx*netData->numCell*nBsAnt*nUeAnt;
                         index += cIdx*nBsAnt*nUeAnt;
                         index += txAntIdx*nUeAnt;

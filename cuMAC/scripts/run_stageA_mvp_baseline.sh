@@ -18,7 +18,10 @@ GPU_ID=0
 TTI_COUNT=200
 DL_UL="dl"          # dl or ul
 FADING_MODE=0       # 0: Rayleigh, 1: TDL(PRG), 3: CDL(PRG)
+TRAFFIC_PERCENT=100
+TRAFFIC_RATE=5000   # bytes per packet, arrival rate fixed at 1 pkt/TTI in example
 RUN_TAG=""
+ANALYZER_SCRIPT="${ROOT_DIR}/cuMAC/scripts/summarize_stageA_kpi.py"
 
 usage() {
     cat <<EOF
@@ -34,6 +37,8 @@ Options:
   --tti <count>        Number of simulated TTIs (default: ${TTI_COUNT})
   --mode <dl|ul>       Downlink or uplink (default: ${DL_UL})
   --fading <0|1|3>     0=Rayleigh, 1=TDL on PRG, 3=CDL on PRG (default: ${FADING_MODE})
+  --traffic-percent <p> UE traffic percentage [0,100] (default: ${TRAFFIC_PERCENT})
+  --traffic-rate <b>   Traffic packet size in bytes (default: ${TRAFFIC_RATE})
   --tag <name>         Optional run tag in output folder
   -h, --help           Show this help
 EOF
@@ -63,6 +68,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --fading)
             FADING_MODE="$2"
+            shift 2
+            ;;
+        --traffic-percent)
+            TRAFFIC_PERCENT="$2"
+            shift 2
+            ;;
+        --traffic-rate)
+            TRAFFIC_RATE="$2"
             shift 2
             ;;
         --tag)
@@ -100,6 +113,21 @@ if [[ "${FADING_MODE}" != "0" && "${FADING_MODE}" != "1" && "${FADING_MODE}" != 
     echo "--fading must be one of 0, 1, 3" >&2
     exit 1
 fi
+
+if ! [[ "${TRAFFIC_PERCENT}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--traffic-percent must be a number in [0,100]" >&2
+    exit 1
+fi
+
+if ! [[ "${TRAFFIC_RATE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--traffic-rate must be a positive number" >&2
+    exit 1
+fi
+
+awk "BEGIN {exit !(${TRAFFIC_PERCENT} >= 0 && ${TRAFFIC_PERCENT} <= 100)}" || {
+    echo "--traffic-percent must be within [0,100]" >&2
+    exit 1
+}
 
 if [[ "${BUILD_METHOD}" != "phase4" && "${BUILD_METHOD}" != "cmake" && "${BUILD_METHOD}" != "skip" ]]; then
     echo "--build-method must be one of: phase4, cmake, skip" >&2
@@ -199,11 +227,20 @@ LOG_FILE="${OUT_DIR}/run.log"
 
 echo "[Stage-A] Running baseline scheduler..."
 echo "  output_dir=${OUT_DIR}"
-echo "  cmd=${BIN} -d ${DL_IND} -b 0 -f ${FADING_MODE}"
+echo "  cmd=${BIN} -d ${DL_IND} -b 0 -f ${FADING_MODE} -g ${TRAFFIC_PERCENT} -r ${TRAFFIC_RATE}"
 
 (
     cd "${OUT_DIR}"
-    "${BIN}" -d "${DL_IND}" -b 0 -f "${FADING_MODE}"
+    "${BIN}" -d "${DL_IND}" -b 0 -f "${FADING_MODE}" -g "${TRAFFIC_PERCENT}" -r "${TRAFFIC_RATE}"
 ) 2>&1 | tee "${LOG_FILE}"
+
+if [[ -f "${ANALYZER_SCRIPT}" ]]; then
+    echo "[Stage-A] Summarizing KPIs..."
+    python3 "${ANALYZER_SCRIPT}" \
+        --output-dir "${OUT_DIR}" \
+        --slot-duration-ms 0.5 \
+        --traffic-percent "${TRAFFIC_PERCENT}" \
+        --traffic-rate "${TRAFFIC_RATE}"
+fi
 
 echo "[Stage-A] Done. Log: ${LOG_FILE}"

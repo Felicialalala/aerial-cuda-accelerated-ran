@@ -30,6 +30,7 @@ typedef struct mcLayerSelDynDescrCpu {
     float*      sinVal; // array of singular values
     // ** passing sinVal_asim for Aerial Sim
     uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
+    uint16_t*   cellId; // IDs of coordinated cells
     uint8_t*    cellAssoc; // only for type-0 allocation
     int8_t*     riActUe;
 
@@ -48,6 +49,7 @@ typedef struct mcLayerSelDynDescrCpu {
     uint16_t    nPrbGrp;
     uint8_t     nUeAnt;
     uint16_t    nCell;
+    uint16_t    totNumCell;
     uint8_t     nTxAnt;
     uint8_t     nRxAnt;
 

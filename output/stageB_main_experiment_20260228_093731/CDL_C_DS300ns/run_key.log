@@ -1,0 +1,31 @@
+summary_head:
+cuMAC multi-cell scheduler: Running on GPU device 0 (total devices: 2)
+cuMAC scheduler pipeline test: Downlink
+cuMAC scheduler pipeline test: FP32 kernels
+cuMAC scheduler pipeline test: CPU reference check
+cuMAC scheduler pipeline test: use GPU CDL channel, CFR on Prg
+cuMAC scheduler pipeline test: native UE selection + PRG allocation
+cuMAC scheduler pipeline test: compact per-TTI logging enabled
+cuMAC scheduler pipeline test: progress interval=100, compare interval=0 (TTI)
+Multi-cell scheduler, Type-0 allocate
+No precoding + MMSE-IRC
+nBsAnt X nUeAnt = 4 X 4
+GPU CDL: CDLC300-10, CFO 200 Hz, using mode 1 (CFR on Prbg only)
+Topology configuration: seed=42, ue_placement=uniform, radius_splits=(0.33, 0.66), strata_counts=(0,0,0), voronoi_clip=off
+Cluster configuration: coordinated cells=7, interferer cells=12, total cells=19
+numSM: 108
+Using CPU multi-cell PF UE selection
+Using CPU multi-cell PF scheduler
+TTI_PROGRESS 0/399
+CPU scheduler sum cell throughput: 3.230e+04
+GPU scheduler sum cell throughput: 3.230e+04
+
+summary_key_lines:
+GPU CDL: CDLC300-10, CFO 200 Hz, using mode 1 (CFR on Prbg only)
+CPU and GPU scheduler per-UE throughput performance check result: FAIL
+Largest gap (in percentage) between CPU and GPU per-UE throughput CDFs = 1.785713%
+CPU and GPU scheduler sum throughput performance check result: PASS
+Largest gap (in percentage) between CPU and GPU sum throughput curves = 0.845480%
+CPU and GPU scheduler performance check result: FAIL
+TRAFFIC_KPI flows=56 generated_pkts=35365 generated_bytes=176825000 accepted_bytes=176825000 dropped_bytes=0 flow_queued_bytes=0 mac_buffer_bytes=162788376 served_bytes_est=14036624
+TRAFFIC_KPI offered_mbps=7073.000000 served_mbps_est=561.464960 drop_rate=0.000000 queue_delay_est_ms=2319.480468

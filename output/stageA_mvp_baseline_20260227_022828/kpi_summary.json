@@ -1,0 +1,49 @@
+{
+  "run_dir": "/opt/nvidia/cuBB/output/stageA_mvp_baseline_20260227_022828",
+  "slot_duration_ms": 0.5,
+  "tti_count": 200,
+  "ue_count": 24,
+  "throughput": {
+    "instantaneous_mbps_gpu": {
+      "count": 200,
+      "mean": 274.04792,
+      "p50": 274.696,
+      "p95": 419.48160000000007,
+      "min": 11.968,
+      "max": 483.376,
+      "last": 215.68
+    },
+    "long_term_sum_mbps_gpu": {
+      "count": 200,
+      "mean": 25.03914754,
+      "p50": 25.291,
+      "p95": 47.864835,
+      "min": 0.083608,
+      "max": 49.8516,
+      "last": 49.8516
+    },
+    "per_ue_avg_mbps_gpu": {
+      "count": 24,
+      "mean": 2.077151166666667,
+      "p50": 1.82294,
+      "p95": 5.341439500000001,
+      "min": 0.173311,
+      "max": 6.48753,
+      "last": 2.1109
+    }
+  },
+  "traffic": {
+    "flows": 24,
+    "generated_pkts": 7415,
+    "generated_bytes": 37075000,
+    "accepted_bytes": 37075000,
+    "dropped_bytes": 0,
+    "flow_queued_bytes": 0,
+    "mac_buffer_bytes": 8037592,
+    "served_bytes_est": 29037408,
+    "offered_mbps": 2966.0,
+    "served_mbps_est": 2322.99264,
+    "drop_rate": 0.0,
+    "queue_delay_est_ms": 27.680129
+  }
+}

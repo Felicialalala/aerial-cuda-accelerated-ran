@@ -21,6 +21,8 @@
 #include <memory>
 #include <list>
 #include <random>
+#include <cstdint>
+#include <cmath>
 #include <fmt/core.h>
 #include "nvlog.hpp"
 
@@ -148,6 +150,43 @@ public:
             NVLOGD_FMT(NVLOG_TRAFFIC, "Flow ID {} euqueued with {} bytes",flow_data.flow_id,flow_data.num_bytes);
         }
     }
+    unsigned long long GetTotalAcceptedBytes() const {
+        unsigned long long total = 0;
+        for (const auto& flow : traffic_flows) {
+            total += flow.GetTotalAcceptedBytes();
+        }
+        return total;
+    }
+    unsigned long long GetTotalDroppedBytes() const {
+        unsigned long long total = 0;
+        for (const auto& flow : traffic_flows) {
+            total += flow.GetTotalDroppedBytes();
+        }
+        return total;
+    }
+    unsigned long long GetTotalQueuedBytes() const {
+        unsigned long long total = 0;
+        for (const auto& flow : traffic_flows) {
+            total += static_cast<unsigned long long>(flow.GetQueuedBytes());
+        }
+        return total;
+    }
+    void GetPerFlowStats(std::vector<unsigned long long>& generated_bytes,
+                         std::vector<unsigned long long>& accepted_bytes,
+                         std::vector<unsigned long long>& dropped_bytes,
+                         std::vector<unsigned long long>& queued_bytes) const {
+        const size_t n = traffic_flows.size();
+        generated_bytes.assign(n, 0);
+        accepted_bytes.assign(n, 0);
+        dropped_bytes.assign(n, 0);
+        queued_bytes.assign(n, 0);
+        for (size_t i = 0; i < n; ++i) {
+            generated_bytes[i] = traffic_flows[i].GetTotalGeneratedBytes();
+            accepted_bytes[i] = traffic_flows[i].GetTotalAcceptedBytes();
+            dropped_bytes[i] = traffic_flows[i].GetTotalDroppedBytes();
+            queued_bytes[i] = static_cast<unsigned long long>(traffic_flows[i].GetQueuedBytes());
+        }
+    }
 };
 
 
@@ -212,9 +251,13 @@ private:
     std::vector<std::poisson_distribution<>> arrival_dist;
     std::vector<Arrival_t> arrival_type;
     int last_tti;
+    unsigned long long total_generated_bytes;
+    unsigned long long total_generated_pkts;
 public:
     TrafficGenerator(TrafficConfig& config) : gen(rd()) {
         last_tti = 0;
+        total_generated_bytes = 0;
+        total_generated_pkts = 0;
         Configure(config);
     }
     void Attach(TrafficObserver* observer){
@@ -224,6 +267,8 @@ public:
     void Configure(TrafficConfig& config){
         // Set up sizes for pending traffic and store parameters for generating traffic
         auto flow_cfgs =  config.GetFlowCfgs();
+        total_generated_bytes = 0;
+        total_generated_pkts = 0;
         pending_traffic.resize(flow_cfgs.size());
         pkt_size_dist.resize(flow_cfgs.size());
         arrival_dist.resize(flow_cfgs.size());
@@ -266,7 +311,17 @@ public:
             }
             for(int k = 0; k < num_pkt; k++)
             {
-                num_step_bytes += pkt_size_dist[i](gen);
+                int pkt_bytes = static_cast<int>(std::round(pkt_size_dist[i](gen)));
+                if (pkt_bytes < 0) {
+                    pkt_bytes = 0;
+                }
+                num_step_bytes += pkt_bytes;
+            }
+            if (num_pkt > 0) {
+                total_generated_pkts += static_cast<unsigned long long>(num_pkt);
+            }
+            if (num_step_bytes > 0) {
+                total_generated_bytes += static_cast<unsigned long long>(num_step_bytes);
             }
             current_flow.num_bytes = num_step_bytes;
         }
@@ -287,4 +342,6 @@ public:
             }
         }
     }
+    unsigned long long GetTotalGeneratedBytes() const { return total_generated_bytes; }
+    unsigned long long GetTotalGeneratedPkts() const { return total_generated_pkts; }
 };

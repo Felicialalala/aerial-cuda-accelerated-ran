@@ -816,6 +816,12 @@ void multiCellSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
                                   cumacSimParam*              simParam,
                                   uint8_t                     in_columnMajor)
 {
+    if (cellGrpPrms->allocType == 0) {
+        std::fill(schdSol->allocSol,
+                  schdSol->allocSol + static_cast<size_t>(simParam->totNumCell) * cellGrpPrms->nPrbGrp,
+                  static_cast<int16_t>(-1));
+    }
+
     pCpuDynDesc->cellId                 = cellGrpPrms->cellId;
     pCpuDynDesc->avgRates               = cellGrpUeStatus->avgRates;
     pCpuDynDesc->allocSol               = schdSol->allocSol;

@@ -1,0 +1,3 @@
+scenario,status,reason,tti_count,ue_count,inst_mean_mbps,inst_p95_mbps,inst_last_mbps,long_term_last_mbps,per_ue_p5_mbps,per_ue_mean_mbps,flows,offered_mbps,served_mbps_est,drop_rate,queue_delay_est_ms
+CDL_C_DS300ns,WARN,perf_check_fail_after_full_run_per_ue_gap_1d785713p_sum_gap_0d845480p,400,56,62.00536,75.916,74.784,20.6325,0.13715125,0.36843694285714285,56,7073.0,561.46496,0.0,2319.480468
+CDL_D_DS1000ns,SKIP,cdl_d_los_not_supported,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0,0.0,0.0,,
