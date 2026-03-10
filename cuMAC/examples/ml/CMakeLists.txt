@@ -87,6 +87,10 @@ find_package(CUDAToolkit REQUIRED)
 
 find_library(NVINFER libnvinfer.so)
 find_library(NVONNXPARSER libnvonnxparser.so)
+find_library(NVINFER_PLUGIN libnvinfer_plugin.so)
+if (NOT NVINFER OR NOT NVONNXPARSER OR NOT NVINFER_PLUGIN)
+  message(FATAL_ERROR "TensorRT libraries not found: NVINFER=${NVINFER}, NVONNXPARSER=${NVONNXPARSER}, NVINFER_PLUGIN=${NVINFER_PLUGIN}")
+endif()
 
 # -------------------------------------------------------------------------
 # HDF5 related library
@@ -145,5 +149,5 @@ message(STATUS "Build type: ${CMAKE_BUILD_TYPE}")
 message(STATUS "C++ standard: ${CMAKE_CXX_STANDARD}")
 message(STATUS "CUDA toolkit: ${CUDAToolkit_VERSION}")
 message(STATUS "HDF5 CXX libraries: ${HDF5_CXX_LIBRARIES}")
-message(STATUS "TensorRT libraries: ${NVINFER}, ${NVONNXPARSER}")
+message(STATUS "TensorRT libraries: ${NVINFER}, ${NVONNXPARSER}, ${NVINFER_PLUGIN}")
 message(STATUS "==========================================")

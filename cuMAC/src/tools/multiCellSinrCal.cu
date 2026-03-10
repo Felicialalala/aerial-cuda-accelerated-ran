@@ -1002,6 +1002,6 @@
 
     file.close();
 
-    delete postEqSinr;
+    delete[] postEqSinr;
  }
-}
+ }

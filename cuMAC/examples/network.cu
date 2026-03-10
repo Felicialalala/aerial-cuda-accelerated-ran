@@ -164,6 +164,28 @@ static int getTtiKpiLogInterval()
     return interval;
 }
 
+static int getPhyTraceEnabled()
+{
+    static int enabled = []() {
+        const char* env = std::getenv("CUMAC_PHY_TRACE");
+        if (env == nullptr || env[0] == '\0') {
+            return 0;
+        }
+        return std::atoi(env) != 0 ? 1 : 0;
+    }();
+    return enabled;
+}
+
+static inline int sanitizeMcsIndex(int mcs)
+{
+    return (mcs >= 0 && mcs < 28) ? mcs : 0;
+}
+
+static inline int sanitizeLayerCount(int layerCount, int maxLayers)
+{
+    return (layerCount >= 1 && layerCount <= maxLayers) ? layerCount : 1;
+}
+
  network::network(uint8_t in_DL, uint8_t extSchedulerType, uint8_t fixCellAssoc, uint8_t fastFadingType, bool en_traffic_gen, cudaStream_t strm) : m_en_traffic_gen(en_traffic_gen)
  {
     /* Initialization */
@@ -1066,29 +1088,29 @@ static int getTtiKpiLogInterval()
      if (schdSolGpu->pfIdArr) CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfIdArr));
      
      // free CPU mem allocate /////////////////////////////////
-     if (schdSolCpu->allocSol) delete schdSolCpu->allocSol;
-     if (schdSolCpu->mcsSelSol) delete schdSolCpu->mcsSelSol;
-     if (schdSolCpu->layerSelSol) delete schdSolCpu->layerSelSol;
-     if (schdSolCpu->setSchdUePerCellTTI) delete schdSolCpu->setSchdUePerCellTTI;
-     if (cellGrpUeStatusCpu->avgRates) delete cellGrpUeStatusCpu->avgRates;
-     if (cellGrpUeStatusCpu->avgRatesActUe) delete cellGrpUeStatusCpu->avgRatesActUe;
-     if (cellGrpUeStatusCpu->tbErrLast) delete cellGrpUeStatusCpu->tbErrLast;
-     if (cellGrpUeStatusCpu->tbErrLastActUe) delete cellGrpUeStatusCpu->tbErrLastActUe;
-     if (cellGrpUeStatusCpu->prioWeightActUe) delete cellGrpUeStatusCpu->prioWeightActUe;
-     if (cellGrpPrmsCpu->prdMat) delete cellGrpPrmsCpu->prdMat;
-     if (cellGrpPrmsCpu->prdMat_actUe) delete cellGrpPrmsCpu->prdMat_actUe;
-     if (cellGrpPrmsCpu->detMat) delete cellGrpPrmsCpu->detMat;
-     if (cellGrpPrmsCpu->detMat_actUe) delete cellGrpPrmsCpu->detMat_actUe;
-     if (cellGrpPrmsCpu->sinVal) delete cellGrpPrmsCpu->sinVal;
-     if (cellGrpPrmsCpu->sinVal_actUe) delete cellGrpPrmsCpu->sinVal_actUe;
-     if (cellGrpPrmsCpu->numUeSchdPerCellTTIArr) delete cellGrpPrmsCpu->numUeSchdPerCellTTIArr;
-     if (cellGrpPrmsCpu->cellAssoc) delete cellGrpPrmsCpu->cellAssoc;
-     if (cellGrpPrmsCpu->cellAssocActUe) delete cellGrpPrmsCpu->cellAssocActUe;
-     if (cellGrpPrmsCpu->postEqSinr) delete cellGrpPrmsCpu->postEqSinr;
-     if (cellGrpPrmsCpu->wbSinr) delete cellGrpPrmsCpu->wbSinr;
-     if (cellGrpPrmsCpu->estH_fr) delete cellGrpPrmsCpu->estH_fr;
-     if (cellGrpPrmsCpu->estH_fr_actUe_prd) delete cellGrpPrmsCpu->estH_fr_actUe_prd;
-     if (cellGrpPrmsCpu->blerTargetActUe) delete cellGrpPrmsCpu->blerTargetActUe;
+     if (schdSolCpu->allocSol) delete[] schdSolCpu->allocSol;
+     if (schdSolCpu->mcsSelSol) delete[] schdSolCpu->mcsSelSol;
+     if (schdSolCpu->layerSelSol) delete[] schdSolCpu->layerSelSol;
+     if (schdSolCpu->setSchdUePerCellTTI) delete[] schdSolCpu->setSchdUePerCellTTI;
+     if (cellGrpUeStatusCpu->avgRates) delete[] cellGrpUeStatusCpu->avgRates;
+     if (cellGrpUeStatusCpu->avgRatesActUe) delete[] cellGrpUeStatusCpu->avgRatesActUe;
+     if (cellGrpUeStatusCpu->tbErrLast) delete[] cellGrpUeStatusCpu->tbErrLast;
+     if (cellGrpUeStatusCpu->tbErrLastActUe) delete[] cellGrpUeStatusCpu->tbErrLastActUe;
+     if (cellGrpUeStatusCpu->prioWeightActUe) delete[] cellGrpUeStatusCpu->prioWeightActUe;
+     if (cellGrpPrmsCpu->prdMat) delete[] cellGrpPrmsCpu->prdMat;
+     if (cellGrpPrmsCpu->prdMat_actUe) delete[] cellGrpPrmsCpu->prdMat_actUe;
+     if (cellGrpPrmsCpu->detMat) delete[] cellGrpPrmsCpu->detMat;
+     if (cellGrpPrmsCpu->detMat_actUe) delete[] cellGrpPrmsCpu->detMat_actUe;
+     if (cellGrpPrmsCpu->sinVal) delete[] cellGrpPrmsCpu->sinVal;
+     if (cellGrpPrmsCpu->sinVal_actUe) delete[] cellGrpPrmsCpu->sinVal_actUe;
+     if (cellGrpPrmsCpu->numUeSchdPerCellTTIArr) delete[] cellGrpPrmsCpu->numUeSchdPerCellTTIArr;
+     if (cellGrpPrmsCpu->cellAssoc) delete[] cellGrpPrmsCpu->cellAssoc;
+     if (cellGrpPrmsCpu->cellAssocActUe) delete[] cellGrpPrmsCpu->cellAssocActUe;
+     if (cellGrpPrmsCpu->postEqSinr) delete[] cellGrpPrmsCpu->postEqSinr;
+     if (cellGrpPrmsCpu->wbSinr) delete[] cellGrpPrmsCpu->wbSinr;
+     if (cellGrpPrmsCpu->estH_fr) delete[] cellGrpPrmsCpu->estH_fr;
+     if (cellGrpPrmsCpu->estH_fr_actUe_prd) delete[] cellGrpPrmsCpu->estH_fr_actUe_prd;
+     if (cellGrpPrmsCpu->blerTargetActUe) delete[] cellGrpPrmsCpu->blerTargetActUe;
  }
 
  void network::popHfrToPerUeBuffer()
@@ -1164,8 +1186,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
     }
  }
 
- void network::phyAbstract(uint8_t gpuInd, int slotIdx)
- {
+void network::phyAbstract(uint8_t gpuInd, int slotIdx)
+{
     // verify slotIdx
     if (slotIdx < 0) {
         throw std::runtime_error("Error: invalid time slot index");
@@ -1175,13 +1197,43 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         floatRandomArr[idx] = uniformRealDist(randomEngine);
     }
 
+    const bool phyTraceEnabled = getPhyTraceEnabled() != 0;
     if (gpuInd == 1) { // for GPU
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d before_updateDataRatePdschGpu\n", slotIdx);
+            fflush(stdout);
+        }
         updateDataRatePdschGpu(slotIdx);
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d after_updateDataRatePdschGpu\n", slotIdx);
+            fflush(stdout);
+        }
     } else if (gpuInd == 0) { // for CPU
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d before_updateDataRatePdschCpu\n", slotIdx);
+            fflush(stdout);
+        }
         updateDataRatePdschCpu(slotIdx);
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d after_updateDataRatePdschCpu\n", slotIdx);
+            fflush(stdout);
+        }
     } else if (gpuInd == 2) { // for both CPU and GPU
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d before_updateDataRatePdschGpu\n", slotIdx);
+            fflush(stdout);
+        }
         updateDataRatePdschGpu(slotIdx);
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d after_updateDataRatePdschGpu\n", slotIdx);
+            printf("PHY_STAGE t=%d before_updateDataRatePdschCpu\n", slotIdx);
+            fflush(stdout);
+        }
         updateDataRatePdschCpu(slotIdx);
+        if (phyTraceEnabled) {
+            printf("PHY_STAGE t=%d after_updateDataRatePdschCpu\n", slotIdx);
+            fflush(stdout);
+        }
     } else {
         throw std::runtime_error("Error: invalid gpuInd value, 0 - CPU, 1 - GPU, 2 - both CPU and GPU");
     }
@@ -1240,7 +1292,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 perUeThr[ueIdx] = 0;
                 tbErrRecordsGpu[ueIdx][slotIdx] = -1;
             } else { // scheduled for the last time slot
-                int mcsSel = mcsSelSol[ueIdx];
+                const int layerCount = sanitizeLayerCount(static_cast<int>(layerSelSol[ueIdx]), nUeAnt);
+                int mcsSel = sanitizeMcsIndex(mcsSelSol[ueIdx]);
                 // calculate average SINR over the allocated PRBs
                 float avgSinr = 0;
 
@@ -1289,7 +1342,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                         }
                         matAlg->matInverseEigen(EMat, nBsAnt, EInvMat);
 
-                        for (int layerIdx = 0; layerIdx < layerSelSol[ueIdx]; layerIdx++) {
+                        for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                             avgSinr += 1.0/EInvMat[layerIdx*nBsAnt+layerIdx].x - 1.0;
                         }
                     } else { // UL
@@ -1338,13 +1391,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                         }
                         matAlg->matInverseEigen(EMat, nUeAnt, EInvMat);
 
-                        for (int layerIdx = 0; layerIdx < layerSelSol[ueIdx]; layerIdx++) {
+                        for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                             avgSinr += 1.0/EInvMat[layerIdx*nUeAnt+layerIdx].x - 1.0;
                         }  
                     }
                 }
                         
-                avgSinr /= (nrAllocRbg*layerSelSol[ueIdx]);
+                avgSinr /= (nrAllocRbg*layerCount);
 
                 float avgSinrDB = 10.0*log10(avgSinr);
 
@@ -1380,7 +1433,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 tbErrLast[ueIdx] = tbErr;
                 tbErrRecordsGpu[ueIdx][slotIdx] = tbErr;
 
-                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
+                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerCount, mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
                 // CPU and GPU buffer sizes hold the same values (data managed on CPU side)
                 if(0 != cellGrpUeStatusCpu->bufferSize){
@@ -1396,8 +1449,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             layerSelRecordsGpu[ueIdx][slotIdx] = layerSelSol[ueIdx];
         }
 
-        delete assocCellIdx;
-        delete allocSol_rbg2Ue;
+        delete[] assocCellIdx;
+        delete[] allocSol_rbg2Ue;
     } else {
         // determine cell associate 
         int* assocCellIdx = new int[nUe];
@@ -1431,7 +1484,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 perUeThr[ueIdx] = 0;
                 tbErrRecordsGpu[ueIdx][slotIdx] = -1;
             } else { // scheduled for the last time slot
-                int mcsSel = mcsSelSol[ueIdx];
+                const int layerCount = sanitizeLayerCount(static_cast<int>(layerSelSol[ueIdx]), nUeAnt);
+                int mcsSel = sanitizeMcsIndex(mcsSelSol[ueIdx]);
                 // calculate average SINR over the allocated PRBs
                 float avgSinr = 0;
 
@@ -1484,7 +1538,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                         }
                         matAlg->matInverseEigen(EMat, nBsAnt, EInvMat);
 
-                        for (int layerIdx = 0; layerIdx < layerSelSol[ueIdx]; layerIdx++) {
+                        for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                             avgSinr += 1.0/EInvMat[layerIdx*nBsAnt+layerIdx].x - 1.0;
                         }
                     } else { // UL
@@ -1533,13 +1587,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                         }
                         matAlg->matInverseEigen(EMat, nUeAnt, EInvMat);
 
-                        for (int layerIdx = 0; layerIdx < layerSelSol[ueIdx]; layerIdx++) {
+                        for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                             avgSinr += 1.0/EInvMat[layerIdx*nUeAnt+layerIdx].x - 1.0;
                         }  
                     }
                 }
                         
-                avgSinr /= (nrAllocRbg*layerSelSol[ueIdx]);
+                avgSinr /= (nrAllocRbg*layerCount);
 
                 float avgSinrDB = 10.0*log10(avgSinr);
 
@@ -1575,7 +1629,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 tbErrLast[ueIdx] = tbErr;
                 tbErrRecordsGpu[ueIdx][slotIdx] = tbErr;
 
-                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
+                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerCount, mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
                 // CPU and GPU buffer sizes hold the same values (data managed on CPU side)
                 if(0 != cellGrpUeStatusCpu->bufferSize){
@@ -1592,7 +1646,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             layerSelRecordsGpu[ueIdx][slotIdx] = layerSelSol[ueIdx];
         }
 
-        delete assocCellIdx;
+        delete[] assocCellIdx;
     }
 
     sumInsThrRecordsGpu[slotIdx] = 0;
@@ -1610,13 +1664,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         }
     }
 
-    delete perUeThr;
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] perUeThr;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
  }
 
  uint32_t network::getAllocBytes(int ueIdx)
@@ -1624,9 +1678,10 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
     // TODO only handles type 1 allocation
     int nrAllocRbg = allocSol[2*ueIdx+1] - allocSol[2*ueIdx];
     int nrAllocPrb = nrAllocRbg*nPrbPerGrp;
-    int mcsSel = mcsSelSol[ueIdx];
+    int mcsSel = sanitizeMcsIndex(mcsSelSol[ueIdx]);
+    int layerCount = sanitizeLayerCount(static_cast<int>(layerSelSol[ueIdx]), nUeAnt);
     // Note: TBS seems to have a minimum of 48, so clip when no RBs allocated
-    uint32_t TBS = (nrAllocPrb>0)*determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
+    uint32_t TBS = (nrAllocPrb>0)*determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerCount, mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
     return TBS*(1-tbErrLast[ueIdx])/8; // Return value in bytes
  }
 
@@ -1685,7 +1740,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 predBlerRecordsCpu[ueIdx][slotIdx] = -1.0f;
                 perUeThr[ueIdx] = 0;
             } else { // scheduled for the last time slot
-                int mcsSel = schdSolCpu->mcsSelSol[ueIdx];
+                const int layerCount = sanitizeLayerCount(static_cast<int>(schdSolCpu->layerSelSol[ueIdx]), nUeAnt);
+                int mcsSel = sanitizeMcsIndex(schdSolCpu->mcsSelSol[ueIdx]);
                 // calculate average SINR over the allocated PRBs
                 float avgSinr = 0;
 
@@ -1736,7 +1792,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                             }
                             matAlg->matInverseEigen(EMat, nBsAnt, EInvMat);
 
-                            for (int layerIdx = 0; layerIdx < schdSolCpu->layerSelSol[ueIdx]; layerIdx++) {
+                            for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                                 avgSinr += 1.0/EInvMat[layerIdx*nBsAnt+layerIdx].x - 1.0;
                             }
                         } else { // UL
@@ -1785,12 +1841,12 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                             }
                             matAlg->matInverseEigen(EMat, nUeAnt, EInvMat);
 
-                            for (int layerIdx = 0; layerIdx < schdSolCpu->layerSelSol[ueIdx]; layerIdx++) {
+                            for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                                 avgSinr += 1.0/EInvMat[layerIdx*nUeAnt+layerIdx].x - 1.0;
                             }  
                         }
                 }
-                avgSinr /= (nrAllocRbg*schdSolCpu->layerSelSol[ueIdx]);
+                avgSinr /= (nrAllocRbg*layerCount);
 
                 float avgSinrDB = 10.0*log10(avgSinr);
 
@@ -1827,7 +1883,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 tbErrRecordsCpu[ueIdx][slotIdx] = tbErr;
                 predBlerRecordsCpu[ueIdx][slotIdx] = blerCurr;
 
-                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, schdSolCpu->layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
+                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerCount, mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
                 if(0 != cellGrpUeStatusCpu->bufferSize){
                     auto sched_bytes = std::min({TBS,cellGrpUeStatusCpu->bufferSize[ueIdx]});
@@ -1843,8 +1899,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             layerSelRecordsCpu[ueIdx][slotIdx] = schdSolCpu->layerSelSol[ueIdx];
         }
 
-        delete assocCellIdx;
-        delete allocSol_rbg2Ue;
+        delete[] assocCellIdx;
+        delete[] allocSol_rbg2Ue;
     } else {
         // determine cell associate 
         int* assocCellIdx = new int[nUe];
@@ -1879,7 +1935,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 predBlerRecordsCpu[ueIdx][slotIdx] = -1.0f;
                 perUeThr[ueIdx] = 0;
             } else { // scheduled for the last time slot
-                int mcsSel = schdSolCpu->mcsSelSol[ueIdx];
+                const int layerCount = sanitizeLayerCount(static_cast<int>(schdSolCpu->layerSelSol[ueIdx]), nUeAnt);
+                int mcsSel = sanitizeMcsIndex(schdSolCpu->mcsSelSol[ueIdx]);
                 // calculate average SINR over the allocated PRBs
                 float avgSinr = 0;
                 
@@ -1934,7 +1991,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                             }
                             matAlg->matInverseEigen(EMat, nBsAnt, EInvMat);
 
-                            for (int layerIdx = 0; layerIdx < schdSolCpu->layerSelSol[ueIdx]; layerIdx++) {
+                            for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                                 avgSinr += 1.0/EInvMat[layerIdx*nBsAnt+layerIdx].x - 1.0;
                             }
                         } else { // UL
@@ -1983,12 +2040,12 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                             }
                             matAlg->matInverseEigen(EMat, nUeAnt, EInvMat);
 
-                            for (int layerIdx = 0; layerIdx < schdSolCpu->layerSelSol[ueIdx]; layerIdx++) {
+                            for (int layerIdx = 0; layerIdx < layerCount; layerIdx++) {
                                 avgSinr += 1.0/EInvMat[layerIdx*nUeAnt+layerIdx].x - 1.0;
                             }  
                         }
                 }
-                avgSinr /= (nrAllocRbg*schdSolCpu->layerSelSol[ueIdx]);
+                avgSinr /= (nrAllocRbg*layerCount);
 
                 float avgSinrDB = 10.0*log10(avgSinr);
 
@@ -2025,7 +2082,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 tbErrRecordsCpu[ueIdx][slotIdx] = tbErr;
                 predBlerRecordsCpu[ueIdx][slotIdx] = blerCurr;
 
-                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, schdSolCpu->layerSelSol[ueIdx], mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
+                uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerCount, mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
                 if(0 != cellGrpUeStatusCpu->bufferSize){
                     auto sched_bytes = std::min({TBS,cellGrpUeStatusCpu->bufferSize[ueIdx]});
@@ -2041,7 +2098,7 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             layerSelRecordsCpu[ueIdx][slotIdx] = schdSolCpu->layerSelSol[ueIdx];
         }
 
-        delete assocCellIdx;
+        delete[] assocCellIdx;
     }
 
     sumInsThrRecordsCpu[slotIdx] = 0;
@@ -2059,13 +2116,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         }
     }
 
-    delete perUeThr;
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] perUeThr;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
  }
 
  void network::updateDataRateUeSelCpu(int slotIdx)
@@ -2179,8 +2236,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
                 }
             }
     
-            delete assocCellIdx;
-            delete allocSol_rbg2Ue;
+            delete[] assocCellIdx;
+            delete[] allocSol_rbg2Ue;
         } else {
             for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
                 for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
@@ -2262,13 +2319,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
 
         printf("CPU scheduler sum instantaneous rate: %4.3e\n", sumInsThrRecordsCpu[slotIdx]);
     
-        delete perUeThr;
-        delete BMat;
-        delete CMat;
-        delete CInvMat;
-        delete DMat;
-        delete EMat;
-        delete EInvMat;
+        delete[] perUeThr;
+        delete[] BMat;
+        delete[] CMat;
+        delete[] CInvMat;
+        delete[] DMat;
+        delete[] EMat;
+        delete[] EInvMat;
  }
 
  void network::updateDataRateCpu(int slotIdx)
@@ -2378,8 +2435,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             }
         }
 
-        delete assocCellIdx;
-        delete allocSol_rbg2Ue;
+        delete[] assocCellIdx;
+        delete[] allocSol_rbg2Ue;
     } else {
         for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
             for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
@@ -2461,13 +2518,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         }
     }
 
-    delete perUeThr;
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] perUeThr;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
  }
 
  void network::updateDataRateGpu(int slotIdx)
@@ -2589,8 +2646,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             }
         }
 
-        delete assocCellIdx;
-        delete allocSol_rbg2Ue;
+        delete[] assocCellIdx;
+        delete[] allocSol_rbg2Ue;
     } else {
         for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
             for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
@@ -2673,13 +2730,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
 
     printf("GPU scheduler sum instantaneous rate: %4.3e\n", sumInsThrRecordsGpu[slotIdx]);
 
-    delete perUeThr;
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] perUeThr;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
  }
 
  void network::updateDataRateUpperBndCpu(int slotIdx)
@@ -2778,8 +2835,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             }
         }
 
-        delete assocCellIdx;
-        delete allocSol_rbg2Ue;
+        delete[] assocCellIdx;
+        delete[] allocSol_rbg2Ue;
     } else {
         for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
             for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
@@ -2848,13 +2905,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         }
     }
 
-    delete perUeThr;
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] perUeThr;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
  }
 
 
@@ -2954,8 +3011,8 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
             }
         }
 
-        delete assocCellIdx;
-        delete allocSol_rbg2Ue;
+        delete[] assocCellIdx;
+        delete[] allocSol_rbg2Ue;
     } else {
         for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
             for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
@@ -3025,13 +3082,13 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
         }
     }
 
-    delete perUeThr;
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] perUeThr;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
  }
 
 
@@ -3325,11 +3382,11 @@ void network::copyCellAssocResGpu2Cpu(cudaStream_t strm)
     }
     printf("Largest gap (in percentage) between CPU and GPU sum throughput curves = %f%%\n", 100.0*cpuGpuGapSumR);
 
-    delete avgRatesActUeGpuTemp;
-    delete avgRatesActUeCpuTemp;
-    delete xPoints;
-    delete percentilesCpu;
-    delete percentilesGpu;
+    delete[] avgRatesActUeGpuTemp;
+    delete[] avgRatesActUeCpuTemp;
+    delete[] xPoints;
+    delete[] percentilesCpu;
+    delete[] percentilesGpu;
 
     return perUePerfCheckPass & sumRPerfCheckPass;
  }
@@ -3803,8 +3860,10 @@ void network::genLSFading()
 
     initStrongestCellAssociation();
 
-    for (int cIdx = 0; cIdx < netData->numCell; cIdx++) delete snrDBAssoc[cIdx];
-    delete snrDBAssoc;
+    for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
+        delete[] snrDBAssoc[cIdx];
+    }
+    delete[] snrDBAssoc;
 }
 
 

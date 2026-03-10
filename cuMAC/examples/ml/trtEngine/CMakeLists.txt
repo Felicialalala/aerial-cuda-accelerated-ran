@@ -15,7 +15,7 @@
 
 add_executable(trtEngine)
 target_sources(trtEngine PRIVATE main.cpp ../trtEngine.cpp)
-target_link_libraries(trtEngine PRIVATE  CUDA::cudart CUDA::cuda_driver ${HDF5_CXX_LIBRARIES} ${NVINFER} ${NVONNXPARSER} nvlog nvipc)
+target_link_libraries(trtEngine PRIVATE  CUDA::cudart CUDA::cuda_driver ${HDF5_CXX_LIBRARIES} ${NVINFER} ${NVONNXPARSER} ${NVINFER_PLUGIN} nvlog nvipc)
 target_include_directories(trtEngine PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..

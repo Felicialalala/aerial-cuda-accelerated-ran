@@ -49,6 +49,7 @@ void multiCellLayerSelCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
                                  cumacCellGrpPrms*           cellGrpPrms)
 {
     pDynDescr->nUe                    = cellGrpPrms->nUe;
+    pDynDescr->nActiveUe              = cellGrpPrms->nActiveUe;
     pDynDescr->nPrbGrp                = cellGrpPrms->nPrbGrp;
     pDynDescr->nCell                  = cellGrpPrms->nCell;
     pDynDescr->totNumCell             = cellGrpPrms->totNumCell;
@@ -134,18 +135,25 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type0()
    for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
       uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-      if (globalUidx == 0xFFFF) {
+      if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
+         pDynDescr->layerSelSol[uIdx] = 0xFF;
          continue;
       }
 
-      uint16_t assocCellIdx;
+      uint16_t assocCellIdx = 0;
+      bool assocCellFound = false;
 
       for (uint16_t localCellIdx = 0; localCellIdx < pDynDescr->nCell; localCellIdx++) {
          const uint16_t cellIdx = pDynDescr->cellId[localCellIdx];
          if (pDynDescr->cellAssoc[cellIdx*pDynDescr->nUe + uIdx] == 1) {
             assocCellIdx = cellIdx;
+            assocCellFound = true;
             break;
          }
+      }
+      if (!assocCellFound) {
+         pDynDescr->layerSelSol[uIdx] = 0xFF;
+         continue;
       }
 
       uint8_t numLayers = 0xFF;
@@ -181,7 +189,7 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1()
    for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
       uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-      if (globalUidx == 0xFFFF) {
+      if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
          pDynDescr->layerSelSol[uIdx] = 0xFF;
          continue;
       }
@@ -226,16 +234,23 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_cfr()
    for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
       uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-      if (globalUidx == 0xFFFF) {
+      if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
+         pDynDescr->layerSelSol[uIdx] = 0xFF;
          continue;
       }
 
       uint8_t cIdx = 0;
+      bool assocCellFound = false;
       for (uint8_t cellIdx = 0; cellIdx < pDynDescr->nCell; cellIdx++) {
          if (pDynDescr->cellAssoc[cellIdx*pDynDescr->nUe + uIdx] == 1) {
             cIdx = cellIdx;
+            assocCellFound = true;
             break;
          }
+      }
+      if (!assocCellFound) {
+         pDynDescr->layerSelSol[uIdx] = 0xFF;
+         continue;
       }
 
       uint8_t numLayers = 0xFF;
@@ -279,7 +294,8 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_harq()
    for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
       uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-      if (globalUidx == 0xFFFF) {
+      if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
+         pDynDescr->layerSelSol[uIdx] = 0xFF;
          continue;
       }
 
@@ -326,7 +342,8 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_cfr_harq()
    for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
       uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-      if (globalUidx == 0xFFFF) {
+      if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
+         pDynDescr->layerSelSol[uIdx] = 0xFF;
          continue;
       }
 
@@ -334,11 +351,17 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_cfr_harq()
          pDynDescr->layerSelSol[uIdx] = pDynDescr->layerSelSolLastTx[uIdx];
       } else {
          uint8_t cIdx = 0;
+         bool assocCellFound = false;
          for (uint8_t cellIdx = 0; cellIdx < pDynDescr->nCell; cellIdx++) {
             if (pDynDescr->cellAssoc[cellIdx*pDynDescr->nUe + uIdx] == 1) {
                cIdx = cellIdx;
+               assocCellFound = true;
                break;
             }
+         }
+         if (!assocCellFound) {
+            pDynDescr->layerSelSol[uIdx] = 0xFF;
+            continue;
          }
 
          uint8_t numLayers = 0xFF;

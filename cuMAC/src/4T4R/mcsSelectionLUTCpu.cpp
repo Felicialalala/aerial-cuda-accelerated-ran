@@ -56,6 +56,7 @@ void mcsSelectionLUTCpu::setup(cumacCellGrpUeStatus*  cellGrpUeStatus,
                                cumacCellGrpPrms*      cellGrpPrms)
 {
     pDynDescr->nUe                    = cellGrpPrms->nUe; 
+    pDynDescr->nActiveUe              = cellGrpPrms->nActiveUe;
     pDynDescr->nCell                  = cellGrpPrms->nCell;
     pDynDescr->totNumCell             = cellGrpPrms->totNumCell;
     pDynDescr->nPrbGrp                = cellGrpPrms->nPrbGrp;
@@ -104,7 +105,8 @@ void mcsSelectionLUTCpu::mcsSelSinrRepKernel_type0_wbSinr()
     for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
         uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-        if (globalUidx == 0xFFFF) {
+        if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
+            pDynDescr->mcsSelSol[uIdx] = -1;
             continue;
         }
 
@@ -166,7 +168,8 @@ void mcsSelectionLUTCpu::mcsSelSinrRepKernel_type1_wbSinr()
     for (int uIdx = 0; uIdx < pDynDescr->nUe; uIdx++) {
         uint16_t globalUidx = pDynDescr->setSchdUePerCellTTI[uIdx];
 
-        if (globalUidx == 0xFFFF) {
+        if (globalUidx == 0xFFFF || globalUidx >= pDynDescr->nActiveUe) {
+            pDynDescr->mcsSelSol[uIdx] = -1;
             continue;
         }
 

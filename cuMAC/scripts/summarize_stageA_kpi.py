@@ -65,6 +65,23 @@ def basic_stats(values):
     }
 
 
+def jain_index(values):
+    if not values:
+        return 0.0
+    s = sum(values)
+    ss = sum(v * v for v in values)
+    if ss <= 0.0:
+        return 0.0
+    return (s * s) / (len(values) * ss)
+
+
+def weighted_mean(values, weights):
+    total_w = sum(weights)
+    if total_w <= 0:
+        return 0.0
+    return sum(v * w for v, w in zip(values, weights)) / float(total_w)
+
+
 def parse_traffic_kpi(log_text: str):
     l1 = re.findall(
         r"TRAFFIC_KPI flows=(\d+)\s+generated_pkts=(\d+)\s+generated_bytes=(\d+)\s+accepted_bytes=(\d+)\s+dropped_bytes=(\d+)\s+flow_queued_bytes=(\d+)\s+mac_buffer_bytes=(\d+)\s+served_bytes_est=(\d+)",
@@ -234,6 +251,81 @@ def summarize_cell_kpi(ue_kpi):
     return rows
 
 
+def summarize_global_kpi(ue_kpi, cell_kpi):
+    thr_values = [float(r.get("avg_thr_mbps", 0.0)) for r in ue_kpi]
+    sched_values = [float(r.get("scheduled_ratio", 0.0)) for r in ue_kpi]
+    queue_delay_values = [float(r.get("queue_delay_est_ms", 0.0)) for r in ue_kpi]
+    queue_delay_non_zero_values = [v for v in queue_delay_values if v > 0.0]
+    generated_values = [int(r.get("generated_bytes", 0)) for r in ue_kpi]
+    mac_buffer_values = [int(r.get("mac_buffer_bytes", 0)) for r in ue_kpi]
+    tx_total_pkts_values = [int(r.get("tx_total_pkts", 0)) for r in ue_kpi]
+    tx_success_pkts_values = [int(r.get("tx_success_pkts", 0)) for r in ue_kpi]
+    tb_err_count_values = [int(r.get("tb_err_count", 0)) for r in ue_kpi]
+    predicted_bler_values = [float(r.get("avg_predicted_bler", 0.0)) for r in ue_kpi]
+    predicted_bler_weights = [max(int(r.get("scheduled_tti_count", r.get("mcs_samples", 0))), 0) for r in ue_kpi]
+    cell_thr_values = [float(r.get("cell_sum_thr_mbps", 0.0)) for r in cell_kpi]
+
+    ue_count = len(ue_kpi)
+    total_generated_bytes = sum(generated_values)
+    total_mac_buffer_bytes = sum(mac_buffer_values)
+    total_tx_total_pkts = sum(tx_total_pkts_values)
+    total_tx_success_pkts = sum(tx_success_pkts_values)
+    total_tb_err_count = sum(tb_err_count_values)
+
+    residual_buffer_ratio = float(total_mac_buffer_bytes) / float(total_generated_bytes) if total_generated_bytes > 0 else 0.0
+    backlog_free_ue_ratio = (
+        float(sum(1 for x in mac_buffer_values if x <= 0)) / float(ue_count) if ue_count > 0 else 0.0
+    )
+
+    return {
+        "cluster_sum_throughput_mbps": sum(thr_values),
+        "average_ue_throughput_mbps": mean(thr_values) if thr_values else 0.0,
+        "global_tb_bler": float(total_tb_err_count) / float(total_tx_total_pkts) if total_tx_total_pkts > 0 else 0.0,
+        "global_predicted_bler_weighted": weighted_mean(predicted_bler_values, predicted_bler_weights),
+        "global_tx_success_rate": float(total_tx_success_pkts) / float(total_tx_total_pkts) if total_tx_total_pkts > 0 else 0.0,
+        "total_generated_bytes": total_generated_bytes,
+        "total_mac_buffer_bytes": total_mac_buffer_bytes,
+        "residual_buffer_ratio": residual_buffer_ratio,
+        "served_buffer_ratio": 1.0 - residual_buffer_ratio if total_generated_bytes > 0 else 0.0,
+        "ue_throughput_jain": jain_index(thr_values),
+        "cell_sum_throughput_jain": jain_index(cell_thr_values),
+        "ue_throughput_p5_mbps": pct(thr_values, 5),
+        "ue_throughput_p10_mbps": pct(thr_values, 10),
+        "ue_throughput_p50_mbps": pct(thr_values, 50),
+        "scheduled_ratio_mean": mean(sched_values) if sched_values else 0.0,
+        "scheduled_ratio_jain": jain_index(sched_values),
+        "scheduled_ratio_p5": pct(sched_values, 5),
+        "scheduled_ratio_p10": pct(sched_values, 10),
+        "scheduled_ratio_p50": pct(sched_values, 50),
+        "ue_fraction_scheduled_ratio_lt_0p7": (
+            float(sum(1 for v in sched_values if v < 0.7)) / float(len(sched_values)) if sched_values else 0.0
+        ),
+        "queue_delay_p50_ms": pct(queue_delay_values, 50),
+        "queue_delay_p90_ms": pct(queue_delay_values, 90),
+        "queue_delay_p95_ms": pct(queue_delay_values, 95),
+        "queue_delay_non_zero_p50_ms": pct(queue_delay_non_zero_values, 50),
+        "queue_delay_non_zero_p95_ms": pct(queue_delay_non_zero_values, 95),
+        "ue_fraction_queue_delay_gt_10s": (
+            float(sum(1 for v in queue_delay_values if v > 10000.0)) / float(len(queue_delay_values))
+            if queue_delay_values
+            else 0.0
+        ),
+        "ue_fraction_queue_delay_gt_20s": (
+            float(sum(1 for v in queue_delay_values if v > 20000.0)) / float(len(queue_delay_values))
+            if queue_delay_values
+            else 0.0
+        ),
+        "backlog_free_ue_ratio": backlog_free_ue_ratio,
+        "ue_count": ue_count,
+    }
+
+
+def format_metric_value(v):
+    if isinstance(v, float):
+        return f"{v:.10f}"
+    return str(v)
+
+
 def main():
     args = parse_args()
     out_dir = Path(args.output_dir)
@@ -243,6 +335,7 @@ def main():
     summary_json = out_dir / "kpi_summary.json"
 
     source_file = output_short if output_short.exists() else output_full
+    existing = None
     if source_file.exists():
         arrays = parse_arrays(source_file.read_text())
         log_text = run_log.read_text() if run_log.exists() else ""
@@ -257,6 +350,11 @@ def main():
 
         traffic_kpi = parse_traffic_kpi(log_text)
         ue_kpi = parse_ue_kpi(log_text)
+        throughput_summary = {
+            "instantaneous_mbps_gpu": basic_stats(throughput_ins_mbps),
+            "long_term_sum_mbps_gpu": basic_stats(throughput_cell_mbps),
+            "per_ue_avg_mbps_gpu": basic_stats(ue_avg_mbps),
+        }
     elif summary_json.exists():
         existing = json.loads(summary_json.read_text())
         sum_ins = []
@@ -267,6 +365,10 @@ def main():
         ue_avg_mbps = []
         traffic_kpi = existing.get("traffic")
         ue_kpi = existing.get("per_ue_kpi", [])
+        throughput_summary = existing.get("throughput", {})
+        throughput_summary.setdefault("instantaneous_mbps_gpu", basic_stats([]))
+        throughput_summary.setdefault("long_term_sum_mbps_gpu", basic_stats([]))
+        throughput_summary.setdefault("per_ue_avg_mbps_gpu", basic_stats([]))
         for row in ue_kpi:
             row.setdefault("cell_id", -1)
             row.setdefault("ue_local_id", row.get("ue_id", -1))
@@ -318,19 +420,21 @@ def main():
             "note": "Traffic counters were not found in run.log; offered load is estimated from CLI args.",
         }
 
+    cell_kpi = summarize_cell_kpi(ue_kpi)
+    global_kpi = summarize_global_kpi(ue_kpi, cell_kpi)
+    tti_count = len(sum_ins) if sum_ins else int((existing or {}).get("tti_count", 0))
+    ue_count = len(ue_avg) if ue_avg else len(ue_kpi) if ue_kpi else int((existing or {}).get("ue_count", 0))
+
     summary = {
         "run_dir": str(out_dir),
         "slot_duration_ms": args.slot_duration_ms,
-        "tti_count": len(sum_ins),
-        "ue_count": len(ue_avg),
-        "throughput": {
-            "instantaneous_mbps_gpu": basic_stats(throughput_ins_mbps),
-            "long_term_sum_mbps_gpu": basic_stats(throughput_cell_mbps),
-            "per_ue_avg_mbps_gpu": basic_stats(ue_avg_mbps),
-        },
+        "tti_count": tti_count,
+        "ue_count": ue_count,
+        "throughput": throughput_summary,
         "traffic": traffic_kpi,
+        "global_kpi": global_kpi,
         "per_ue_kpi": ue_kpi,
-        "per_cell_kpi": summarize_cell_kpi(ue_kpi),
+        "per_cell_kpi": cell_kpi,
     }
 
     summary_txt = out_dir / "kpi_summary.txt"
@@ -348,7 +452,7 @@ def main():
         f"inst_p95_mbps: {summary['throughput']['instantaneous_mbps_gpu']['p95']:.6f}",
         f"inst_last_mbps: {summary['throughput']['instantaneous_mbps_gpu']['last']:.6f}",
         f"long_term_last_mbps: {summary['throughput']['long_term_sum_mbps_gpu']['last']:.6f}",
-        f"per_ue_p5_mbps: {pct(ue_avg_mbps, 5):.6f}",
+        f"per_ue_p5_mbps: {summary['throughput']['per_ue_avg_mbps_gpu']['p5']:.6f}",
         f"per_ue_mean_mbps: {summary['throughput']['per_ue_avg_mbps_gpu']['mean']:.6f}",
         "",
         "[Traffic]",
@@ -357,6 +461,20 @@ def main():
         f"served_mbps_est: {summary['traffic']['served_mbps_est'] if summary['traffic']['served_mbps_est'] is not None else 'N/A'}",
         f"drop_rate: {summary['traffic']['drop_rate'] if summary['traffic']['drop_rate'] is not None else 'N/A'}",
         f"queue_delay_est_ms: {summary['traffic']['queue_delay_est_ms'] if summary['traffic']['queue_delay_est_ms'] is not None else 'N/A'}",
+        "",
+        "[Global KPI]",
+        f"cluster_sum_throughput_mbps: {summary['global_kpi']['cluster_sum_throughput_mbps']:.6f}",
+        f"average_ue_throughput_mbps: {summary['global_kpi']['average_ue_throughput_mbps']:.6f}",
+        f"global_tb_bler: {summary['global_kpi']['global_tb_bler']:.6f}",
+        f"residual_buffer_ratio: {summary['global_kpi']['residual_buffer_ratio']:.6f}",
+        f"ue_throughput_jain: {summary['global_kpi']['ue_throughput_jain']:.6f}",
+        f"ue_throughput_p5_mbps: {summary['global_kpi']['ue_throughput_p5_mbps']:.6f}",
+        f"ue_throughput_p10_mbps: {summary['global_kpi']['ue_throughput_p10_mbps']:.6f}",
+        f"scheduled_ratio_jain: {summary['global_kpi']['scheduled_ratio_jain']:.6f}",
+        f"scheduled_ratio_p5: {summary['global_kpi']['scheduled_ratio_p5']:.6f}",
+        f"queue_delay_p95_ms: {summary['global_kpi']['queue_delay_p95_ms']:.6f}",
+        f"ue_fraction_queue_delay_gt_10s: {summary['global_kpi']['ue_fraction_queue_delay_gt_10s']:.6f}",
+        f"ue_fraction_queue_delay_gt_20s: {summary['global_kpi']['ue_fraction_queue_delay_gt_20s']:.6f}",
     ]
     if "note" in summary["traffic"]:
         lines.append(f"note: {summary['traffic']['note']}")
@@ -381,6 +499,11 @@ def main():
                 csv_lines.append(
                     f"{r['cell_id']},{r['ue_count']},{r['cell_sum_thr_mbps']:.6f},{r['cell_avg_ue_thr_mbps']:.6f},{r['cell_avg_mcs_tx_only']:.6f},{r['cell_avg_mcs_all_tti0']:.6f},{r['cell_scheduled_tti_count']},{r['cell_no_tx_tti_count']},{r['cell_scheduled_ratio']:.6f},{r['cell_avg_wb_sinr_db']:.6f},{r['cell_avg_sched_wb_sinr_db']:.6f},{r['cell_avg_predicted_bler']:.6f},{r['cell_tb_err_count']},{r['cell_tb_bler']:.6f},{r['cell_tx_success_rate']:.6f},{r['cell_tx_drop_rate']:.6f},{r['cell_tx_total_pkts']},{r['cell_tx_success_pkts']},{r['cell_avg_queue_delay_est_ms']:.6f},{r['cell_total_generated_bytes']},{r['cell_total_mac_buffer_bytes']},{r['cell_total_mcs_samples']}"
                 )
+        csv_lines.append("")
+        csv_lines.append("# GLOBAL_KPI")
+        csv_lines.append("metric,value")
+        for k, v in summary["global_kpi"].items():
+            csv_lines.append(f"{k},{format_metric_value(v)}")
         ue_kpi_csv.write_text("\n".join(csv_lines) + "\n")
     print(f"KPI summary written: {summary_json}")
     print(f"KPI summary written: {summary_txt}")

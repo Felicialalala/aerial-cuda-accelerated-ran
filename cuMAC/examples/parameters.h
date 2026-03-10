@@ -29,7 +29,7 @@
  #define gpuDeviceIdx          0
 
  // simulation duration
- #define numSimChnRlz          400
+ #define numSimChnRlz          600
  
  // randomness
  #define seedConst          42
@@ -40,7 +40,7 @@
  #define scsConst          30000.0
  #define numMcsLevels           28
  #define cellRadiusConst          500
- #define numCellConst          19
+ #define numCellConst          7
  #define numCoorCellConst          7
  #define numUePerCellConst          8
  #define numUeForGrpConst          8

@@ -277,6 +277,8 @@ public:
         for(int i = 0; i < pending_traffic.size(); i++)
         {
             pending_traffic[i].flow_id = i;
+            pending_traffic[i].num_bytes = 0;
+            pending_traffic[i].last_arrival = 0;
             auto pkt_size = flow_cfgs[i].GetPktSizeParams();
             pkt_size_dist[i] = std::normal_distribution<>(pkt_size.first,pkt_size.second);
             auto arrival = flow_cfgs[i].GetArrivalParams();

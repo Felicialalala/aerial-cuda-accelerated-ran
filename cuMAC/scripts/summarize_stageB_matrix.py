@@ -40,19 +40,35 @@ def main():
         data = json.loads(summary.read_text())
         thr = data.get("throughput", {})
         trf = data.get("traffic", {})
+        gkpi = data.get("global_kpi", {})
+        ue_count = data.get("ue_count", 0)
+        per_ue_mean = thr.get("per_ue_avg_mbps_gpu", {}).get("mean", 0.0)
         status_info = status_map.get(scenario, {})
         row = {
             "scenario": scenario,
             "status": status_info.get("status", "PASS"),
             "reason": status_info.get("reason", "ok"),
             "tti_count": data.get("tti_count", 0),
-            "ue_count": data.get("ue_count", 0),
+            "ue_count": ue_count,
             "inst_mean_mbps": thr.get("instantaneous_mbps_gpu", {}).get("mean", 0.0),
             "inst_p95_mbps": thr.get("instantaneous_mbps_gpu", {}).get("p95", 0.0),
             "inst_last_mbps": thr.get("instantaneous_mbps_gpu", {}).get("last", 0.0),
             "long_term_last_mbps": thr.get("long_term_sum_mbps_gpu", {}).get("last", 0.0),
+            "cluster_sum_thr_mbps": gkpi.get("cluster_sum_throughput_mbps", per_ue_mean * ue_count),
+            "avg_ue_thr_mbps": gkpi.get("average_ue_throughput_mbps", per_ue_mean),
+            "global_tb_bler": gkpi.get("global_tb_bler", None),
+            "residual_buffer_ratio": gkpi.get("residual_buffer_ratio", None),
+            "ue_thr_jain": gkpi.get("ue_throughput_jain", None),
+            "cell_sum_thr_jain": gkpi.get("cell_sum_throughput_jain", None),
+            "ue_thr_p5_mbps": gkpi.get("ue_throughput_p5_mbps", thr.get("per_ue_avg_mbps_gpu", {}).get("p5", 0.0)),
+            "ue_thr_p10_mbps": gkpi.get("ue_throughput_p10_mbps", 0.0),
+            "sched_ratio_jain": gkpi.get("scheduled_ratio_jain", None),
+            "sched_ratio_p5": gkpi.get("scheduled_ratio_p5", None),
+            "queue_delay_p95_ms": gkpi.get("queue_delay_p95_ms", None),
+            "ue_delay_gt_10s_frac": gkpi.get("ue_fraction_queue_delay_gt_10s", None),
+            "ue_delay_gt_20s_frac": gkpi.get("ue_fraction_queue_delay_gt_20s", None),
             "per_ue_p5_mbps": thr.get("per_ue_avg_mbps_gpu", {}).get("p5", 0.0),
-            "per_ue_mean_mbps": thr.get("per_ue_avg_mbps_gpu", {}).get("mean", 0.0),
+            "per_ue_mean_mbps": per_ue_mean,
             "flows": trf.get("flows", 0),
             "offered_mbps": trf.get("offered_mbps", 0.0),
             "served_mbps_est": trf.get("served_mbps_est", 0.0),
@@ -75,6 +91,19 @@ def main():
                 "inst_p95_mbps": 0.0,
                 "inst_last_mbps": 0.0,
                 "long_term_last_mbps": 0.0,
+                "cluster_sum_thr_mbps": 0.0,
+                "avg_ue_thr_mbps": 0.0,
+                "global_tb_bler": None,
+                "residual_buffer_ratio": None,
+                "ue_thr_jain": None,
+                "cell_sum_thr_jain": None,
+                "ue_thr_p5_mbps": 0.0,
+                "ue_thr_p10_mbps": 0.0,
+                "sched_ratio_jain": None,
+                "sched_ratio_p5": None,
+                "queue_delay_p95_ms": None,
+                "ue_delay_gt_10s_frac": None,
+                "ue_delay_gt_20s_frac": None,
                 "per_ue_p5_mbps": 0.0,
                 "per_ue_mean_mbps": 0.0,
                 "flows": 0,
@@ -108,10 +137,9 @@ def main():
     lines.append("")
     for r in rows:
         lines.append(
-            f"{r['scenario']} [{r['status']}/{r['reason']}]: inst_mean={r['inst_mean_mbps']:.3f} Mbps, "
-            f"inst_p95={r['inst_p95_mbps']:.3f} Mbps, "
-            f"offered={r['offered_mbps']}, served_est={r['served_mbps_est']}, "
-            f"drop_rate={r['drop_rate']}, queue_delay_ms={r['queue_delay_est_ms']}"
+            f"{r['scenario']} [{r['status']}/{r['reason']}]: cluster_sum_thr={r['cluster_sum_thr_mbps']:.3f} Mbps, "
+            f"ue_jain={r['ue_thr_jain']}, ue_p10={r['ue_thr_p10_mbps']}, "
+            f"queue_p95_ms={r['queue_delay_p95_ms']}, residual_buffer_ratio={r['residual_buffer_ratio']}"
         )
     txt_file.write_text("\n".join(lines) + "\n")
 

@@ -46,6 +46,7 @@ typedef struct mcLayerSelDynDescrCpu {
         
     //----------------- parameters (common for both DL and UL) -----------------
     uint16_t    nUe;
+    uint16_t    nActiveUe;
     uint16_t    nPrbGrp;
     uint8_t     nUeAnt;
     uint16_t    nCell;

@@ -102,10 +102,14 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_noPrdMmse()
                 matAlg->matInverse(EMat, pCpuDynDesc->nBsAnt, EInvMat);
                 
                 // compute data rate
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                const bool validActUeId = (actUeId != 0xFFFF) && (actUeId < pCpuDynDesc->nActiveUe);
                 float dataRate = 0;
                 for (int j = 0; j < pCpuDynDesc->nUeAnt; j++) {
                     float sinrTemp = 1.0/EInvMat[j*pCpuDynDesc->nBsAnt+j].x;
-                    pCpuDynDesc->postEqSinr[pCpuDynDesc->setSchdUePerCellTTI[ueIdx]*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    if (validActUeId) {
+                        pCpuDynDesc->postEqSinr[actUeId*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
                 float pfMetric = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
@@ -118,11 +122,11 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_noPrdMmse()
         }
     }
 
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
 }
 
 void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
@@ -199,10 +203,14 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
                 matAlg->matInverse(EMat, pCpuDynDesc->nBsAnt, EInvMat);
                 
                 // compute data rate
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                const bool validActUeId = (actUeId != 0xFFFF) && (actUeId < pCpuDynDesc->nActiveUe);
                 float dataRate = 0;
                 for (int j = 0; j < pCpuDynDesc->nUeAnt; j++) {
                     float sinrTemp = 1.0/EInvMat[j*pCpuDynDesc->nBsAnt+j].x;
-                    pCpuDynDesc->postEqSinr[pCpuDynDesc->setSchdUePerCellTTI[ueIdx]*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    if (validActUeId) {
+                        pCpuDynDesc->postEqSinr[actUeId*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
                 float pfMetric = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
@@ -216,12 +224,12 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
         }
     }
     
-    delete BMat;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] BMat;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
 }
 
 void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_cm()
@@ -313,10 +321,14 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_cm()
                 matAlg->matInverse(EMat, pCpuDynDesc->nBsAnt, EInvMat);
                 
                 // compute data rate
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                const bool validActUeId = (actUeId != 0xFFFF) && (actUeId < pCpuDynDesc->nActiveUe);
                 float dataRate = 0;
                 for (int j = 0; j < pCpuDynDesc->nUeAnt; j++) {
                     float sinrTemp = 1.0/EInvMat[j*pCpuDynDesc->nBsAnt+j].x;
-                    pCpuDynDesc->postEqSinr[pCpuDynDesc->setSchdUePerCellTTI[ueIdx]*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    if (validActUeId) {
+                        pCpuDynDesc->postEqSinr[actUeId*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
 
@@ -378,13 +390,13 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_cm()
         }
     }
 
-    delete BMat;
-    delete S;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] BMat;
+    delete[] S;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
 }
 
 void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_cm()
@@ -471,10 +483,14 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_cm()
                 matAlg->matInverse(EMat, pCpuDynDesc->nBsAnt, EInvMat);
                 
                 // compute data rate
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                const bool validActUeId = (actUeId != 0xFFFF) && (actUeId < pCpuDynDesc->nActiveUe);
                 float dataRate = 0;
                 for (int j = 0; j < pCpuDynDesc->nUeAnt; j++) {
                     float sinrTemp = 1.0/EInvMat[j*pCpuDynDesc->nBsAnt+j].x;
-                    pCpuDynDesc->postEqSinr[pCpuDynDesc->setSchdUePerCellTTI[ueIdx]*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    if (validActUeId) {
+                        pCpuDynDesc->postEqSinr[actUeId*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
 
@@ -536,12 +552,12 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_cm()
         }
     }
 
-    delete S;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] S;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
 }
 
 void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_rm()
@@ -628,10 +644,14 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_rm()
                 matAlg->matInverse_rm(EMat, pCpuDynDesc->nBsAnt, EInvMat);
                 
                 // compute data rate
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                const bool validActUeId = (actUeId != 0xFFFF) && (actUeId < pCpuDynDesc->nActiveUe);
                 float dataRate = 0;
                 for (int j = 0; j < pCpuDynDesc->nUeAnt; j++) {
                     float sinrTemp = 1.0/EInvMat[j*pCpuDynDesc->nBsAnt+j].x;
-                    pCpuDynDesc->postEqSinr[pCpuDynDesc->setSchdUePerCellTTI[ueIdx]*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    if (validActUeId) {
+                        pCpuDynDesc->postEqSinr[actUeId*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp - 1.0;
+                    }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
 
@@ -693,12 +713,12 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_rm()
         }
     }
 
-    delete S;
-    delete CMat;
-    delete CInvMat;
-    delete DMat;
-    delete EMat;
-    delete EInvMat;
+    delete[] S;
+    delete[] CMat;
+    delete[] CInvMat;
+    delete[] DMat;
+    delete[] EMat;
+    delete[] EInvMat;
 }
 
 //---------------------------- UL functions ----------------------------------
@@ -742,10 +762,14 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_UL()
                 
 
                 // compute data rate
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                const bool validActUeId = (actUeId != 0xFFFF) && (actUeId < pCpuDynDesc->nActiveUe);
                 float dataRate = 0;
                 for (int j = 0; j < pCpuDynDesc->nUeAnt; j++) {
                     float sinrTemp = pow(pCpuDynDesc->sinVal[ueIdx*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j], 2.0)/pCpuDynDesc->sigmaSqrd;
-                    pCpuDynDesc->postEqSinr[pCpuDynDesc->setSchdUePerCellTTI[ueIdx]*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp;
+                    if (validActUeId) {
+                        pCpuDynDesc->postEqSinr[actUeId*pCpuDynDesc->nPrbGrp*pCpuDynDesc->nUeAnt + rbgIdx*pCpuDynDesc->nUeAnt + j] = sinrTemp;
+                    }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(1.0 + sinrTemp)));
                 }
 
@@ -807,7 +831,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_UL()
         }
     }
 
-    delete S;
+    delete[] S;
 }
 
 void multiCellSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
@@ -827,6 +851,7 @@ void multiCellSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pCpuDynDesc->allocSol               = schdSol->allocSol;
     pCpuDynDesc->cellAssoc              = cellGrpPrms->cellAssoc;
     pCpuDynDesc->nUe                    = cellGrpPrms->nUe; // total number of UEs across all coordinated cells
+    pCpuDynDesc->nActiveUe              = cellGrpPrms->nActiveUe;
     pCpuDynDesc->nCell                  = cellGrpPrms->nCell; // number of coordinated cells
     pCpuDynDesc->totNumCell             = simParam->totNumCell; // number of all cells in the network. (not needed if channel buffer only contains channels within coordinated cells)
     pCpuDynDesc->nPrbGrp                = cellGrpPrms->nPrbGrp;

@@ -19,6 +19,32 @@ target_sources(multiCellSchedulerUeSelection PRIVATE
     ../network.cu
     ../trafficModel/trafficGenerator.cpp
     ../customScheduler/CustomUePrgScheduler.cpp
+    ../customScheduler/GnnRlPolicyRuntime.cpp
+    ../ml/trtEngine.cpp
+    ../rlReplay/ReplayWriter.cpp
 )
-target_link_libraries(multiCellSchedulerUeSelection PRIVATE cumac ${HDF5_CXX_LIBRARIES} chanModels)
-target_include_directories(multiCellSchedulerUeSelection PRIVATE ${HDF5_CXX_INCLUDE_DIRS} ${CHAN_MODELS_SRC_INCLUDE_DIR} ${cumac_SOURCE_DIR}/examples/tools)
+find_library(NVINFER libnvinfer.so)
+find_library(NVONNXPARSER libnvonnxparser.so)
+find_library(NVINFER_PLUGIN libnvinfer_plugin.so)
+if (NOT NVINFER OR NOT NVONNXPARSER OR NOT NVINFER_PLUGIN)
+    message(FATAL_ERROR "TensorRT libraries not found: NVINFER=${NVINFER}, NVONNXPARSER=${NVONNXPARSER}, NVINFER_PLUGIN=${NVINFER_PLUGIN}")
+endif()
+
+target_link_libraries(
+    multiCellSchedulerUeSelection
+    PRIVATE
+        cumac
+        ${HDF5_CXX_LIBRARIES}
+        chanModels
+        ${NVINFER}
+        ${NVONNXPARSER}
+        ${NVINFER_PLUGIN}
+)
+target_include_directories(
+    multiCellSchedulerUeSelection
+    PRIVATE
+        ${HDF5_CXX_INCLUDE_DIRS}
+        ${CHAN_MODELS_SRC_INCLUDE_DIR}
+        ${cumac_SOURCE_DIR}/examples/tools
+        ${cumac_SOURCE_DIR}/examples/ml
+)

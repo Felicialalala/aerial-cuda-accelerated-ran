@@ -40,6 +40,7 @@ typedef struct mcDynDescrCpu {
 
     // parameters
     uint16_t    nUe;
+    uint16_t    nActiveUe;
     uint16_t    nCell;
     uint8_t     numUeSchdPerCellTTI; // number of UEs scheduled per TTI per cell
     uint16_t    totNumCell; // number of all cells in the network. (not needed if channel buffer only contains channels within coordinated cells)

@@ -45,6 +45,7 @@ typedef struct mcsSelDynDescrCpu {
     // ***********************************
     //----------------- parameters (common for both DL and UL) -----------------
     uint16_t    nUe;
+    uint16_t    nActiveUe;
     uint16_t    nCell;
     uint16_t    totNumCell;
     uint16_t    nPrbGrp;

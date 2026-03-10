@@ -15,7 +15,7 @@
 
 add_executable(drlMcsSelection)
 target_sources(drlMcsSelection PRIVATE main.cpp ../trtEngine.cpp ../mcsSelectionDRL.cpp drlMcsSelection.cpp)
-target_link_libraries(drlMcsSelection PRIVATE  CUDA::cudart CUDA::cuda_driver ${HDF5_CXX_LIBRARIES} ${NVINFER} ${NVONNXPARSER} nvlog nvipc)
+target_link_libraries(drlMcsSelection PRIVATE  CUDA::cudart CUDA::cuda_driver ${HDF5_CXX_LIBRARIES} ${NVINFER} ${NVONNXPARSER} ${NVINFER_PLUGIN} nvlog nvipc)
 target_include_directories(drlMcsSelection PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..

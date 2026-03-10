@@ -25,6 +25,7 @@
 #include "h5TvCreate.h"
 #include "h5TvLoad.h"
 #include "../customScheduler/CustomUePrgScheduler.h"
+#include "../rlReplay/ReplayWriter.h"
 #include "trafficModel/trafficService.hpp"
 #include <algorithm>
 #include <cmath>
@@ -263,10 +264,22 @@ int main(int argc, char* argv[])
       int parsed = std::atoi(v);
       return parsed >= 0 ? parsed : defaultValue;
   };
+  auto getEnvString = [](const char* name, const char* defaultValue) -> std::string {
+      const char* v = std::getenv(name);
+      if (v == nullptr || v[0] == '\0') {
+          return std::string(defaultValue);
+      }
+      return std::string(v);
+  };
 
   const bool compactTtiLog = getEnvInt("CUMAC_COMPACT_TTI_LOG", 1) != 0;
   const int progressTtiInterval = std::max(1, getEnvInt("CUMAC_PROGRESS_TTI_INTERVAL", 100));
   int compareTtiInterval = getEnvInt("CUMAC_COMPARE_TTI_INTERVAL", useCustomUePrg ? 0 : 1);
+  const bool replayDumpEnabled = getEnvInt("CUMAC_RL_REPLAY_DUMP", 0) != 0;
+  const std::string replayDir = getEnvString("CUMAC_RL_REPLAY_DIR", "./replay");
+  const std::string replayScenario = getEnvString("CUMAC_RL_REPLAY_SCENARIO", "default");
+  const std::string replayPolicy =
+      getEnvString("CUMAC_CUSTOM_POLICY", (useCustomUePrg == 1) ? "gnnrl" : "native");
   if (compareTtiInterval < 0) {
       compareTtiInterval = 0;
   }
@@ -309,6 +322,10 @@ int main(int argc, char* argv[])
   // Initialize traffic service
   TrafficType basic_traffic(data_rate, 0, 1);
   int traffic_num_flows = static_cast<int>(totNumUesConst * percent_ue_traffic / 100.0);
+  traffic_num_flows = std::max(0, std::min(traffic_num_flows, static_cast<int>(net->cellGrpPrmsGpu.get()->nActiveUe)));
+  if (percent_ue_traffic > 0.0f && traffic_num_flows == 0) {
+    traffic_num_flows = 1;
+  }
   TrafficConfig traf_cfg(basic_traffic, traffic_num_flows);
   //TrafficType low_traffic(100, 0, 1);
   //traf_cfg.AddFlows(low_traffic,totNumUesConst/2);
@@ -330,6 +347,22 @@ int main(int argc, char* argv[])
   std::unique_ptr<cumac::CustomUePrgScheduler> customUePrgScheduler;
   if (useCustomUePrg == 1) {
     customUePrgScheduler = std::make_unique<cumac::CustomUePrgScheduler>();
+  }
+  std::unique_ptr<cumac::ReplayWriter> replayWriter;
+  if (replayDumpEnabled) {
+    cumac::ReplayWriter::Config replayCfg;
+    replayCfg.enabled = true;
+    replayCfg.outDir = replayDir;
+    replayCfg.scenario = replayScenario;
+    replayCfg.policy = replayPolicy;
+    replayCfg.seed = seedConst;
+    replayWriter = std::make_unique<cumac::ReplayWriter>(replayCfg);
+    if (!replayWriter->initialize(net->cellGrpPrmsCpu.get())) {
+      replayWriter.reset();
+      printf("Replay dump: disabled (initialization failed)\n");
+    } else {
+      printf("Replay dump: enabled, out_dir=%s\n", replayDir.c_str());
+    }
   }
 
 #ifdef PDSCH_
@@ -394,6 +427,13 @@ int main(int argc, char* argv[])
   std::vector<uint32_t> ueWbSinrCntAll(nActiveUe, 0U);
   std::vector<double> ueWbSinrLinSumSched(nActiveUe, 0.0);
   std::vector<uint32_t> ueWbSinrCntSched(nActiveUe, 0U);
+  const bool stageTraceEnabled = getEnvInt("CUMAC_TTI_STAGE_TRACE", 0) != 0;
+  auto stageTrace = [&](int tti, const char* stage) {
+    if (stageTraceEnabled) {
+      printf("TTI_STAGE t=%d %s\n", tti, stage);
+      fflush(stdout);
+    }
+  };
   for (int t=0; t<numSimChnRlz; t++) {
     if (compactTtiLog) {
       if ((t % progressTtiInterval) == 0 || t == (numSimChnRlz - 1)) {
@@ -413,13 +453,17 @@ int main(int argc, char* argv[])
 #endif
 
     // generate user data traffic
+    stageTrace(t, "before_traffic_update");
     trafSvc->Update();
+    stageTrace(t, "after_traffic_update");
 
     // generate channel
     if(net->execStatus.get()->channelRenew)
     {
+      stageTrace(t, "before_gen_fast_fading_gpu");
       net->genFastFadingGpu(t);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_gen_fast_fading_gpu");
       std::cout<<"GPU channel generated"<<std::endl;
 
       if (prdSchemeConst) {
@@ -431,31 +475,41 @@ int main(int argc, char* argv[])
     }
 
     // setup API 
+    stageTrace(t, "before_setup_api");
     net->setupAPI(cuStrmMain);
     CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+    stageTrace(t, "after_setup_api");
     std::cout<<"API setup completed"<<std::endl;
 
 #ifdef periodicLightWt_
     if (csiUpdate == 1) {
 #endif
       // GPU post-eq SINR calculation
+      stageTrace(t, "before_sinr_setup");
       mcSinrCalGpu->setup(net->cellGrpPrmsGpu.get(), columnMajor, cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_sinr_setup");
       std::cout<<"CSI update: subband SINR calculation setup completed"<<std::endl;
 
+      stageTrace(t, "before_sinr_run_subband");
       mcSinrCalGpu->run(cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_sinr_run_subband");
       std::cout<<"CSI update: subband SINR calculation run completed"<<std::endl;
       
       //if (t == 0)
       //  mcSinrCalGpu->debugLog();
 
+      stageTrace(t, "before_sinr_setup_wb");
       mcSinrCalGpu->setup_wbSinr(net->cellGrpPrmsGpu.get(), cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_sinr_setup_wb");
       std::cout<<"CSI update: wideband SINR calculation setup completed"<<std::endl;
 
+      stageTrace(t, "before_sinr_run_wb");
       mcSinrCalGpu->run(cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_sinr_run_wb");
       std::cout<<"CSI update: wideband SINR calculation run completed"<<std::endl;
 
       net->cpySinrGpu2Cpu();
@@ -476,6 +530,10 @@ int main(int argc, char* argv[])
     }
 #endif    
 
+    if (replayWriter) {
+      replayWriter->capturePreActionObs(net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), t);
+    }
+
     if (useCustomUePrg == 1) {
       std::cout << "GPU PF UE selection setup completed [custom]" << std::endl;
       customUePrgScheduler->run(net->cellGrpUeStatusCpu.get(),
@@ -488,12 +546,16 @@ int main(int argc, char* argv[])
       std::cout << "CPU PF UE selection completed [custom]" << std::endl;
     } else {
       // GPU UE selection
+      stageTrace(t, "before_gpu_ue_sel_setup");
       mcUeSelGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_gpu_ue_sel_setup");
       std::cout<<"GPU PF UE selection setup completed"<<std::endl;
 
+      stageTrace(t, "before_gpu_ue_sel_run");
       mcUeSelGpu->run(cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_gpu_ue_sel_run");
       std::cout<<"GPU PF UE selection run completed"<<std::endl;
 
       //CPU UE selection
@@ -502,8 +564,12 @@ int main(int argc, char* argv[])
         rrUeSelCpu->run();
         std::cout<<"CPU RR UE selection completed"<<std::endl;
       } else {
+        stageTrace(t, "before_cpu_ue_sel_setup");
         mcUeSelCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+        stageTrace(t, "after_cpu_ue_sel_setup");
+        stageTrace(t, "before_cpu_ue_sel_run");
         mcUeSelCpu->run();
+        stageTrace(t, "after_cpu_ue_sel_run");
         std::cout<<"CPU PF UE selection completed"<<std::endl;
       }
     }
@@ -528,8 +594,10 @@ int main(int argc, char* argv[])
         printf("Multi-cell scheduler: calling light-weight kernel\n");
       }
       std::cout<<"GPU scheduler setup started"<<std::endl;
+      stageTrace(t, "before_gpu_sch_setup");
       mcSchGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), net->simParam.get(), columnMajor, halfPrecision, lightWeight, percSmNumThrdBlk, cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_gpu_sch_setup");
       std::cout<<"GPU scheduler setup completed"<<std::endl;
 
       if (baseline == 1) {
@@ -537,7 +605,9 @@ int main(int argc, char* argv[])
         rrSchCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
       } else {
         // setup CPU multi-cell scheduler
+        stageTrace(t, "before_cpu_sch_setup");
         mcSchCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get(), net->simParam.get(), columnMajor);
+        stageTrace(t, "after_cpu_sch_setup");
       }
     }
 
@@ -565,8 +635,10 @@ int main(int argc, char* argv[])
       std::cout << "CPU scheduler run completed [custom]" << std::endl;
     } else {
       std::cout<<"GPU scheduler run started"<<std::endl;
+      stageTrace(t, "before_gpu_sch_run");
       mcSchGpu->run(cuStrmMain);
       CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+      stageTrace(t, "after_gpu_sch_run");
       std::cout<<"GPU scheduler run completed"<<std::endl;
 
       if (baseline == 1) {
@@ -577,7 +649,9 @@ int main(int argc, char* argv[])
       } else {
         // run CPU multi-cell scheduler
         std::cout<<"CPU scheduler run started"<<std::endl;
+        stageTrace(t, "before_cpu_sch_run");
         mcSchCpu->run();
+        stageTrace(t, "after_cpu_sch_run");
         std::cout<<"CPU scheduler run completed"<<std::endl;
       }
     }
@@ -585,22 +659,30 @@ int main(int argc, char* argv[])
 
 #ifdef PDSCH_
     // run GPU layer selection
+    stageTrace(t, "before_gpu_layer_sel_run");
     mcLayerSelGpu->run(cuStrmMain);
     CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+    stageTrace(t, "after_gpu_layer_sel_run");
     std::cout<<"GPU Layer selection solution computed"<<std::endl;
 
     // run CPU layer selection
+    stageTrace(t, "before_cpu_layer_sel_run");
     mcLayerSelCpu->run();
+    stageTrace(t, "after_cpu_layer_sel_run");
     std::cout<<"CPU Layer selection solution computed"<<std::endl;
 
     // run GPU MCS selection
+    stageTrace(t, "before_gpu_mcs_sel_run");
     mcsSelGpu->run(cuStrmMain);
     CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+    stageTrace(t, "after_gpu_mcs_sel_run");
     std::cout<<"GPU MCS selection solution computed"<<std::endl;
     // mcsSelGpu->debugLog();
 
     // run CPU MCS selection
+    stageTrace(t, "before_cpu_mcs_sel_run");
     mcsSelCpu->run();
+    stageTrace(t, "after_cpu_mcs_sel_run");
     std::cout<<"CPU MCS selection solution computed"<<std::endl;
     // mcsSelCpu->debugLog();
 
@@ -616,8 +698,10 @@ int main(int argc, char* argv[])
 #endif
 
     // use scheduling solution
+    stageTrace(t, "before_net_run");
     net->run(cuStrmMain);
     CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
+    stageTrace(t, "after_net_run");
     std::cout<<"Scheduling solution transferred to host"<<std::endl;
 
     bool solCheckPass = true;
@@ -639,14 +723,29 @@ int main(int argc, char* argv[])
 #endif 
 
 #ifdef PDSCH_
+    stageTrace(t, "before_phy_abstract");
     net->phyAbstract(2, t);
+    stageTrace(t, "after_phy_abstract");
 #else
+    stageTrace(t, "before_update_data_rate_ue_sel_cpu");
     net->updateDataRateUeSelCpu(t);
+    stageTrace(t, "after_update_data_rate_ue_sel_cpu");
+    stageTrace(t, "before_update_data_rate_gpu");
     net->updateDataRateGpu(t);
+    stageTrace(t, "after_update_data_rate_gpu");
 #endif
 
+    stageTrace(t, "before_update_data_rate_all_cpu");
     net->updateDataRateAllActiveUeCpu(t);
+    stageTrace(t, "after_update_data_rate_all_cpu");
+    stageTrace(t, "before_update_data_rate_all_gpu");
     net->updateDataRateAllActiveUeGpu(t);
+    stageTrace(t, "after_update_data_rate_all_gpu");
+
+    if (replayWriter) {
+      replayWriter->appendTransition(
+          t, t == (numSimChnRlz - 1), net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), net->schdSolCpu.get());
+    }
 
     for (int schdUidx = 0; schdUidx < nUeSched; ++schdUidx) {
       const uint16_t activeUeId = net->schdSolCpu.get()->setSchdUePerCellTTI[schdUidx];
@@ -685,12 +784,19 @@ int main(int argc, char* argv[])
     }
   }
 
+  if (replayWriter) {
+    replayWriter->finalize();
+  }
+
   if (compactTtiLog && savedCoutBuf != nullptr) {
     std::cout.rdbuf(savedCoutBuf);
   }
 
   bool cpuGpuPerfCheckPass;
-  if (baseline == 1) { 
+  if (useCustomUePrg == 1) {
+    cpuGpuPerfCheckPass = true;
+    printf("CPU and GPU scheduler performance check result: BYPASS (custom UE+PRG mode)\n");
+  } else if (baseline == 1) { 
     cpuGpuPerfCheckPass = 1;
   } else {
     cpuGpuPerfCheckPass = net->compareCpuGpuSchdPerf();

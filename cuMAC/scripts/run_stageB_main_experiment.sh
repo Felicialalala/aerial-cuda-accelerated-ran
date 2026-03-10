@@ -21,7 +21,7 @@ RESTORE_PARAMS=0        # 0=keep applied compile-time params, 1=restore on exit
 GPU_ID=0
 TTI_COUNT=400
 DL_UL="dl"
-FADING_MODE=3           # 3=CDL on PRBG, 4=CDL on SC+PRBG
+FADING_MODE=0           # 0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG
 UE_PER_CELL=8
 TOPOLOGY_SEED=0
 UE_PLACEMENT="uniform"      # uniform | stratified
@@ -38,14 +38,19 @@ KILL_AFTER_SEC=30
 RUN_TAG=""
 COMPACT_OUTPUT=1        # 1=regular profile, 0=keep full artifacts
 CUSTOM_UE_PRG=0         # 1=use CustomUePrgScheduler for UE+PRG, 0=native
+CUSTOM_POLICY="gnnrl"   # gnnrl | legacy (effective only when --custom-ue-prg=1)
+MODEL_PATH=""          # used when --custom-policy gnnrl_model
+POLICY_TIMEOUT_MS=0    # policy timeout hint for model runtime (0=disable)
 COMPACT_TTI_LOG=1       # 1=compact per-TTI stage logs
 PROGRESS_TTI_INTERVAL=100
 KPI_TTI_LOG_INTERVAL=100
 COMPARE_TTI_INTERVAL=0  # per-TTI CPU/GPU solution compare interval, 0=disable
+REPLAY_DUMP=0           # 1=export per-TTI RL replay transitions
+REPLAY_DIR=""           # empty means <scenario_out_dir>/replay
 
 usage() {
     cat <<EOF
-Stage-B main experiment script (7-site coordinated cluster + outer interferer ring, 4T4R, CDL, Type-0 bitmap allocation).
+Stage-B main experiment script (7-site coordinated cluster only, no outer interferer ring, 4T4R, Type-0 bitmap allocation).
 
 Usage:
   $(basename "$0") [options]
@@ -56,7 +61,7 @@ Options:
   --gpu <id>                  GPU device id (default: ${GPU_ID})
   --tti <count>               Number of simulated TTIs (default: ${TTI_COUNT})
   --mode <dl|ul>              Downlink or uplink (default: ${DL_UL})
-  --fading-mode <3|4>         3=CDL on PRBG, 4=CDL on SC+PRBG (default: ${FADING_MODE})
+  --fading-mode <0|1|2|3|4>   0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG (default: ${FADING_MODE})
   --ue-per-cell <n>           Active/scheduled UE per cell (default: ${UE_PER_CELL})
   --topology-seed <n>         Fixed topology/random seed (default: ${TOPOLOGY_SEED})
   --ue-placement <m>          UE placement mode: uniform | stratified (default: ${UE_PLACEMENT})
@@ -72,19 +77,26 @@ Options:
   --kill-after-sec <sec>      Extra grace period after timeout TERM (default: ${KILL_AFTER_SEC})
   --compact-output <0|1>      1 keeps regular artifacts only (default: ${COMPACT_OUTPUT})
   --custom-ue-prg <0|1>       1 use custom UE+PRG scheduler (default: ${CUSTOM_UE_PRG})
+  --custom-policy <name>      gnnrl | legacy | gnnrl_model (default: ${CUSTOM_POLICY})
+  --model-path <path>         ONNX model path for gnnrl_model policy (default: empty)
+  --policy-timeout-ms <n>     Model policy timeout hint in ms, 0=disable (default: ${POLICY_TIMEOUT_MS})
   --compact-tti-log <0|1>     1 compact per-TTI logs (default: ${COMPACT_TTI_LOG})
   --progress-tti <n>          Progress print interval in TTI (default: ${PROGRESS_TTI_INTERVAL})
   --kpi-tti-log <n>           Throughput print interval in TTI (default: ${KPI_TTI_LOG_INTERVAL})
   --compare-tti <n>           CPU/GPU per-TTI compare interval, 0=disable (default: ${COMPARE_TTI_INTERVAL})
+  --replay-dump <0|1>         Export RL replay transitions (default: ${REPLAY_DUMP})
+  --replay-dir <path>         Base replay output dir (default: scenario local replay/)
   --tag <name>                Optional run tag
   --restore-params <0|1>      Restore parameters.h on exit (default: ${RESTORE_PARAMS})
   -h, --help                  Show this help
 
 Notes:
-  1) Current chanModels implementation does not support LOS path for CDL-D/E and may exit.
+  1) In pure 7-cell mode (no outer interferers), current code path is unstable for CDL (fading-mode 3/4) and may segfault.
+     Use fading-mode 0/1/2 for stable baseline runs.
+  2) Current chanModels implementation does not support LOS path for CDL-D/E and may exit.
      By default this script skips CDL-D unless --allow-profile-d=1.
-  2) KPI summary is generated per scenario and also aggregated to stageB_kpi_matrix.{csv,txt}.
-  3) With --compact-output=1, pass scenarios keep kpi_summary.json + run_key.log only.
+  3) KPI summary is generated per scenario and also aggregated to stageB_kpi_matrix.{csv,txt}.
+  4) With --compact-output=1, pass scenarios keep kpi_summary.json + run_key.log only.
 EOF
 }
 
@@ -111,10 +123,15 @@ while [[ $# -gt 0 ]]; do
         --kill-after-sec) KILL_AFTER_SEC="$2"; shift 2 ;;
         --compact-output) COMPACT_OUTPUT="$2"; shift 2 ;;
         --custom-ue-prg) CUSTOM_UE_PRG="$2"; shift 2 ;;
+        --custom-policy) CUSTOM_POLICY="$2"; shift 2 ;;
+        --model-path) MODEL_PATH="$2"; shift 2 ;;
+        --policy-timeout-ms) POLICY_TIMEOUT_MS="$2"; shift 2 ;;
         --compact-tti-log) COMPACT_TTI_LOG="$2"; shift 2 ;;
         --progress-tti) PROGRESS_TTI_INTERVAL="$2"; shift 2 ;;
         --kpi-tti-log) KPI_TTI_LOG_INTERVAL="$2"; shift 2 ;;
         --compare-tti) COMPARE_TTI_INTERVAL="$2"; shift 2 ;;
+        --replay-dump) REPLAY_DUMP="$2"; shift 2 ;;
+        --replay-dir) REPLAY_DIR="$2"; shift 2 ;;
         --tag) RUN_TAG="$2"; shift 2 ;;
         --restore-params) RESTORE_PARAMS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -131,8 +148,8 @@ if [[ "${DL_UL}" != "dl" && "${DL_UL}" != "ul" ]]; then
     echo "--mode must be dl or ul" >&2
     exit 1
 fi
-if [[ "${FADING_MODE}" != "3" && "${FADING_MODE}" != "4" ]]; then
-    echo "--fading-mode must be 3 or 4" >&2
+if [[ "${FADING_MODE}" != "0" && "${FADING_MODE}" != "1" && "${FADING_MODE}" != "2" && "${FADING_MODE}" != "3" && "${FADING_MODE}" != "4" ]]; then
+    echo "--fading-mode must be one of: 0,1,2,3,4" >&2
     exit 1
 fi
 if [[ "${BUILD_METHOD}" != "phase4" && "${BUILD_METHOD}" != "cmake" && "${BUILD_METHOD}" != "skip" ]]; then
@@ -195,8 +212,28 @@ if ! [[ "${CUSTOM_UE_PRG}" =~ ^[01]$ ]]; then
     echo "--custom-ue-prg must be 0 or 1" >&2
     exit 1
 fi
-if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
-    echo "Stage-B standardized Type-0 allocation does not support CustomUePrgScheduler yet. Use --custom-ue-prg 0." >&2
+CUSTOM_POLICY="$(echo "${CUSTOM_POLICY}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${CUSTOM_POLICY}" != "gnnrl" && "${CUSTOM_POLICY}" != "legacy" && "${CUSTOM_POLICY}" != "gnnrl_model" ]]; then
+    echo "--custom-policy must be gnnrl, legacy, or gnnrl_model" >&2
+    exit 1
+fi
+if ! [[ "${POLICY_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
+    echo "--policy-timeout-ms must be a non-negative integer" >&2
+    exit 1
+fi
+if [[ -n "${MODEL_PATH}" && "${MODEL_PATH}" != /* ]]; then
+    MODEL_PATH="${ROOT_DIR}/${MODEL_PATH}"
+fi
+if [[ "${CUSTOM_POLICY}" == "gnnrl_model" && -z "${MODEL_PATH}" ]]; then
+    echo "--model-path is required when --custom-policy=gnnrl_model" >&2
+    exit 1
+fi
+if [[ "${CUSTOM_POLICY}" == "gnnrl_model" && ! -f "${MODEL_PATH}" ]]; then
+    echo "--model-path does not exist: ${MODEL_PATH}" >&2
+    exit 1
+fi
+if [[ "${CUSTOM_POLICY}" == "gnnrl_model" && "${CUSTOM_UE_PRG}" != "1" ]]; then
+    echo "--custom-policy=gnnrl_model requires --custom-ue-prg=1" >&2
     exit 1
 fi
 if ! [[ "${COMPACT_TTI_LOG}" =~ ^[01]$ ]]; then
@@ -213,6 +250,10 @@ if ! [[ "${KPI_TTI_LOG_INTERVAL}" =~ ^[0-9]+$ ]]; then
 fi
 if ! [[ "${COMPARE_TTI_INTERVAL}" =~ ^[0-9]+$ ]]; then
     echo "--compare-tti must be a non-negative integer" >&2
+    exit 1
+fi
+if ! [[ "${REPLAY_DUMP}" =~ ^[01]$ ]]; then
+    echo "--replay-dump must be 0 or 1" >&2
     exit 1
 fi
 if ! [[ "${RESTORE_PARAMS}" =~ ^[01]$ ]]; then
@@ -241,6 +282,23 @@ fi
 if [[ ${#DELAY_ARR[@]} -eq 0 ]]; then
     echo "--cdl-delay-spreads is empty" >&2
     exit 1
+fi
+
+if [[ "${FADING_MODE}" == "3" || "${FADING_MODE}" == "4" ]]; then
+    cat >&2 <<EOF
+[Stage-B] ERROR: pure 7-cell topology (numCellConst=7, numCoorCellConst=7) currently crashes with CDL (fading-mode ${FADING_MODE}).
+Use --fading-mode 0/1/2 for stable baseline runs in this topology.
+EOF
+    exit 1
+fi
+
+if [[ "${FADING_MODE}" == "0" || "${FADING_MODE}" == "1" || "${FADING_MODE}" == "2" ]]; then
+    PROFILE_ARR=("NA")
+    DELAY_ARR=("0")
+fi
+
+if [[ -n "${REPLAY_DIR}" && "${REPLAY_DIR}" != /* ]]; then
+    REPLAY_DIR="${ROOT_DIR}/${REPLAY_DIR}"
 fi
 
 PARAM_BAK="$(mktemp)"
@@ -385,11 +443,13 @@ classify_failure_reason() {
 
 scenario_completed_all_tti() {
     local log_file="$1"
+    local completed_idx
     local final_idx=$((TTI_COUNT - 1))
-    if [[ "${TTI_COUNT}" -le 0 ]]; then
-        return 1
+    if [[ "${TTI_COUNT}" -gt 0 ]] && log_search_quiet "TTI_PROGRESS ${final_idx}/${final_idx}" "${log_file}"; then
+        return 0
     fi
-    log_search_quiet "TTI_PROGRESS ${final_idx}/${final_idx}" "${log_file}"
+    completed_idx="$(sed -n 's/.*TTI_PROGRESS \([0-9][0-9]*\)\/\([0-9][0-9]*\).*/\1 \2/p' "${log_file}" | awk '$1==$2{print $1}' | tail -n 1)"
+    [[ -n "${completed_idx}" ]]
 }
 
 is_perf_check_warn_case() {
@@ -410,12 +470,24 @@ extract_perf_warn_reason() {
     local log_file="$1"
     local per_ue_gap
     local sum_gap
+    local observed_idx
+    local observed_tti
+    local mismatch_suffix=""
     per_ue_gap="$(sed -n 's/.*per-UE throughput CDFs = \([0-9.eE+-]*%\).*/\1/p' "${log_file}" | tail -n 1)"
     sum_gap="$(sed -n 's/.*sum throughput curves = \([0-9.eE+-]*%\).*/\1/p' "${log_file}" | tail -n 1)"
+    observed_idx="$(sed -n 's/.*TTI_PROGRESS \([0-9][0-9]*\)\/\([0-9][0-9]*\).*/\1 \2/p' "${log_file}" | awk '$1==$2{print $1}' | tail -n 1)"
+    if [[ -n "${observed_idx}" ]]; then
+        observed_tti=$((observed_idx + 1))
+        if [[ "${TTI_COUNT}" =~ ^[0-9]+$ ]] && [[ "${TTI_COUNT}" -gt 0 ]] && [[ "${observed_tti}" -ne "${TTI_COUNT}" ]]; then
+            mismatch_suffix="_expected_tti_${TTI_COUNT}_observed_tti_${observed_tti}"
+        fi
+    fi
     if [[ -n "${per_ue_gap}" && -n "${sum_gap}" ]]; then
-        echo "perf_check_fail_after_full_run_per_ue_gap_${per_ue_gap}_sum_gap_${sum_gap}" | tr '%.' 'pd'
+        echo "perf_check_fail_after_full_run_per_ue_gap_${per_ue_gap}_sum_gap_${sum_gap}${mismatch_suffix}" | tr '%.' 'pd'
     elif [[ -n "${per_ue_gap}" ]]; then
-        echo "perf_check_fail_after_full_run_per_ue_gap_${per_ue_gap}" | tr '%.' 'pd'
+        echo "perf_check_fail_after_full_run_per_ue_gap_${per_ue_gap}${mismatch_suffix}" | tr '%.' 'pd'
+    elif [[ -n "${mismatch_suffix}" ]]; then
+        echo "perf_check_fail_after_full_run${mismatch_suffix}"
     else
         echo "perf_check_fail_after_full_run"
     fi
@@ -479,14 +551,14 @@ compact_pass_outputs() {
         "${out_dir}/kpi_summary.txt"
 }
 
-echo "[Stage-B] Apply main experiment parameters (7-site + outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation)..."
+echo "[Stage-B] Apply main experiment parameters (7-site only, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation)..."
 set_param gpuDeviceIdx "${GPU_ID}"
 set_param numSimChnRlz "${TTI_COUNT}"
 set_param seedConst "${TOPOLOGY_SEED}"
 set_param slotDurationConst "0.5e-3"
 set_param scsConst "30000.0"
 set_param cellRadiusConst "500"
-set_param numCellConst "19"
+set_param numCellConst "7"
 set_param numCoorCellConst "7"
 set_param numUePerCellConst "${UE_PER_CELL}"
 set_param numUeForGrpConst "${UE_PER_CELL}"
@@ -505,6 +577,9 @@ if [[ "${RESTORE_PARAMS}" == "0" ]]; then
 else
     echo "[Stage-B] parameters.h will be restored on exit."
 fi
+BIN="${BUILD_DIR}/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedulerUeSelection"
+CUSTOM_SCHED_SRC="${ROOT_DIR}/cuMAC/examples/customScheduler/CustomUePrgScheduler.cpp"
+MAIN_SRC="${ROOT_DIR}/cuMAC/examples/multiCellSchedulerUeSelection/main.cpp"
 
 case "${BUILD_METHOD}" in
     phase4)
@@ -540,10 +615,22 @@ EOF
     skip)
         echo "[Stage-B] Skip build as requested."
         echo "[Stage-B] Skip mode assumes ${BIN} was built with the Stage-B compile-time params shown above."
+        if [[ -f "${BIN}" && "${PARAM_FILE}" -nt "${BIN}" ]]; then
+            echo "[Stage-B] Warning: ${PARAM_FILE} is newer than ${BIN}. Binary may still use stale compile-time constants (for example TTI count)." >&2
+        fi
+        if [[ "${CUSTOM_UE_PRG}" == "1" && -f "${BIN}" ]] && \
+           ([[ -f "${CUSTOM_SCHED_SRC}" && "${CUSTOM_SCHED_SRC}" -nt "${BIN}" ]] || [[ -f "${MAIN_SRC}" && "${MAIN_SRC}" -nt "${BIN}" ]]); then
+            cat >&2 <<EOF
+[Stage-B] ERROR: --custom-ue-prg=1 requested, but binary is older than custom scheduler sources.
+[Stage-B] Rebuild first, for example:
+[Stage-B]   ./cuMAC/scripts/run_stageB_main_experiment.sh --build-method cmake --custom-ue-prg 1 ...
+[Stage-B] or use --build-method phase4 inside container.
+EOF
+            exit 1
+        fi
         ;;
 esac
 
-BIN="${BUILD_DIR}/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedulerUeSelection"
 if [[ ! -x "${BIN}" ]]; then
     echo "Executable not found: ${BIN}" >&2
     exit 1
@@ -589,33 +676,68 @@ for i in "${!PROFILE_ARR[@]}"; do
         continue
     fi
 
-    if [[ "${profile}" == "D" && "${ALLOW_PROFILE_D}" == "0" ]]; then
+    if [[ "${profile}" == "NA" ]]; then
+        if [[ "${FADING_MODE}" == "0" ]]; then
+            SCENARIO="RAYLEIGH"
+        elif [[ "${FADING_MODE}" == "1" ]]; then
+            SCENARIO="TDL_PRBG"
+        else
+            SCENARIO="TDL_SC_PRBG"
+        fi
+        delay="0"
+    elif [[ "${profile}" == "D" && "${ALLOW_PROFILE_D}" == "0" ]]; then
         echo "[Stage-B] Skip CDL-D (LOS path currently unsupported in chanModels)."
         echo "CDL_${profile}_DS${delay}ns,SKIP,cdl_d_los_not_supported" >> "${STATUS_FILE}"
         continue
     fi
 
-    if [[ "${profile}" != "A" && "${profile}" != "B" && "${profile}" != "C" && "${profile}" != "D" && "${profile}" != "E" ]]; then
+    if [[ "${profile}" != "NA" && "${profile}" != "A" && "${profile}" != "B" && "${profile}" != "C" && "${profile}" != "D" && "${profile}" != "E" ]]; then
         echo "[Stage-B] Skip invalid profile '${profile}'."
         echo "CDL_${profile}_DS${delay}ns,SKIP,invalid_profile" >> "${STATUS_FILE}"
         continue
     fi
 
-    SCENARIO="CDL_${profile}_DS${delay}ns"
+    if [[ "${profile}" != "NA" ]]; then
+        SCENARIO="CDL_${profile}_DS${delay}ns"
+    fi
     OUT_DIR="${OUT_BASE}/${SCENARIO}"
     mkdir -p "${OUT_DIR}"
     LOG_FILE="${OUT_DIR}/run.log"
+    SCENARIO_REPLAY_DIR=""
+    if [[ "${REPLAY_DUMP}" == "1" ]]; then
+        if [[ -n "${REPLAY_DIR}" ]]; then
+            SCENARIO_REPLAY_DIR="${REPLAY_DIR}/${SCENARIO}"
+        else
+            SCENARIO_REPLAY_DIR="${OUT_DIR}/replay"
+        fi
+        mkdir -p "${SCENARIO_REPLAY_DIR}"
+    fi
 
     echo "[Stage-B] Running ${SCENARIO}"
     echo "  cmd=${BIN} -d ${DL_IND} -b 0 -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${TRAFFIC_RATE}"
+    if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
+        echo "  custom_policy=${CUSTOM_POLICY}"
+        if [[ "${CUSTOM_POLICY}" == "gnnrl_model" ]]; then
+            echo "  model_path=${MODEL_PATH}"
+            echo "  policy_timeout_ms=${POLICY_TIMEOUT_MS}"
+        fi
+    fi
+    if [[ "${REPLAY_DUMP}" == "1" ]]; then
+        echo "  replay_dump=1 replay_dir=${SCENARIO_REPLAY_DIR}"
+    fi
     if [[ "${RUN_TIMEOUT_SEC}" -gt 0 ]]; then
         echo "  timeout=${RUN_TIMEOUT_SEC}s"
     fi
 
     set +e
     (
-        export CUMAC_CDL_PROFILE="${profile}"
-        export CUMAC_CDL_DELAY_SPREAD_NS="${delay}"
+        if [[ "${profile}" == "NA" ]]; then
+            unset CUMAC_CDL_PROFILE
+            unset CUMAC_CDL_DELAY_SPREAD_NS
+        else
+            export CUMAC_CDL_PROFILE="${profile}"
+            export CUMAC_CDL_DELAY_SPREAD_NS="${delay}"
+        fi
         export CUMAC_TOPOLOGY_SEED="${TOPOLOGY_SEED}"
         export CUMAC_UE_PLACEMENT_MODE="${UE_PLACEMENT}"
         export CUMAC_UE_RADIUS_SPLITS="${UE_RADIUS_SPLITS}"
@@ -625,6 +747,12 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_PROGRESS_TTI_INTERVAL="${PROGRESS_TTI_INTERVAL}"
         export CUMAC_TTI_KPI_LOG_INTERVAL="${KPI_TTI_LOG_INTERVAL}"
         export CUMAC_COMPARE_TTI_INTERVAL="${COMPARE_TTI_INTERVAL}"
+        export CUMAC_CUSTOM_POLICY="${CUSTOM_POLICY}"
+        export CUMAC_GNNRL_MODEL_PATH="${MODEL_PATH}"
+        export CUMAC_POLICY_TIMEOUT_MS="${POLICY_TIMEOUT_MS}"
+        export CUMAC_RL_REPLAY_DUMP="${REPLAY_DUMP}"
+        export CUMAC_RL_REPLAY_DIR="${SCENARIO_REPLAY_DIR}"
+        export CUMAC_RL_REPLAY_SCENARIO="${SCENARIO}"
         cd "${OUT_DIR}"
         RUNNER=("${BIN}" -d "${DL_IND}" -b 0 -f "${FADING_MODE}" -x "${CUSTOM_UE_PRG}" -g "${TRAFFIC_PERCENT}" -r "${TRAFFIC_RATE}")
         if command -v stdbuf >/dev/null 2>&1; then
