@@ -7,3 +7,14 @@ testVectors/multi-cell/*.yaml
 .idea/
 build*/
 cmake-build-*/
+
+# Local Python virtual environments
+.venv/
+venv/
+
+# Experiment outputs and temporary runtime artifacts
+output/
+nohup
+
+# Training artifacts (large binary checkpoints/exports)
+training/gnnrl/checkpoints/
