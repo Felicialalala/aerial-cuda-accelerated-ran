@@ -48,6 +48,12 @@ public:
         uint16_t maxActiveCellsPerPrg = 0; // 0 means no limit
         std::string modelPath;
         int policyTimeoutMs = 0;
+        // gnnrl_model decode stabilization knobs.
+        float modelNoUeBias = 0.0f;
+        float modelMinSchedRatio = 1.0f;
+        float modelNoPrgBias = 0.0f;
+        float modelMinPrgRatio = 1.0f;
+        float modelMaxPrgSharePerUe = 1.0f;
     };
 
     CustomUePrgScheduler();

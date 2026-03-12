@@ -150,6 +150,7 @@ bool ReplayWriter::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
     m_preUeFeatures.assign(static_cast<size_t>(m_nActiveUe) * kUeFeatDim, 0.0f);
     m_preEdgeAttr.assign(static_cast<size_t>(m_nEdges) * kEdgeFeatDim, 0.0f);
     m_preUeMask.assign(m_nActiveUe, 0U);
+    m_preCellUeMask.assign(static_cast<size_t>(m_nCell) * m_nActiveUe, 0U);
     m_prePrgMask.assign(static_cast<size_t>(m_nCell) * m_nPrbGrp, 1U);
 
     m_recordBytes = 0;
@@ -163,6 +164,7 @@ bool ReplayWriter::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
     m_recordBytes += sizeof(int32_t) * m_nSchedUe;
     m_recordBytes += sizeof(int16_t) * m_actionAllocLen;
     m_recordBytes += sizeof(uint8_t) * m_nActiveUe;
+    m_recordBytes += sizeof(uint8_t) * (m_nCell * m_nActiveUe);
     m_recordBytes += sizeof(uint8_t) * (m_nCell * m_nPrbGrp);
     m_recordBytes += sizeof(float) * m_preCellFeatures.size();
     m_recordBytes += sizeof(float) * m_preUeFeatures.size();
@@ -312,7 +314,7 @@ void ReplayWriter::capturePreActionObs(const cumacCellGrpUeStatus* cellGrpUeStat
         return;
     }
     buildObservation(cellGrpUeStatusCpu, cellGrpPrmsCpu, m_preCellFeatures, m_preUeFeatures, m_preEdgeAttr);
-    buildActionMask(cellGrpUeStatusCpu, cellGrpPrmsCpu, m_preUeMask, m_prePrgMask);
+    buildActionMask(cellGrpUeStatusCpu, cellGrpPrmsCpu, m_preUeMask, m_preCellUeMask, m_prePrgMask);
     m_hasPreObs = true;
     m_preObsTti = tti;
 }
@@ -346,25 +348,41 @@ void ReplayWriter::buildAction(const cumacSchdSol* schdSolCpu,
 void ReplayWriter::buildActionMask(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                                    const cumacCellGrpPrms* cellGrpPrmsCpu,
                                    std::vector<uint8_t>& ueMask,
+                                   std::vector<uint8_t>& cellUeMask,
                                    std::vector<uint8_t>& prgMask) const
 {
     ueMask.assign(m_nActiveUe, 0U);
+    cellUeMask.assign(static_cast<size_t>(m_nCell) * m_nActiveUe, 0U);
     prgMask.assign(static_cast<size_t>(m_nCell) * m_nPrbGrp, 1U);
 
-    for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
-        bool hasAssoc = true;
-        if (cellGrpPrmsCpu->cellAssocActUe != nullptr) {
-            hasAssoc = false;
-            for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
-                if (cellGrpPrmsCpu->cellAssocActUe[cIdx * m_nActiveUe + ueIdx] != 0) {
-                    hasAssoc = true;
-                    break;
-                }
-            }
+    const bool hasExplicitAssoc = (cellGrpPrmsCpu->cellAssocActUe != nullptr);
+    const bool useRoundRobinAssoc = (!hasExplicitAssoc && m_nCell > 0U && (m_nActiveUe % m_nCell) == 0U);
+    const uint32_t uePerCell = useRoundRobinAssoc ? (m_nActiveUe / m_nCell) : 0U;
+
+    auto assocToCell = [&](uint32_t cIdx, uint32_t ueIdx) -> bool {
+        if (hasExplicitAssoc) {
+            return cellGrpPrmsCpu->cellAssocActUe[cIdx * m_nActiveUe + ueIdx] != 0;
         }
+        if (useRoundRobinAssoc) {
+            return (ueIdx / uePerCell) == cIdx;
+        }
+        return true;
+    };
+
+    for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
         const bool hasBuffer = (cellGrpUeStatusCpu->bufferSize != nullptr)
                                    ? (cellGrpUeStatusCpu->bufferSize[ueIdx] > 0U)
                                    : true;
+        bool hasAssoc = false;
+        for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
+            if (!assocToCell(cIdx, ueIdx)) {
+                continue;
+            }
+            hasAssoc = true;
+            if (hasBuffer) {
+                cellUeMask[cIdx * m_nActiveUe + ueIdx] = 1U;
+            }
+        }
         ueMask[ueIdx] = (hasAssoc && hasBuffer) ? 1U : 0U;
     }
 
@@ -442,8 +460,27 @@ void ReplayWriter::appendTransition(int tti,
     std::vector<int32_t> ueSelect;
     std::vector<int16_t> prgAlloc;
     buildAction(schdSolCpu, ueSelect, prgAlloc);
-    if (m_preUeMask.size() != m_nActiveUe || m_prePrgMask.size() != static_cast<size_t>(m_nCell) * m_nPrbGrp) {
-        buildActionMask(cellGrpUeStatusCpu, cellGrpPrmsCpu, m_preUeMask, m_prePrgMask);
+    if (m_preUeMask.size() != m_nActiveUe ||
+        m_preCellUeMask.size() != static_cast<size_t>(m_nCell) * m_nActiveUe ||
+        m_prePrgMask.size() != static_cast<size_t>(m_nCell) * m_nPrbGrp) {
+        buildActionMask(cellGrpUeStatusCpu, cellGrpPrmsCpu, m_preUeMask, m_preCellUeMask, m_prePrgMask);
+    }
+
+    // Keep mask/label consistency: every selected UE must be legal at least in its scheduled cell.
+    if (m_nCell > 0U && m_nActiveUe > 0U && m_nSchedUe > 0U) {
+        uint32_t slotsPerCell = m_nSchedUe / m_nCell;
+        if (slotsPerCell == 0U) {
+            slotsPerCell = 1U;
+        }
+        for (uint32_t schedSlot = 0; schedSlot < m_nSchedUe; ++schedSlot) {
+            const int32_t ueIdx = ueSelect[schedSlot];
+            if (ueIdx < 0 || static_cast<uint32_t>(ueIdx) >= m_nActiveUe) {
+                continue;
+            }
+            m_preUeMask[static_cast<size_t>(ueIdx)] = 1U;
+            const uint32_t cIdx = std::min<uint32_t>(schedSlot / slotsPerCell, m_nCell - 1U);
+            m_preCellUeMask[static_cast<size_t>(cIdx) * m_nActiveUe + static_cast<size_t>(ueIdx)] = 1U;
+        }
     }
 
     const RewardTerms reward = buildReward(cellGrpUeStatusCpu);
@@ -468,6 +505,7 @@ void ReplayWriter::appendTransition(int tti,
     writeVector(m_records, ueSelect);
     writeVector(m_records, prgAlloc);
     writeVector(m_records, m_preUeMask);
+    writeVector(m_records, m_preCellUeMask);
     writeVector(m_records, m_prePrgMask);
     writeVector(m_records, nextCellFeatures);
     writeVector(m_records, nextUeFeatures);
@@ -491,6 +529,7 @@ void ReplayWriter::writeMeta() const
          << "  \"schema_file\": \"rl_replay_schema.json\",\n"
          << "  \"record_count\": " << m_recordCount << ",\n"
          << "  \"record_bytes\": " << m_recordBytes << ",\n"
+         << "  \"has_action_mask_cell_ue\": true,\n"
          << "  \"dims\": {\n"
          << "    \"n_cell\": " << m_nCell << ",\n"
          << "    \"n_active_ue\": " << m_nActiveUe << ",\n"
@@ -535,6 +574,7 @@ void ReplayWriter::writeSchema() const
            << "    {\"name\":\"action_ue_select\",\"dtype\":\"int32\",\"shape\":[" << m_nSchedUe << "]},\n"
            << "    {\"name\":\"action_prg_alloc\",\"dtype\":\"int16\",\"shape\":[" << m_actionAllocLen << "]},\n"
            << "    {\"name\":\"action_mask_ue\",\"dtype\":\"uint8\",\"shape\":[" << m_nActiveUe << "]},\n"
+           << "    {\"name\":\"action_mask_cell_ue\",\"dtype\":\"uint8\",\"shape\":[" << m_nCell << "," << m_nActiveUe << "]},\n"
            << "    {\"name\":\"action_mask_prg_cell\",\"dtype\":\"uint8\",\"shape\":[" << m_nCell << "," << m_nPrbGrp << "]},\n"
            << "    {\"name\":\"next_cell_features\",\"dtype\":\"float32\",\"shape\":[" << m_nCell << "," << kCellFeatDim << "]},\n"
            << "    {\"name\":\"next_ue_features\",\"dtype\":\"float32\",\"shape\":[" << m_nActiveUe << "," << kUeFeatDim << "]},\n"

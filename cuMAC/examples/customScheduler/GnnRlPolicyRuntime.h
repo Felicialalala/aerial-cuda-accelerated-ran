@@ -20,6 +20,16 @@ public:
     struct Config {
         std::string modelPath;
         int timeoutMs = 0;
+        // Subtracted from NO_UE class logit during decode (positive encourages scheduling).
+        float noUeBias = 0.0f;
+        // Minimum per-cell scheduled-slot ratio to enforce after argmax decode.
+        float minSchedRatio = 1.0f;
+        // Subtracted from NO_PRG class logit during decode (positive encourages PRG assignment).
+        float noPrgBias = 0.0f;
+        // Minimum per-cell PRG-assignment ratio to enforce after argmax decode.
+        float minPrgRatio = 1.0f;
+        // Per-cell max PRG share allowed for a single UE slot during decode (0<share<=1).
+        float maxPrgSharePerUe = 1.0f;
     };
 
     explicit GnnRlPolicyRuntime(const Config& cfg);

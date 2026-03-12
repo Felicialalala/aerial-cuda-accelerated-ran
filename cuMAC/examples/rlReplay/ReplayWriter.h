@@ -40,7 +40,7 @@ public:
     void finalize();
 
 private:
-    static constexpr uint32_t kVersion = 1;
+    static constexpr uint32_t kVersion = 2;
     static constexpr uint32_t kCellFeatDim = 5;
     static constexpr uint32_t kUeFeatDim = 8;
     static constexpr uint32_t kEdgeFeatDim = 2;
@@ -73,6 +73,7 @@ private:
     std::vector<float> m_preUeFeatures;
     std::vector<float> m_preEdgeAttr;
     std::vector<uint8_t> m_preUeMask;
+    std::vector<uint8_t> m_preCellUeMask;
     std::vector<uint8_t> m_prePrgMask;
 
     struct RewardTerms {
@@ -98,6 +99,7 @@ private:
     void buildActionMask(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                          const cumacCellGrpPrms* cellGrpPrmsCpu,
                          std::vector<uint8_t>& ueMask,
+                         std::vector<uint8_t>& cellUeMask,
                          std::vector<uint8_t>& prgMask) const;
     RewardTerms buildReward(const cumacCellGrpUeStatus* cellGrpUeStatusCpu) const;
     void writeMeta() const;

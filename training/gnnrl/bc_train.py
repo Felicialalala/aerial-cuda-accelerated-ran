@@ -89,7 +89,12 @@ def _epoch_loop(
         ue_logits_raw = out["ue_logits"]
         prg_logits_raw = out["prg_logits"]
 
-        ue_logits, ue_valid = apply_ue_action_mask(ue_logits_raw, batch["action_mask_ue"], n_cell=n_cell)
+        ue_logits, ue_valid = apply_ue_action_mask(
+            ue_logits_raw,
+            batch["action_mask_ue"],
+            n_cell=n_cell,
+            action_mask_cell_ue=batch.get("action_mask_cell_ue"),
+        )
         prg_logits, prg_valid = apply_prg_action_mask(
             prg_logits_raw, batch["action_mask_prg_cell"], n_cell=n_cell
         )

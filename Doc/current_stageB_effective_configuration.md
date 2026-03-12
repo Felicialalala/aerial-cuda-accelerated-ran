@@ -1,5 +1,11 @@
 # 当前 Stage-B 场景实际生效配置梳理
 
+## 更新说明（2026-03-10）
+
+- 本文档包含历史阶段的配置梳理内容（含 19-site 外环干扰版本），不完全等同于当前离线 RL 回归基线。
+- 当前离线 RL 基线请优先参考：`Doc/stageB_baseline_scenario_reference.md`。
+- 当前 `CustomUePrgScheduler` 已支持 `Type-0` 的 `gnnrl_model` 推理路径；历史“仅 Type-1”描述不再适用于最新 M4 回归链路。
+
 ## 1. 适用范围
 
 本文档对应当前 Stage-B 主实验脚本标准化后的实际生效配置，入口脚本为：

@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 import random
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -41,24 +41,117 @@ class StateValueNet(nn.Module):
         return self.net(x).squeeze(-1)
 
 
+@dataclass(frozen=True)
+class NormStats:
+    state_mean: torch.Tensor
+    state_std: torch.Tensor
+    reward_mean: float
+    reward_std: float
+
+
 def _set_seed(seed: int) -> None:
     random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
 
 
-def _state_vector(batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-    cell = batch["obs_cell_features"].mean(dim=1)
-    ue = batch["obs_ue_features"].mean(dim=1)
-    edge = batch["obs_edge_attr"].mean(dim=1)
+def _pool_state_features(
+    cell_feat: torch.Tensor,
+    ue_feat: torch.Tensor,
+    edge_feat: torch.Tensor,
+) -> torch.Tensor:
+    cell = cell_feat.mean(dim=1)
+    ue = ue_feat.mean(dim=1)
+    edge = edge_feat.mean(dim=1)
     return torch.cat([cell, ue, edge], dim=-1)
 
 
-def _next_state_vector(batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-    cell = batch["next_cell_features"].mean(dim=1)
-    ue = batch["next_ue_features"].mean(dim=1)
-    edge = batch["next_edge_attr"].mean(dim=1)
-    return torch.cat([cell, ue, edge], dim=-1)
+def _normalize_state_vector(
+    vec: torch.Tensor,
+    state_mean: Optional[torch.Tensor],
+    state_std: Optional[torch.Tensor],
+) -> torch.Tensor:
+    if state_mean is None or state_std is None:
+        return vec
+    return (vec - state_mean) / state_std.clamp_min(1.0e-6)
+
+
+def _state_vector(
+    batch: Dict[str, torch.Tensor],
+    state_mean: Optional[torch.Tensor] = None,
+    state_std: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    vec = _pool_state_features(
+        batch["obs_cell_features"],
+        batch["obs_ue_features"],
+        batch["obs_edge_attr"],
+    )
+    return _normalize_state_vector(vec, state_mean=state_mean, state_std=state_std)
+
+
+def _next_state_vector(
+    batch: Dict[str, torch.Tensor],
+    state_mean: Optional[torch.Tensor] = None,
+    state_std: Optional[torch.Tensor] = None,
+) -> torch.Tensor:
+    vec = _pool_state_features(
+        batch["next_cell_features"],
+        batch["next_ue_features"],
+        batch["next_edge_attr"],
+    )
+    return _normalize_state_vector(vec, state_mean=state_mean, state_std=state_std)
+
+
+def _compute_norm_stats(dataset: ReplayBinaryDataset) -> NormStats:
+    state_sum: Optional[torch.Tensor] = None
+    state_sq_sum: Optional[torch.Tensor] = None
+    state_count = 0
+    reward_sum = 0.0
+    reward_sq_sum = 0.0
+    reward_count = 0
+
+    for i in range(len(dataset)):
+        sample = dataset[i]
+        obs_vec = _pool_state_features(
+            sample["obs_cell_features"].unsqueeze(0),
+            sample["obs_ue_features"].unsqueeze(0),
+            sample["obs_edge_attr"].unsqueeze(0),
+        ).squeeze(0).float()
+        next_vec = _pool_state_features(
+            sample["next_cell_features"].unsqueeze(0),
+            sample["next_ue_features"].unsqueeze(0),
+            sample["next_edge_attr"].unsqueeze(0),
+        ).squeeze(0).float()
+        for vec in (obs_vec, next_vec):
+            if state_sum is None:
+                state_sum = torch.zeros_like(vec)
+                state_sq_sum = torch.zeros_like(vec)
+            state_sum += vec
+            state_sq_sum += vec * vec
+            state_count += 1
+
+        r = float(sample["reward_scalar"].item())
+        reward_sum += r
+        reward_sq_sum += r * r
+        reward_count += 1
+
+    if state_sum is None or state_sq_sum is None or state_count == 0 or reward_count == 0:
+        raise RuntimeError("failed to compute normalization stats from replay dataset")
+
+    state_mean = state_sum / float(state_count)
+    state_var = state_sq_sum / float(state_count) - state_mean * state_mean
+    state_std = torch.sqrt(state_var.clamp_min(1.0e-6))
+
+    reward_mean = reward_sum / float(reward_count)
+    reward_var = reward_sq_sum / float(reward_count) - reward_mean * reward_mean
+    reward_std = max(reward_var, 1.0e-6) ** 0.5
+
+    return NormStats(
+        state_mean=state_mean,
+        state_std=state_std,
+        reward_mean=reward_mean,
+        reward_std=reward_std,
+    )
 
 
 def _reduce_multi_categorical(logits: torch.Tensor, target: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -98,7 +191,12 @@ def _action_logp_entropy(
     n_cell: int,
     n_prg: int,
 ) -> Dict[str, torch.Tensor]:
-    ue_logits, ue_valid = apply_ue_action_mask(actor_out["ue_logits"], batch["action_mask_ue"], n_cell=n_cell)
+    ue_logits, ue_valid = apply_ue_action_mask(
+        actor_out["ue_logits"],
+        batch["action_mask_ue"],
+        n_cell=n_cell,
+        action_mask_cell_ue=batch.get("action_mask_cell_ue"),
+    )
     prg_logits, prg_valid = apply_prg_action_mask(actor_out["prg_logits"], batch["action_mask_prg_cell"], n_cell=n_cell)
 
     ue_target, ue_bad = sanitize_targets(batch["target_ue_class"], ue_valid, ignore_index=IGNORE_INDEX)
@@ -164,13 +262,18 @@ def _collect_rollout(
     gamma: float,
     gae_lambda: float,
     normalize_adv: bool,
+    normalize_reward: bool,
+    state_mean: Optional[torch.Tensor] = None,
+    state_std: Optional[torch.Tensor] = None,
+    reward_mean: float = 0.0,
+    reward_std: float = 1.0,
 ) -> Dict[str, torch.Tensor]:
     actor.eval()
     critic.eval()
 
     obs_cell, obs_ue, obs_edge_idx, obs_edge_attr = [], [], [], []
     next_cell, next_ue, next_edge_attr = [], [], []
-    action_mask_ue, action_mask_prg = [], []
+    action_mask_ue, action_mask_cell_ue, action_mask_prg = [], [], []
     target_ue, target_prg = [], []
     rewards, dones = [], []
     values, next_values = [], []
@@ -191,8 +294,8 @@ def _collect_rollout(
             )
             act_stat = _action_logp_entropy(actor_out, batch, n_cell=dataset.dims.n_cell, n_prg=dataset.dims.n_prg)
 
-            v = critic(_state_vector(batch))
-            nv = critic(_next_state_vector(batch))
+            v = critic(_state_vector(batch, state_mean=state_mean, state_std=state_std))
+            nv = critic(_next_state_vector(batch, state_mean=state_mean, state_std=state_std))
 
         obs_cell.append(sample["obs_cell_features"])
         obs_ue.append(sample["obs_ue_features"])
@@ -202,6 +305,7 @@ def _collect_rollout(
         next_ue.append(sample["next_ue_features"])
         next_edge_attr.append(sample["next_edge_attr"])
         action_mask_ue.append(sample["action_mask_ue"])
+        action_mask_cell_ue.append(sample["action_mask_cell_ue"])
         action_mask_prg.append(sample["action_mask_prg_cell"])
         target_ue.append(sample["target_ue_class"])
         target_prg.append(sample["target_prg_class"])
@@ -217,7 +321,11 @@ def _collect_rollout(
         ue_bad_ratio.append(act_stat["ue_bad_ratio"].squeeze(0).cpu())
         prg_bad_ratio.append(act_stat["prg_bad_ratio"].squeeze(0).cpu())
 
-    rewards_t = torch.stack(rewards).float()
+    rewards_raw_t = torch.stack(rewards).float()
+    if normalize_reward:
+        rewards_t = (rewards_raw_t - reward_mean) / max(reward_std, 1.0e-6)
+    else:
+        rewards_t = rewards_raw_t
     dones_t = torch.stack(dones).float()
     values_t = torch.stack(values).float()
     next_values_t = torch.stack(next_values).float()
@@ -242,10 +350,12 @@ def _collect_rollout(
         "next_ue_features": torch.stack(next_ue),
         "next_edge_attr": torch.stack(next_edge_attr),
         "action_mask_ue": torch.stack(action_mask_ue),
+        "action_mask_cell_ue": torch.stack(action_mask_cell_ue),
         "action_mask_prg_cell": torch.stack(action_mask_prg),
         "target_ue_class": torch.stack(target_ue),
         "target_prg_class": torch.stack(target_prg),
         "rewards": rewards_t,
+        "rewards_raw": rewards_raw_t,
         "dones": dones_t,
         "values": values_t,
         "next_values": next_values_t,
@@ -282,9 +392,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--entropy-coef", type=float, default=0.01)
     p.add_argument("--value-coef", type=float, default=0.5)
     p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--actor-lr", type=float, default=-1.0, help="Override actor lr when > 0")
+    p.add_argument("--critic-lr", type=float, default=-1.0, help="Override critic lr when > 0")
     p.add_argument("--max-grad-norm", type=float, default=1.0)
+    p.add_argument("--actor-max-grad-norm", type=float, default=-1.0, help="Override actor grad norm when > 0")
+    p.add_argument("--critic-max-grad-norm", type=float, default=-1.0, help="Override critic grad norm when > 0")
     p.add_argument("--target-kl", type=float, default=0.03)
     p.add_argument("--normalize-adv", type=int, choices=[0, 1], default=1)
+    p.add_argument("--normalize-state", type=int, choices=[0, 1], default=1)
+    p.add_argument("--normalize-reward", type=int, choices=[0, 1], default=1)
+    p.add_argument("--value-loss", choices=["mse", "huber"], default="huber")
+    p.add_argument("--value-huber-beta", type=float, default=10.0)
     p.add_argument("--hidden-dim", type=int, default=128)
     p.add_argument("--num-cell-msg-layers", type=int, default=2)
     p.add_argument("--seed", type=int, default=42)
@@ -335,13 +453,17 @@ def main() -> int:
     actor.to(device)
     critic.to(device)
 
-    optimizer = torch.optim.AdamW(
-        [
-            {"params": actor.parameters(), "lr": args.lr},
-            {"params": critic.parameters(), "lr": args.lr},
-        ],
-        weight_decay=1e-5,
-    )
+    actor_lr = args.actor_lr if args.actor_lr > 0 else args.lr
+    critic_lr = args.critic_lr if args.critic_lr > 0 else args.lr
+    actor_max_grad_norm = args.actor_max_grad_norm if args.actor_max_grad_norm > 0 else args.max_grad_norm
+    critic_max_grad_norm = args.critic_max_grad_norm if args.critic_max_grad_norm > 0 else args.max_grad_norm
+
+    actor_optimizer = torch.optim.AdamW(actor.parameters(), lr=actor_lr, weight_decay=1e-5)
+    critic_optimizer = torch.optim.AdamW(critic.parameters(), lr=critic_lr, weight_decay=1e-5)
+
+    norm_stats = _compute_norm_stats(dataset)
+    state_mean = norm_stats.state_mean.to(device) if args.normalize_state == 1 else None
+    state_std = norm_stats.state_std.to(device) if args.normalize_state == 1 else None
 
     out_dir = Path(args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -364,12 +486,18 @@ def main() -> int:
             gamma=args.gamma,
             gae_lambda=args.gae_lambda,
             normalize_adv=(args.normalize_adv == 1),
+            normalize_reward=(args.normalize_reward == 1),
+            state_mean=state_mean,
+            state_std=state_std,
+            reward_mean=norm_stats.reward_mean,
+            reward_std=norm_stats.reward_std,
         )
 
         old_logp = rollout["old_logp"]
         advantages = rollout["advantages"]
         returns = rollout["returns"]
         n_steps = old_logp.shape[0]
+        min_updates_before_early_stop = max(4, n_steps // max(1, args.minibatch_size))
 
         pol_loss_sum = 0.0
         val_loss_sum = 0.0
@@ -397,7 +525,7 @@ def main() -> int:
                 new_logp = act_stat["logp"]
                 entropy = act_stat["entropy"]
 
-                value_pred = critic(_state_vector(mb))
+                value_pred = critic(_state_vector(mb, state_mean=state_mean, state_std=state_std))
 
                 old_logp_mb = mb["old_logp"]
                 adv_mb = mb["advantages"]
@@ -406,15 +534,24 @@ def main() -> int:
                 ratio = torch.exp(new_logp - old_logp_mb)
                 clipped_ratio = torch.clamp(ratio, 1.0 - args.clip_eps, 1.0 + args.clip_eps)
                 policy_loss = -torch.min(ratio * adv_mb, clipped_ratio * adv_mb).mean()
-                value_loss = F.mse_loss(value_pred, ret_mb)
+                if args.value_loss == "huber":
+                    value_loss = F.smooth_l1_loss(value_pred, ret_mb, beta=args.value_huber_beta)
+                else:
+                    value_loss = F.mse_loss(value_pred, ret_mb)
                 entropy_bonus = entropy.mean()
 
-                loss = policy_loss + args.value_coef * value_loss - args.entropy_coef * entropy_bonus
+                actor_loss = policy_loss - args.entropy_coef * entropy_bonus
+                critic_loss = args.value_coef * value_loss
 
-                optimizer.zero_grad(set_to_none=True)
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(list(actor.parameters()) + list(critic.parameters()), args.max_grad_norm)
-                optimizer.step()
+                actor_optimizer.zero_grad(set_to_none=True)
+                actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(actor.parameters(), actor_max_grad_norm)
+                actor_optimizer.step()
+
+                critic_optimizer.zero_grad(set_to_none=True)
+                critic_loss.backward()
+                torch.nn.utils.clip_grad_norm_(critic.parameters(), critic_max_grad_norm)
+                critic_optimizer.step()
 
                 approx_kl = (old_logp_mb - new_logp).mean()
                 clipfrac = ((ratio - 1.0).abs() > args.clip_eps).float().mean()
@@ -426,7 +563,8 @@ def main() -> int:
                 clipfrac_sum += float(clipfrac.item())
                 batch_updates += 1
 
-                if approx_kl.item() > args.target_kl:
+                # Use a tolerance margin to avoid noisy one-minibatch spikes ending an iteration too early.
+                if batch_updates >= min_updates_before_early_stop and approx_kl.item() > (1.5 * args.target_kl):
                     stop_early = True
                     break
             if stop_early:
@@ -450,10 +588,15 @@ def main() -> int:
             "entropy": mean_entropy,
             "approx_kl": mean_kl,
             "clipfrac": mean_clipfrac,
+            "rollout_reward_raw_mean": float(rollout["rewards_raw"].mean().item()),
+            "rollout_reward_raw_std": float(rollout["rewards_raw"].std(unbiased=False).item()),
             "rollout_reward_mean": float(rollout["rewards"].mean().item()),
+            "rollout_reward_std": float(rollout["rewards"].std(unbiased=False).item()),
             "rollout_value_mean": float(rollout["values"].mean().item()),
             "rollout_adv_mean": float(rollout["advantages"].mean().item()),
             "rollout_adv_std": float(rollout["advantages"].std(unbiased=False).item()),
+            "rollout_return_mean": float(rollout["returns"].mean().item()),
+            "rollout_return_std": float(rollout["returns"].std(unbiased=False).item()),
             "rollout_old_logp_mean": float(rollout["old_logp"].mean().item()),
             "rollout_entropy_mean": float(rollout["old_entropy"].mean().item()),
             "rollout_ue_valid_ratio": float(rollout["ue_valid_ratio"].mean().item()),
@@ -482,8 +625,15 @@ def main() -> int:
                 "actor_state_dict": actor.state_dict(),
                 "critic_state_dict": critic.state_dict(),
                 "model_config": actor.model_config_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
+                "actor_optimizer_state_dict": actor_optimizer.state_dict(),
+                "critic_optimizer_state_dict": critic_optimizer.state_dict(),
                 "metrics": row,
+                "norm_stats": {
+                    "state_mean": norm_stats.state_mean.tolist(),
+                    "state_std": norm_stats.state_std.tolist(),
+                    "reward_mean": norm_stats.reward_mean,
+                    "reward_std": norm_stats.reward_std,
+                },
                 "args": vars(args),
             },
             train_last_path,
@@ -518,6 +668,12 @@ def main() -> int:
         "dataset_dims": asdict(dims),
         "dataset_feature_dims": asdict(feat),
         "model_config": actor.model_config_dict(),
+        "norm_stats": {
+            "state_mean": norm_stats.state_mean.tolist(),
+            "state_std": norm_stats.state_std.tolist(),
+            "reward_mean": norm_stats.reward_mean,
+            "reward_std": norm_stats.reward_std,
+        },
         "best_objective": best_objective,
         "best_iter": best_iter,
         "best_actor_checkpoint": str(actor_best_path),

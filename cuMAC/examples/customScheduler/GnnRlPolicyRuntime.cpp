@@ -104,6 +104,19 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
         return false;
     }
 
+    std::cerr << "[GNNRL_MODEL] init: modelPath=" << m_cfg.modelPath
+              << " nCell=" << m_nCell
+              << " nActiveUe=" << m_nActiveUe
+              << " nSchedUe=" << m_nSchedUe
+              << " nPrbGrp=" << m_nPrbGrp
+              << " numUeSchdPerCellTTI=" << m_numUeSchdPerCellTTI
+              << " noUeBias=" << m_cfg.noUeBias
+              << " minSchedRatio=" << m_cfg.minSchedRatio
+              << " noPrgBias=" << m_cfg.noPrgBias
+              << " minPrgRatio=" << m_cfg.minPrgRatio
+              << " maxPrgSharePerUe=" << m_cfg.maxPrgSharePerUe
+              << "\n";
+
     m_edgeIndexHost.clear();
     m_edgeIndexHost.reserve(static_cast<size_t>(m_nEdges) * 2U);
     for (uint32_t src = 0; src < m_nCell; ++src) {
@@ -389,11 +402,13 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
     const uint32_t ueClassCount = m_nActiveUe + 1U;
 
     for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
-        const uint32_t numCellSchedRaw = (cellGrpPrmsCpu->numUeSchdPerCellTTIArr != nullptr)
-                                             ? static_cast<uint32_t>(cellGrpPrmsCpu->numUeSchdPerCellTTIArr[cIdx])
-                                             : m_numUeSchdPerCellTTI;
-        const uint32_t numCellSched = std::min(numCellSchedRaw, m_numUeSchdPerCellTTI);
+        // In custom pipeline, per-cell slot hints may be stale/under-estimated.
+        // Use the configured per-cell slot budget as the primary limit.
+        const uint32_t numCellSched = m_numUeSchdPerCellTTI;
         std::vector<uint8_t> usedUe(m_nActiveUe, 0U);
+        std::vector<uint32_t> unscheduledSlots;
+        unscheduledSlots.reserve(numCellSched);
+        uint32_t scheduledCnt = 0U;
 
         for (uint32_t localIdx = 0; localIdx < m_numUeSchdPerCellTTI; ++localIdx) {
             const uint32_t schedSlot = cIdx * m_numUeSchdPerCellTTI + localIdx;
@@ -403,7 +418,7 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
 
             const size_t base = static_cast<size_t>(schedSlot) * ueClassCount;
             uint32_t bestClass = ueNoClass;
-            float bestScore = m_ueLogitsHost[base + ueNoClass];
+            float bestScore = m_ueLogitsHost[base + ueNoClass] - m_cfg.noUeBias;
 
             for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
                 if (m_ueMaskHost[ueIdx] == 0U || usedUe[ueIdx] != 0U || !assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
@@ -419,6 +434,38 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
             if (bestClass != ueNoClass) {
                 schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(bestClass);
                 usedUe[bestClass] = 1U;
+                scheduledCnt += 1U;
+            } else {
+                unscheduledSlots.push_back(schedSlot);
+            }
+        }
+
+        // Guardrail against decode collapse: force-fill a minimum number of slots from legal UEs.
+        const float ratio = std::max(0.0f, std::min(1.0f, m_cfg.minSchedRatio));
+        const uint32_t minSched = static_cast<uint32_t>(std::floor(ratio * static_cast<float>(numCellSched) + 1.0e-6f));
+        if (scheduledCnt < minSched && !unscheduledSlots.empty()) {
+            for (uint32_t schedSlot : unscheduledSlots) {
+                if (scheduledCnt >= minSched) {
+                    break;
+                }
+                const size_t base = static_cast<size_t>(schedSlot) * ueClassCount;
+                int32_t bestUe = -1;
+                float bestScore = std::numeric_limits<float>::lowest();
+                for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
+                    if (m_ueMaskHost[ueIdx] == 0U || usedUe[ueIdx] != 0U || !assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
+                        continue;
+                    }
+                    const float s = m_ueLogitsHost[base + ueIdx];
+                    if (s > bestScore) {
+                        bestScore = s;
+                        bestUe = static_cast<int32_t>(ueIdx);
+                    }
+                }
+                if (bestUe >= 0) {
+                    schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(bestUe);
+                    usedUe[static_cast<uint32_t>(bestUe)] = 1U;
+                    scheduledCnt += 1U;
+                }
             }
         }
     }
@@ -427,15 +474,37 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
     const uint32_t prgClassCount = m_nSchedUe + 1U;
 
     for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
+        std::vector<uint32_t> noPrgList;
+        noPrgList.reserve(m_nPrbGrp);
+        uint32_t assignedPrg = 0U;
+        uint32_t validPrg = 0U;
+        std::vector<uint32_t> slotPrgCount(m_numUeSchdPerCellTTI, 0U);
+
         for (uint32_t prgIdx = 0; prgIdx < m_nPrbGrp; ++prgIdx) {
             if (m_prgMaskHost[cIdx * m_nPrbGrp + prgIdx] == 0U) {
                 continue;
             }
+            validPrg += 1U;
+        }
 
+        uint32_t perSlotPrgCap = validPrg;
+        const float maxPrgShare = std::max(0.0f, std::min(1.0f, m_cfg.maxPrgSharePerUe));
+        if (validPrg > 0U && maxPrgShare > 0.0f && maxPrgShare < 1.0f) {
+            perSlotPrgCap = std::max<uint32_t>(
+                1U, static_cast<uint32_t>(std::floor(maxPrgShare * static_cast<float>(validPrg) + 1.0e-6f)));
+        }
+
+        for (uint32_t prgIdx = 0; prgIdx < m_nPrbGrp; ++prgIdx) {
+            if (m_prgMaskHost[cIdx * m_nPrbGrp + prgIdx] == 0U) {
+                continue;
+            }
             const size_t base = (static_cast<size_t>(cIdx) * m_nPrbGrp + prgIdx) * prgClassCount;
-            uint32_t bestClass = prgNoClass;
-            float bestScore = m_prgLogitsHost[base + prgNoClass];
+            const float noClassScore = m_prgLogitsHost[base + prgNoClass] - m_cfg.noPrgBias;
 
+            int32_t bestLocalAny = -1;
+            float bestScoreAny = std::numeric_limits<float>::lowest();
+            int32_t bestLocalCap = -1;
+            float bestScoreCap = std::numeric_limits<float>::lowest();
             for (uint32_t localIdx = 0; localIdx < m_numUeSchdPerCellTTI; ++localIdx) {
                 const uint32_t schedSlot = cIdx * m_numUeSchdPerCellTTI + localIdx;
                 if (schedSlot >= m_nSchedUe) {
@@ -446,14 +515,76 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
                 }
 
                 const float s = m_prgLogitsHost[base + schedSlot];
-                if (s > bestScore) {
-                    bestScore = s;
-                    bestClass = schedSlot;
+                if (s > bestScoreAny) {
+                    bestScoreAny = s;
+                    bestLocalAny = static_cast<int32_t>(localIdx);
+                }
+                if (slotPrgCount[localIdx] < perSlotPrgCap && s > bestScoreCap) {
+                    bestScoreCap = s;
+                    bestLocalCap = static_cast<int32_t>(localIdx);
                 }
             }
 
-            if (bestClass != prgNoClass) {
+            int32_t chosenLocal = bestLocalCap;
+            float chosenScore = bestScoreCap;
+            if (chosenLocal < 0) {
+                chosenLocal = bestLocalAny;
+                chosenScore = bestScoreAny;
+            }
+
+            if (chosenLocal >= 0 && chosenScore > noClassScore) {
+                const uint32_t bestClass = cIdx * m_numUeSchdPerCellTTI + static_cast<uint32_t>(chosenLocal);
                 schdSolCpu->allocSol[prgIdx * m_totNumCell + cIdx] = static_cast<int16_t>(bestClass);
+                assignedPrg += 1U;
+                slotPrgCount[static_cast<uint32_t>(chosenLocal)] += 1U;
+            } else {
+                noPrgList.push_back(prgIdx);
+            }
+        }
+
+        // Guardrail against decode collapse on PRG head: force-fill a minimum share of valid PRGs.
+        const float prgRatio = std::max(0.0f, std::min(1.0f, m_cfg.minPrgRatio));
+        const uint32_t minPrgAssign = static_cast<uint32_t>(std::floor(prgRatio * static_cast<float>(validPrg) + 1.0e-6f));
+        if (assignedPrg < minPrgAssign && !noPrgList.empty()) {
+            for (uint32_t prgIdx : noPrgList) {
+                if (assignedPrg >= minPrgAssign) {
+                    break;
+                }
+
+                const size_t base = (static_cast<size_t>(cIdx) * m_nPrbGrp + prgIdx) * prgClassCount;
+                int32_t bestSlot = -1;
+                float bestScore = std::numeric_limits<float>::lowest();
+                int32_t bestSlotAny = -1;
+                float bestScoreAny = std::numeric_limits<float>::lowest();
+                for (uint32_t localIdx = 0; localIdx < m_numUeSchdPerCellTTI; ++localIdx) {
+                    const uint32_t schedSlot = cIdx * m_numUeSchdPerCellTTI + localIdx;
+                    if (schedSlot >= m_nSchedUe) {
+                        continue;
+                    }
+                    if (schdSolCpu->setSchdUePerCellTTI[schedSlot] == 0xFFFF) {
+                        continue;
+                    }
+                    const float s = m_prgLogitsHost[base + schedSlot];
+                    if (s > bestScoreAny) {
+                        bestScoreAny = s;
+                        bestSlotAny = static_cast<int32_t>(schedSlot);
+                    }
+                    if (slotPrgCount[localIdx] < perSlotPrgCap && s > bestScore) {
+                        bestScore = s;
+                        bestSlot = static_cast<int32_t>(schedSlot);
+                    }
+                }
+                if (bestSlot < 0) {
+                    bestSlot = bestSlotAny;
+                }
+                if (bestSlot >= 0) {
+                    schdSolCpu->allocSol[prgIdx * m_totNumCell + cIdx] = static_cast<int16_t>(bestSlot);
+                    assignedPrg += 1U;
+                    const uint32_t localIdx = static_cast<uint32_t>(bestSlot) - cIdx * m_numUeSchdPerCellTTI;
+                    if (localIdx < slotPrgCount.size()) {
+                        slotPrgCount[localIdx] += 1U;
+                    }
+                }
             }
         }
     }

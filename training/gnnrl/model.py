@@ -104,6 +104,14 @@ class StageBGnnPolicy(nn.Module):
         self.ue_key = nn.Linear(hid, hid)
         self.slot_key = nn.Linear(hid, hid)
         self.ue_null_head = nn.Linear(hid, 1)
+        # Break symmetry among scheduler slots inside the same cell.
+        self.slot_pos_emb = nn.Embedding(cfg.n_sched_ue, hid)
+        self.slot_local_pos_emb = nn.Embedding(self.slots_per_cell, hid)
+        self.slot_fuse = nn.Sequential(
+            nn.Linear(3 * hid, hid),
+            nn.ReLU(),
+            nn.LayerNorm(hid),
+        )
 
         self.prg_pos_emb = nn.Embedding(cfg.max_prg, hid)
         self.prg_ctx = nn.Sequential(
@@ -117,6 +125,16 @@ class StageBGnnPolicy(nn.Module):
         self.register_buffer(
             "slot_to_cell",
             torch.arange(cfg.n_sched_ue, dtype=torch.long) // (cfg.n_sched_ue // cfg.n_cell),
+            persistent=False,
+        )
+        self.register_buffer(
+            "slot_global_idx",
+            torch.arange(cfg.n_sched_ue, dtype=torch.long),
+            persistent=False,
+        )
+        self.register_buffer(
+            "slot_local_idx",
+            torch.arange(cfg.n_sched_ue, dtype=torch.long) % (cfg.n_sched_ue // cfg.n_cell),
             persistent=False,
         )
         self.register_buffer(
@@ -143,6 +161,7 @@ class StageBGnnPolicy(nn.Module):
         """
         cfg = self.cfg
         hid = cfg.hidden_dim
+        bsz = obs_cell_features.shape[0]
 
         cell_h = self.cell_in(obs_cell_features)
         for layer in self.cell_layers:
@@ -152,7 +171,10 @@ class StageBGnnPolicy(nn.Module):
         ue_cell = cell_h[:, self.ue_to_cell, :]
         ue_h = self.ue_cell_fuse(torch.cat([ue_h, ue_cell], dim=-1))
 
-        slot_ctx = cell_h[:, self.slot_to_cell, :]
+        slot_cell_ctx = cell_h[:, self.slot_to_cell, :]
+        slot_pos = self.slot_pos_emb(self.slot_global_idx).unsqueeze(0).expand(bsz, -1, -1)
+        slot_local_pos = self.slot_local_pos_emb(self.slot_local_idx).unsqueeze(0).expand(bsz, -1, -1)
+        slot_ctx = self.slot_fuse(torch.cat([slot_cell_ctx, slot_pos, slot_local_pos], dim=-1))
 
         slot_q = self.slot_query(slot_ctx)
         ue_k = self.ue_key(ue_h)
@@ -160,7 +182,6 @@ class StageBGnnPolicy(nn.Module):
         ue_no = self.ue_null_head(slot_ctx)
         ue_logits = torch.cat([ue_logits_main, ue_no], dim=-1)
 
-        bsz = obs_cell_features.shape[0]
         prg_ids = torch.arange(cfg.n_prg, dtype=torch.long, device=obs_cell_features.device)
         prg_emb = self.prg_pos_emb(prg_ids).unsqueeze(0).expand(bsz, -1, -1)
 

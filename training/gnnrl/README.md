@@ -56,6 +56,8 @@ python3 training/gnnrl/export_onnx.py \
 
 - Current BC pipeline supports replay `alloc_type=0` only.
 - Current BC pipeline expects `n_tot_cell == n_cell`.
+- Replay v2 adds `action_mask_cell_ue` (`[n_cell, n_active_ue]`) for true cell-UE legality.
+- Legacy replay (v1) is still supported with heuristic fallback mask reconstruction.
 - Target legality is enforced by masks; illegal targets are ignored during loss.
 - This is offline BC (M1), not online RL training (M2).
 

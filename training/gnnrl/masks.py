@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 
@@ -25,11 +25,17 @@ def build_slot_ue_cell_compat_mask(n_cell: int, n_sched_ue: int, n_active_ue: in
     return s2c.unsqueeze(1) == u2c.unsqueeze(0)
 
 
-def apply_ue_action_mask(ue_logits: torch.Tensor, action_mask_ue: torch.Tensor, n_cell: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def apply_ue_action_mask(
+    ue_logits: torch.Tensor,
+    action_mask_ue: torch.Tensor,
+    n_cell: int,
+    action_mask_cell_ue: Optional[torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Args:
         ue_logits: [B, S, U+1]
         action_mask_ue: [B, U]
+        action_mask_cell_ue: optional [B, C, U], preferred over index-based cell assumption
     Returns:
         masked_logits: [B, S, U+1]
         valid_mask: [B, S, U+1]
@@ -37,8 +43,19 @@ def apply_ue_action_mask(ue_logits: torch.Tensor, action_mask_ue: torch.Tensor, 
     bsz, n_sched_ue, ue_plus_no = ue_logits.shape
     n_active_ue = ue_plus_no - 1
 
-    compat = build_slot_ue_cell_compat_mask(n_cell, n_sched_ue, n_active_ue, ue_logits.device)
-    compat = compat.unsqueeze(0).expand(bsz, -1, -1)
+    if action_mask_cell_ue is not None:
+        if action_mask_cell_ue.dim() != 3:
+            raise ValueError(f"action_mask_cell_ue must be [B,C,U], got shape={tuple(action_mask_cell_ue.shape)}")
+        if action_mask_cell_ue.shape[0] != bsz or action_mask_cell_ue.shape[1] != n_cell or action_mask_cell_ue.shape[2] != n_active_ue:
+            raise ValueError(
+                f"action_mask_cell_ue shape mismatch: got={tuple(action_mask_cell_ue.shape)} "
+                f"expected=({bsz},{n_cell},{n_active_ue})"
+            )
+        slot_cells = _slot_to_cell(n_cell, n_sched_ue, ue_logits.device)
+        compat = action_mask_cell_ue.bool()[:, slot_cells, :]
+    else:
+        compat = build_slot_ue_cell_compat_mask(n_cell, n_sched_ue, n_active_ue, ue_logits.device)
+        compat = compat.unsqueeze(0).expand(bsz, -1, -1)
 
     ue_alive = action_mask_ue.bool().unsqueeze(1).expand(-1, n_sched_ue, -1)
     valid_main = compat & ue_alive

@@ -119,6 +119,14 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
         cfg.modelPath = std::string(modelPath);
     }
     cfg.policyTimeoutMs = std::max(0, envInt("CUMAC_POLICY_TIMEOUT_MS", cfg.policyTimeoutMs));
+    cfg.modelNoUeBias = envFloat("CUMAC_GNNRL_MODEL_NO_UE_BIAS", cfg.modelNoUeBias);
+    cfg.modelMinSchedRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO", cfg.modelMinSchedRatio);
+    cfg.modelNoPrgBias = envFloat("CUMAC_GNNRL_MODEL_NO_PRG_BIAS", cfg.modelNoPrgBias);
+    cfg.modelMinPrgRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_PRG_RATIO", cfg.modelMinPrgRatio);
+    cfg.modelMaxPrgSharePerUe = envFloat("CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE", cfg.modelMaxPrgSharePerUe);
+    cfg.modelMinSchedRatio = std::max(0.0f, std::min(1.0f, cfg.modelMinSchedRatio));
+    cfg.modelMinPrgRatio = std::max(0.0f, std::min(1.0f, cfg.modelMinPrgRatio));
+    cfg.modelMaxPrgSharePerUe = std::max(1.0e-3f, std::min(1.0f, cfg.modelMaxPrgSharePerUe));
     return cfg;
 }
 
@@ -319,10 +327,9 @@ void CustomUePrgScheduler::runType0(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
     std::vector<std::vector<SelectedUe>> scheduledByCell(nCell);
 
     for (uint16_t cIdx = 0; cIdx < nCell; ++cIdx) {
-        const uint8_t numCellSchedRaw = (cellGrpPrmsCpu->numUeSchdPerCellTTIArr != nullptr)
-                                            ? cellGrpPrmsCpu->numUeSchdPerCellTTIArr[cIdx]
-                                            : numUeSchdPerCellTTI;
-        const uint8_t numCellSched = std::min<uint8_t>(numCellSchedRaw, numUeSchdPerCellTTI);
+        // In custom pipeline, per-cell slot hints may be stale/under-estimated.
+        // Use configured per-cell slot budget directly.
+        const uint8_t numCellSched = numUeSchdPerCellTTI;
         const uint16_t chosenUe = std::min<uint16_t>(numCellSched, static_cast<uint16_t>(candidates[cIdx].size()));
         scheduledByCell[cIdx].reserve(chosenUe);
 
@@ -406,10 +413,9 @@ void CustomUePrgScheduler::runType1(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
     std::vector<std::vector<SelectedUe>> candidates = buildCellCandidates(cellGrpUeStatusCpu, cellGrpPrmsCpu, cellContext);
 
     for (uint16_t cIdx = 0; cIdx < nCell; ++cIdx) {
-        const uint8_t numCellSchedRaw = (cellGrpPrmsCpu->numUeSchdPerCellTTIArr != nullptr)
-                                            ? cellGrpPrmsCpu->numUeSchdPerCellTTIArr[cIdx]
-                                            : numUeSchdPerCellTTI;
-        const uint8_t numCellSched = std::min<uint8_t>(numCellSchedRaw, numUeSchdPerCellTTI);
+        // In custom pipeline, per-cell slot hints may be stale/under-estimated.
+        // Use configured per-cell slot budget directly.
+        const uint8_t numCellSched = numUeSchdPerCellTTI;
         const uint16_t chosenUe = std::min<uint16_t>(numCellSched, static_cast<uint16_t>(candidates[cIdx].size()));
 
         std::vector<SelectedUe> scheduled;
@@ -482,11 +488,16 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
         } else if (m_cfg.policyMode == PolicyMode::GnnRlModel) {
             policyStr = "gnnrl_model";
         }
-        std::cout << "CustomUePrgScheduler config: policy=" << policyStr
+        std::cerr << "CustomUePrgScheduler config: policy=" << policyStr
                   << " noTxThreshold=" << m_cfg.noTxThreshold
                   << " maxActiveCellsPerPrg=" << m_cfg.maxActiveCellsPerPrg
                   << " modelPath=" << (m_cfg.modelPath.empty() ? "<empty>" : m_cfg.modelPath)
                   << " policyTimeoutMs=" << m_cfg.policyTimeoutMs
+                  << " modelNoUeBias=" << m_cfg.modelNoUeBias
+                  << " modelMinSchedRatio=" << m_cfg.modelMinSchedRatio
+                  << " modelNoPrgBias=" << m_cfg.modelNoPrgBias
+                  << " modelMinPrgRatio=" << m_cfg.modelMinPrgRatio
+                  << " modelMaxPrgSharePerUe=" << m_cfg.modelMaxPrgSharePerUe
                   << std::endl;
         logOnce = true;
     }
@@ -498,6 +509,11 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 GnnRlPolicyRuntime::Config runtimeCfg;
                 runtimeCfg.modelPath = m_cfg.modelPath;
                 runtimeCfg.timeoutMs = m_cfg.policyTimeoutMs;
+                runtimeCfg.noUeBias = m_cfg.modelNoUeBias;
+                runtimeCfg.minSchedRatio = m_cfg.modelMinSchedRatio;
+                runtimeCfg.noPrgBias = m_cfg.modelNoPrgBias;
+                runtimeCfg.minPrgRatio = m_cfg.modelMinPrgRatio;
+                runtimeCfg.maxPrgSharePerUe = m_cfg.modelMaxPrgSharePerUe;
                 m_modelRuntime = std::make_unique<GnnRlPolicyRuntime>(runtimeCfg);
                 m_modelReady = (m_modelRuntime != nullptr) && m_modelRuntime->initialize(cellGrpPrmsCpu);
                 if (!m_modelReady) {

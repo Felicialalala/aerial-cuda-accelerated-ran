@@ -43,6 +43,8 @@ class ReplaySpec:
     records_path: str
     record_count: int
     record_bytes: int
+    version: int
+    has_action_mask_cell_ue: bool
     dims: ReplayDims
     feature_dims: ReplayFeatureDims
 
@@ -60,6 +62,7 @@ class ReplaySample:
     action_ue_select: torch.Tensor
     action_prg_alloc: torch.Tensor
     action_mask_ue: torch.Tensor
+    action_mask_cell_ue: torch.Tensor
     action_mask_prg_cell: torch.Tensor
     next_cell_features: torch.Tensor
     next_ue_features: torch.Tensor
@@ -76,7 +79,7 @@ def _load_json(path: str) -> Dict:
 def _parse_spec(replay_dir: str) -> ReplaySpec:
     replay_dir = os.path.abspath(replay_dir)
     meta = _load_json(os.path.join(replay_dir, "rl_replay_meta.json"))
-    _ = _load_json(os.path.join(replay_dir, "rl_replay_schema.json"))
+    schema = _load_json(os.path.join(replay_dir, "rl_replay_schema.json"))
 
     dims = meta["dims"]
     feat = meta["feature_dims"]
@@ -86,11 +89,16 @@ def _parse_spec(replay_dir: str) -> ReplaySpec:
     if not os.path.isfile(records_path):
         raise FileNotFoundError(f"records file not found: {records_path}")
 
+    layout = schema.get("record_layout", [])
+    has_action_mask_cell_ue = any(entry.get("name") == "action_mask_cell_ue" for entry in layout)
+
     return ReplaySpec(
         replay_dir=replay_dir,
         records_path=records_path,
         record_count=int(meta["record_count"]),
         record_bytes=int(meta["record_bytes"]),
+        version=int(meta.get("version", 1)),
+        has_action_mask_cell_ue=bool(meta.get("has_action_mask_cell_ue", has_action_mask_cell_ue)),
         dims=ReplayDims(
             n_cell=int(dims["n_cell"]),
             n_active_ue=int(dims["n_active_ue"]),
@@ -123,7 +131,12 @@ class ReplayBinaryDataset(Dataset):
         self.feature_dims = self.spec.feature_dims
 
         for s in self._specs[1:]:
-            if s.dims != self.dims or s.feature_dims != self.feature_dims or s.record_bytes != self.spec.record_bytes:
+            if (
+                s.dims != self.dims
+                or s.feature_dims != self.feature_dims
+                or s.record_bytes != self.spec.record_bytes
+                or s.has_action_mask_cell_ue != self.spec.has_action_mask_cell_ue
+            ):
                 raise ValueError(
                     "all replay dirs must share identical dims/feature_dims/record_bytes; "
                     f"mismatch: {self.spec.replay_dir} vs {s.replay_dir}"
@@ -177,6 +190,46 @@ class ReplayBinaryDataset(Dataset):
         tgt = torch.where(out_of_range, torch.full_like(tgt, IGNORE_INDEX), tgt)
         return tgt
 
+    @staticmethod
+    def _infer_cell_ue_mask(
+        action_mask_ue: torch.Tensor,
+        n_cell: int,
+        n_active_ue: int,
+    ) -> torch.Tensor:
+        cell_ue = torch.zeros((n_cell, n_active_ue), dtype=torch.uint8)
+
+        if n_cell > 0 and (n_active_ue % n_cell) == 0:
+            ue_per_cell = n_active_ue // n_cell
+            for ue_idx in range(n_active_ue):
+                c_idx = ue_idx // ue_per_cell
+                cell_ue[c_idx, ue_idx] = 1
+        else:
+            cell_ue.fill_(1)
+
+        if n_cell > 0:
+            cell_ue &= action_mask_ue.view(1, n_active_ue)
+        return cell_ue
+
+    @staticmethod
+    def _enforce_action_mask_consistency(
+        action_ue_select: torch.Tensor,
+        action_mask_ue: torch.Tensor,
+        action_mask_cell_ue: torch.Tensor,
+        n_cell: int,
+        n_sched_ue: int,
+        n_active_ue: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        slots_per_cell = max(1, n_sched_ue // max(1, n_cell))
+        for slot_idx in range(n_sched_ue):
+            ue_idx = int(action_ue_select[slot_idx].item())
+            if ue_idx < 0 or ue_idx >= n_active_ue:
+                continue
+            action_mask_ue[ue_idx] = 1
+            c_idx = min(slot_idx // slots_per_cell, n_cell - 1)
+            action_mask_cell_ue[c_idx, ue_idx] = 1
+
+        return action_mask_ue, action_mask_cell_ue
+
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         spec, local_idx = self._locate(idx)
         with open(spec.records_path, "rb") as f:
@@ -217,6 +270,32 @@ class ReplayBinaryDataset(Dataset):
         action_ue_select, off = self._from_buffer(blob, off, torch.int32, d.n_sched_ue, (d.n_sched_ue,))
         action_prg_alloc, off = self._from_buffer(blob, off, torch.int16, d.action_alloc_len, (d.action_alloc_len,))
         action_mask_ue, off = self._from_buffer(blob, off, torch.uint8, d.n_active_ue, (d.n_active_ue,))
+        if spec.has_action_mask_cell_ue:
+            action_mask_cell_ue, off = self._from_buffer(
+                blob, off, torch.uint8, d.n_cell * d.n_active_ue, (d.n_cell, d.n_active_ue)
+            )
+            action_mask_ue, action_mask_cell_ue = self._enforce_action_mask_consistency(
+                action_ue_select=action_ue_select,
+                action_mask_ue=action_mask_ue,
+                action_mask_cell_ue=action_mask_cell_ue,
+                n_cell=d.n_cell,
+                n_sched_ue=d.n_sched_ue,
+                n_active_ue=d.n_active_ue,
+            )
+        else:
+            action_mask_cell_ue = self._infer_cell_ue_mask(
+                action_mask_ue=action_mask_ue,
+                n_cell=d.n_cell,
+                n_active_ue=d.n_active_ue,
+            )
+            action_mask_ue, action_mask_cell_ue = self._enforce_action_mask_consistency(
+                action_ue_select=action_ue_select,
+                action_mask_ue=action_mask_ue,
+                action_mask_cell_ue=action_mask_cell_ue,
+                n_cell=d.n_cell,
+                n_sched_ue=d.n_sched_ue,
+                n_active_ue=d.n_active_ue,
+            )
         action_mask_prg_cell, off = self._from_buffer(
             blob, off, torch.uint8, d.n_cell * d.n_prg, (d.n_cell, d.n_prg)
         )
@@ -250,6 +329,7 @@ class ReplayBinaryDataset(Dataset):
             "action_ue_select": action_ue_select.to(torch.int64),
             "action_prg_alloc": action_prg_alloc.to(torch.int64),
             "action_mask_ue": action_mask_ue.to(torch.bool),
+            "action_mask_cell_ue": action_mask_cell_ue.to(torch.bool),
             "action_mask_prg_cell": action_mask_prg_cell.to(torch.bool),
             "next_cell_features": next_cell_features,
             "next_ue_features": next_ue_features,
