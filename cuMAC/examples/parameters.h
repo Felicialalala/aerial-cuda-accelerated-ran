@@ -29,7 +29,7 @@
  #define gpuDeviceIdx          0
 
  // simulation duration
- #define numSimChnRlz          600
+ #define numSimChnRlz          2000
  
  // randomness
  #define seedConst          42

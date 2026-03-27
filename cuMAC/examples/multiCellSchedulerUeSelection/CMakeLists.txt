@@ -20,6 +20,8 @@ target_sources(multiCellSchedulerUeSelection PRIVATE
     ../trafficModel/trafficGenerator.cpp
     ../customScheduler/CustomUePrgScheduler.cpp
     ../customScheduler/GnnRlPolicyRuntime.cpp
+    ../onlineTrainBridge/OnlineBridgeServer.cpp
+    ../onlineTrainBridge/OnlineFeatureCodec.cpp
     ../ml/trtEngine.cpp
     ../rlReplay/ReplayWriter.cpp
 )

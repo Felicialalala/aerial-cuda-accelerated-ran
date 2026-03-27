@@ -15,12 +15,27 @@
  * limitations under the License.
  */
 
+#pragma once
+
+#include <algorithm>
+#include <cstdint>
+#include <vector>
+
+struct FlowPacketSpan
+{
+    int num_bytes = 0;
+    int arrival_tti = 0;
+};
+
 class FlowData
 {
 public:
-    int flow_id;
-    int num_bytes;
-    int last_arrival;
+    int flow_id = 0;
+    int num_bytes = 0;
+    int last_arrival = 0;
+    int arrival_tti = 0;
+    std::vector<int> packet_bytes;
+    std::vector<FlowPacketSpan> accepted_spans;
 };
 
 class FlowType
@@ -36,17 +51,28 @@ private:
 public:
     constexpr static int MAX_BYTES = 1e9;
     void Enqueue(FlowData& flow_data){
-        int incoming = flow_data.num_bytes > 0 ? flow_data.num_bytes : 0;
-        total_generated_bytes += static_cast<unsigned long long>(incoming);
         int free_bytes = MAX_BYTES - num_bytes;
-        int accepted = incoming;
-        if (accepted > free_bytes) {
-            accepted = free_bytes > 0 ? free_bytes : 0;
+        flow_data.accepted_spans.clear();
+        std::vector<int> packet_bytes_local = flow_data.packet_bytes;
+        if (packet_bytes_local.empty() && flow_data.num_bytes > 0) {
+            packet_bytes_local.push_back(flow_data.num_bytes);
         }
-        int dropped = incoming - accepted;
-        num_bytes += accepted;
-        total_accepted_bytes += static_cast<unsigned long long>(accepted);
-        total_dropped_bytes += static_cast<unsigned long long>(dropped);
+        for (const int pkt_bytes_raw : packet_bytes_local) {
+            const int incoming = pkt_bytes_raw > 0 ? pkt_bytes_raw : 0;
+            total_generated_bytes += static_cast<unsigned long long>(incoming);
+            int accepted = incoming;
+            if (accepted > free_bytes) {
+                accepted = free_bytes > 0 ? free_bytes : 0;
+            }
+            const int dropped = incoming - accepted;
+            if (accepted > 0) {
+                flow_data.accepted_spans.push_back({accepted, flow_data.arrival_tti});
+                num_bytes += accepted;
+                free_bytes -= accepted;
+                total_accepted_bytes += static_cast<unsigned long long>(accepted);
+            }
+            total_dropped_bytes += static_cast<unsigned long long>(dropped);
+        }
     }
     int MoveBytes(){
         auto tmp = num_bytes;

@@ -834,6 +834,9 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      CUDA_CHECK_ERR(cudaMemcpy(cellGrpUeStatusGpu->newDataActUe, newDataActUe.get(), ndActUeSize, cudaMemcpyHostToDevice));
      CUDA_CHECK_ERR(cudaMalloc((void **)&cellGrpUeStatusGpu->avgRatesActUe, arActUeSize));
      CUDA_CHECK_ERR(cudaMalloc((void **)&cellGrpUeStatusGpu->tbErrLastActUe, tbeActUeSize));
+     CUDA_CHECK_ERR(cudaMalloc((void **)&cellGrpUeStatusGpu->prioWeightActUe, sizeof(uint16_t)*totNumActiveUesConst));
+     CUDA_CHECK_ERR(cudaMemcpy(cellGrpUeStatusGpu->prioWeightActUe, prioWeightActUe.get(),
+                               sizeof(uint16_t)*totNumActiveUesConst, cudaMemcpyHostToDevice));
      // TODO - size works, but should be defined in type(bufferSize) i.e. uint32 rather than float
      if(m_en_traffic_gen){
         CUDA_CHECK_ERR(cudaMalloc((void **)&cellGrpUeStatusGpu->bufferSize, arActUeSize));
@@ -1014,6 +1017,10 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
         CUDA_CHECK_ERR(cudaMemcpyAsync(cellGrpUeStatusGpu->avgRatesActUe, avgRatesActUe.get(), arActUeSize, cudaMemcpyHostToDevice, strm));
         CUDA_CHECK_ERR(cudaMemcpyAsync(cellGrpUeStatusGpu->tbErrLastActUe, tbErrLastActUe.get(), tbeActUeSize, cudaMemcpyHostToDevice, strm));
     }
+    if (cellGrpUeStatusGpu->prioWeightActUe != nullptr && prioWeightActUe != nullptr && execStatus.get()->cellIdRenew) {
+        CUDA_CHECK_ERR(cudaMemcpyAsync(cellGrpUeStatusGpu->prioWeightActUe, prioWeightActUe.get(),
+                                       sizeof(uint16_t)*totNumActiveUesConst, cudaMemcpyHostToDevice, strm));
+    }
 
     CUDA_CHECK_ERR(cudaMemcpyAsync(cellGrpPrmsGpu->currSlotIdxPerCell, currSlotIdxPerCell.get(), sizeof(uint32_t)*totNumCell, cudaMemcpyHostToDevice, strm));   
  }
@@ -1034,6 +1041,7 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      if (cellGrpUeStatusGpu->tbErrLast) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->tbErrLast));
      if (cellGrpUeStatusGpu->tbErrLastActUe) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->tbErrLastActUe));
      if (cellGrpUeStatusGpu->newDataActUe) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->newDataActUe));
+     if (cellGrpUeStatusGpu->prioWeightActUe) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->prioWeightActUe));
      if (cellGrpUeStatusGpu->allocSolLastTx) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->allocSolLastTx));
      if (cellGrpUeStatusGpu->mcsSelSolLastTx) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->mcsSelSolLastTx));
      if (cellGrpUeStatusGpu->layerSelSolLastTx) CUDA_CHECK_ERR(cudaFree(cellGrpUeStatusGpu->layerSelSolLastTx));
@@ -3870,6 +3878,7 @@ void network::genLSFading()
 
 __global__ void ueDownSel4TrKernel(uint16_t*        setSchdUePerCellTTIGpu,
                                    uint16_t*        cellIdArr,
+                                   uint8_t*         cellAssocActUeArr,
                                    uint8_t*         cellAssocArr,
                                    cuComplex*       channMatGpu, 
                                    cuComplex*       estH_frGpu,
@@ -3906,19 +3915,11 @@ __global__ void ueDownSel4TrKernel(uint16_t*        setSchdUePerCellTTIGpu,
     
     
     if (prgIdx == 0) {
-        int schdUeIdStart = cIdx*numSchdUePerCell;
-        int schdUeIdEnd = schdUeIdStart + numSchdUePerCell;
-
         for (int idx = threadIdx.x; idx < totNumSchdUe; idx += blockDim.x) {
-            if (idx >= schdUeIdStart && idx < schdUeIdEnd) {
-                if (setSchdUePerCellTTIGpu[idx] != 0xFFFF) {
-                    cellAssocArr[cIdx*totNumSchdUe + idx] = 1;
-                } else {
-                    cellAssocArr[cIdx*totNumSchdUe + idx] = 0;
-                }
-            } else {
-                cellAssocArr[cIdx*totNumSchdUe + idx] = 0;
-            }
+            const uint16_t globalUeId = setSchdUePerCellTTIGpu[idx];
+            const bool validGlobalUe = globalUeId != 0xFFFF && globalUeId < nActiveUe;
+            cellAssocArr[cIdx*totNumSchdUe + idx] =
+                (validGlobalUe && cellAssocActUeArr[cIdx*nActiveUe + globalUeId] != 0) ? 1 : 0;
         }
     }
 
@@ -4027,7 +4028,8 @@ void network::ueDownSelectCpu()
     CUDA_CHECK_ERR(cudaMemcpy(avgRatesActUeGpuforCpuSchd, cellGrpUeStatusCpu->avgRatesActUe, arActUeSize, cudaMemcpyHostToDevice));
     CUDA_CHECK_ERR(cudaMemcpy(tbErrLastActUeGpuforCpuSchd, cellGrpUeStatusCpu->tbErrLastActUe, tbeActUeSize, cudaMemcpyHostToDevice));
     if (DL == 1) { // DL
-        ueDownSel4TrKernel<<<gridDim, blockDim>>>(setSchdUePerCellTTIGpuforCpuSchd, cellGrpPrmsGpu->cellId, 
+        ueDownSel4TrKernel<<<gridDim, blockDim>>>(setSchdUePerCellTTIGpuforCpuSchd, cellGrpPrmsGpu->cellId,
+            cellGrpPrmsGpu->cellAssocActUe,
             cellAssocGpuforCpuSchd, cellGrpPrmsGpu->estH_fr_actUe, estH_fr_GPUforCpuSchd, estH_fr_GPUforCpuSchd_half,
             avgRatesActUeGpuforCpuSchd, avgRatesGpuforCpuSchd, tbErrLastActUeGpuforCpuSchd, tbErrLastGpuforCpuSchd, 
             cellGrpPrmsGpu->prdMat_actUe, prdMatGpuforCpuSchd, cellGrpPrmsGpu->detMat_actUe, detMatGpuforCpuSchd, 
@@ -4035,7 +4037,8 @@ void network::ueDownSelectCpu()
             cellGrpPrmsCpu->nCell, cellGrpPrmsCpu->nActiveUe, cellGrpPrmsCpu->numUeSchdPerCellTTI, 
             cellGrpPrmsCpu->nBsAnt, cellGrpPrmsCpu->nUeAnt);
     } else { // UL
-        ueDownSel4TrKernel<<<gridDim, blockDim>>>(setSchdUePerCellTTIGpuforCpuSchd, cellGrpPrmsGpu->cellId, 
+        ueDownSel4TrKernel<<<gridDim, blockDim>>>(setSchdUePerCellTTIGpuforCpuSchd, cellGrpPrmsGpu->cellId,
+            cellGrpPrmsGpu->cellAssocActUe,
             cellAssocGpuforCpuSchd, cellGrpPrmsGpu->estH_fr_actUe, estH_fr_GPUforCpuSchd, estH_fr_GPUforCpuSchd_half,
             avgRatesActUeGpuforCpuSchd, avgRatesGpuforCpuSchd, tbErrLastActUeGpuforCpuSchd, tbErrLastGpuforCpuSchd, 
             cellGrpPrmsGpu->prdMat_actUe, prdMatGpuforCpuSchd, cellGrpPrmsGpu->detMat_actUe, detMatGpuforCpuSchd, 
@@ -4076,7 +4079,8 @@ void network::ueDownSelectGpu()
         dim3 blockDim = {numThrdPerBlk, 1, 1};
 
         if (DL == 1) { // DL
-            ueDownSel4TrKernel<<<gridDim, blockDim>>>(schdSolGpu->setSchdUePerCellTTI, cellGrpPrmsGpu->cellId, 
+            ueDownSel4TrKernel<<<gridDim, blockDim>>>(schdSolGpu->setSchdUePerCellTTI, cellGrpPrmsGpu->cellId,
+                cellGrpPrmsGpu->cellAssocActUe,
                 cellGrpPrmsGpu->cellAssoc, cellGrpPrmsGpu->estH_fr_actUe, cellGrpPrmsGpu->estH_fr, cellGrpPrmsGpu->estH_fr_half,
                 cellGrpUeStatusGpu->avgRatesActUe, cellGrpUeStatusGpu->avgRates, cellGrpUeStatusGpu->tbErrLastActUe, cellGrpUeStatusGpu->tbErrLast, 
                 cellGrpPrmsGpu->prdMat_actUe, cellGrpPrmsGpu->prdMat, cellGrpPrmsGpu->detMat_actUe, cellGrpPrmsGpu->detMat,
@@ -4084,7 +4088,8 @@ void network::ueDownSelectGpu()
                 cellGrpPrmsGpu->nCell, cellGrpPrmsGpu->nActiveUe, cellGrpPrmsGpu->numUeSchdPerCellTTI, 
                 cellGrpPrmsGpu->nBsAnt, cellGrpPrmsGpu->nUeAnt);
         } else { // UL
-            ueDownSel4TrKernel<<<gridDim, blockDim>>>(schdSolGpu->setSchdUePerCellTTI, cellGrpPrmsGpu->cellId, 
+            ueDownSel4TrKernel<<<gridDim, blockDim>>>(schdSolGpu->setSchdUePerCellTTI, cellGrpPrmsGpu->cellId,
+                cellGrpPrmsGpu->cellAssocActUe,
                 cellGrpPrmsGpu->cellAssoc, cellGrpPrmsGpu->estH_fr_actUe, cellGrpPrmsGpu->estH_fr, cellGrpPrmsGpu->estH_fr_half,
                 cellGrpUeStatusGpu->avgRatesActUe, cellGrpUeStatusGpu->avgRates, cellGrpUeStatusGpu->tbErrLastActUe, cellGrpUeStatusGpu->tbErrLast, 
                 cellGrpPrmsGpu->prdMat_actUe, cellGrpPrmsGpu->prdMat, cellGrpPrmsGpu->detMat_actUe, cellGrpPrmsGpu->detMat,
@@ -4303,9 +4308,10 @@ void network::genFastFading()
     for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) { // loop through PRGs
         for (int uIdx = 0; uIdx < nUe; uIdx++) {
             for (int cIdx = 0; cIdx < netData->numCell; cIdx++) {
-                int assocCellId = floor(static_cast<float>(uIdx)/static_cast<float>(numUeSchdPerCellTTI));
-
-                int globalUeId = setSchdUePerCellTTI[assocCellId*numUeSchdPerCellTTI + uIdx%numUeSchdPerCellTTI];
+                int globalUeId = setSchdUePerCellTTI[uIdx];
+                if (globalUeId == 0xFFFF || globalUeId >= nActiveUe) {
+                    continue;
+                }
                 
                 float amplDBm = netData->rxSigPowDB[cIdx * nActiveUe + globalUeId];
                 float sqrtAmpl = pow(10.0, ((amplDBm - 30.0)/20.0));

@@ -18,7 +18,9 @@
 #include <vector>
 #include <utility>
 #include <unordered_map>
+#include <algorithm>
 #include <memory>
+#include <deque>
 #include <list>
 #include <random>
 #include <cstdint>
@@ -35,6 +37,17 @@
 
 
 enum class Arrival_t {uniform, poisson, full_buffer};
+
+struct PacketDelaySummary
+{
+    unsigned long long served_packets = 0;
+    unsigned long long pending_packets = 0;
+    double mean_delay_ms = 0.0;
+    double p50_delay_ms = 0.0;
+    double p90_delay_ms = 0.0;
+    double p95_delay_ms = 0.0;
+    double max_delay_ms = 0.0;
+};
 
 class TrafficType
 {
@@ -193,31 +206,138 @@ public:
 class RadioResource : public TrafficObserver
 {
 protected:
+    struct MacPacketRecord {
+        uint32_t remaining_bytes = 0;
+        int arrival_tti = 0;
+    };
+
     cumac::cumacCellGrpUeStatus* api_ue_status;
+    std::vector<std::deque<MacPacketRecord>> mac_packet_queues;
+    std::vector<std::vector<double>> served_packet_delay_ms;
+    double slot_duration_ms = 0.5;
+
+    static double percentile_ms(const std::vector<double>& values, double p)
+    {
+        if (values.empty()) {
+            return 0.0;
+        }
+        if (p <= 0.0) {
+            return *std::min_element(values.begin(), values.end());
+        }
+        if (p >= 100.0) {
+            return *std::max_element(values.begin(), values.end());
+        }
+        std::vector<double> sorted = values;
+        std::sort(sorted.begin(), sorted.end());
+        const double pos = (static_cast<double>(sorted.size()) - 1.0) * p / 100.0;
+        const size_t lo = static_cast<size_t>(std::floor(pos));
+        const size_t hi = static_cast<size_t>(std::ceil(pos));
+        if (lo == hi) {
+            return sorted[lo];
+        }
+        const double w = pos - static_cast<double>(lo);
+        return sorted[lo] * (1.0 - w) + sorted[hi] * w;
+    }
+
+    virtual void SyncGpuBuffer()
+    {
+    }
+
 public:
     RadioResource(cumac::cumacCellGrpUeStatus* ue_status){
         api_ue_status = ue_status;
     }
-    virtual void UpdateApi(){
+    void Configure(std::vector<FlowData>& config) override{
+        TrafficObserver::Configure(config);
+        mac_packet_queues.assign(config.size(), {});
+        served_packet_delay_ms.assign(config.size(), {});
+    }
+    void SetSlotDurationMs(double value_ms)
+    {
+        if (value_ms > 0.0) {
+            slot_duration_ms = value_ms;
+        }
+    }
+    virtual void Enqueue(std::vector<FlowData>& data){
+        TrafficObserver::Enqueue(data);
         int max_idx = -1;
         uint32_t max_size = 0;
-        for(int i = 0; i < traffic_flows.size(); i++)
+        for (size_t i = 0; i < traffic_flows.size(); i++)
         {
+            for (const auto& span : data[i].accepted_spans) {
+                if (span.num_bytes > 0) {
+                    mac_packet_queues[i].push_back({static_cast<uint32_t>(span.num_bytes), span.arrival_tti});
+                }
+            }
             auto& idx_buffer_size = api_ue_status->bufferSize[i];
             idx_buffer_size += traffic_flows[i].MoveBytes();
-            NVLOGD_FMT(NVLOG_TRAFFIC, "Flow {} has {} bytes",i,idx_buffer_size);
+            NVLOGD_FMT(NVLOG_TRAFFIC, "Flow {} has {} bytes", i, idx_buffer_size);
   
             if(idx_buffer_size > max_size)
             {
                 max_size = idx_buffer_size;
-                max_idx = i;
+                max_idx = static_cast<int>(i);
             }
         }
+        SyncGpuBuffer();
         NVLOGD_FMT(NVLOG_TRAFFIC, "Largest Flow {} with {} bytes",max_idx,max_size);
     }
-    void Enqueue(std::vector<FlowData>& data){
-        TrafficObserver::Enqueue(data);
-        UpdateApi();
+    void RecordServedBytes(const std::vector<unsigned long long>& served_bytes, int current_tti)
+    {
+        const size_t n = std::min(served_bytes.size(), mac_packet_queues.size());
+        for (size_t i = 0; i < n; ++i) {
+            unsigned long long bytes_left = served_bytes[i];
+            auto& queue = mac_packet_queues[i];
+            while (bytes_left > 0 && !queue.empty()) {
+                auto& pkt = queue.front();
+                const unsigned long long consume =
+                    std::min(bytes_left, static_cast<unsigned long long>(pkt.remaining_bytes));
+                pkt.remaining_bytes -= static_cast<uint32_t>(consume);
+                bytes_left -= consume;
+                if (pkt.remaining_bytes == 0U) {
+                    const int delta_tti = std::max(0, current_tti - pkt.arrival_tti + 1);
+                    served_packet_delay_ms[i].push_back(static_cast<double>(delta_tti) * slot_duration_ms);
+                    queue.pop_front();
+                }
+            }
+        }
+    }
+    void GetPacketDelayStats(PacketDelaySummary& total, std::vector<PacketDelaySummary>& per_flow) const
+    {
+        total = PacketDelaySummary{};
+        per_flow.assign(mac_packet_queues.size(), {});
+        std::vector<double> all_delays;
+        for (size_t i = 0; i < mac_packet_queues.size(); ++i) {
+            auto& summary = per_flow[i];
+            const auto& delays = served_packet_delay_ms[i];
+            summary.served_packets = static_cast<unsigned long long>(delays.size());
+            summary.pending_packets = static_cast<unsigned long long>(mac_packet_queues[i].size());
+            if (!delays.empty()) {
+                double sum = 0.0;
+                for (const double v : delays) {
+                    sum += v;
+                }
+                summary.mean_delay_ms = sum / static_cast<double>(delays.size());
+                summary.p50_delay_ms = percentile_ms(delays, 50.0);
+                summary.p90_delay_ms = percentile_ms(delays, 90.0);
+                summary.p95_delay_ms = percentile_ms(delays, 95.0);
+                summary.max_delay_ms = percentile_ms(delays, 100.0);
+                all_delays.insert(all_delays.end(), delays.begin(), delays.end());
+            }
+            total.served_packets += summary.served_packets;
+            total.pending_packets += summary.pending_packets;
+        }
+        if (!all_delays.empty()) {
+            double sum = 0.0;
+            for (const double v : all_delays) {
+                sum += v;
+            }
+            total.mean_delay_ms = sum / static_cast<double>(all_delays.size());
+            total.p50_delay_ms = percentile_ms(all_delays, 50.0);
+            total.p90_delay_ms = percentile_ms(all_delays, 90.0);
+            total.p95_delay_ms = percentile_ms(all_delays, 95.0);
+            total.max_delay_ms = percentile_ms(all_delays, 100.0);
+        }
     }
 };
 
@@ -231,8 +351,7 @@ public:
 void SetGpuApi(cumac::cumacCellGrpUeStatus* api){
     api_ue_status_gpu = api;
 }
-void UpdateApi(){
-    RadioResource::UpdateApi();
+void SyncGpuBuffer() override{
     CUDA_CHECK_ERR(cudaMemcpy(api_ue_status_gpu->bufferSize, api_ue_status->bufferSize, traffic_flows.size()*sizeof(uint32_t), cudaMemcpyHostToDevice));
 }
 
@@ -279,6 +398,9 @@ public:
             pending_traffic[i].flow_id = i;
             pending_traffic[i].num_bytes = 0;
             pending_traffic[i].last_arrival = 0;
+            pending_traffic[i].arrival_tti = 0;
+            pending_traffic[i].packet_bytes.clear();
+            pending_traffic[i].accepted_spans.clear();
             auto pkt_size = flow_cfgs[i].GetPktSizeParams();
             pkt_size_dist[i] = std::normal_distribution<>(pkt_size.first,pkt_size.second);
             auto arrival = flow_cfgs[i].GetArrivalParams();
@@ -293,20 +415,30 @@ public:
             int num_pkt = 0;
             int num_step_bytes = 0;
             auto& current_flow = pending_traffic[i];
+            current_flow.packet_bytes.clear();
+            current_flow.accepted_spans.clear();
+            const int elapsed = std::max(1, last_tti - current_flow.last_arrival);
             switch (arrival_type[i])
             {
             case Arrival_t::full_buffer:
+                current_flow.packet_bytes.push_back(FlowType::MAX_BYTES);
+                num_pkt = 1;
                 num_step_bytes = FlowType::MAX_BYTES; // Set to arbitrary large number, consider using special condition
                 break;
             case Arrival_t::uniform:
                 {
                     // Determine how many packets need to be enqueued
-                    auto elapsed = last_tti - current_flow.last_arrival;
                     num_pkt = arrival_dist[i].mean()*elapsed;
                 }
                 break;
             case Arrival_t::poisson:
-                num_pkt = arrival_dist[i](gen)*(last_tti - current_flow.last_arrival);
+                {
+                    // Sample arrivals over the whole elapsed window once; multiplying a
+                    // per-TTI Poisson sample by elapsed artificially inflates the mean.
+                    const auto params =
+                        typename std::poisson_distribution<>::param_type(arrival_dist[i].mean() * elapsed);
+                    num_pkt = arrival_dist[i](gen, params);
+                }
                 break;
             default:
                 break;
@@ -317,6 +449,7 @@ public:
                 if (pkt_bytes < 0) {
                     pkt_bytes = 0;
                 }
+                current_flow.packet_bytes.push_back(pkt_bytes);
                 num_step_bytes += pkt_bytes;
             }
             if (num_pkt > 0) {
@@ -326,6 +459,8 @@ public:
                 total_generated_bytes += static_cast<unsigned long long>(num_step_bytes);
             }
             current_flow.num_bytes = num_step_bytes;
+            current_flow.arrival_tti = last_tti;
+            current_flow.last_arrival = last_tti;
         }
     }
     void Seed(int seed){
@@ -337,11 +472,9 @@ public:
             observer->Enqueue(pending_traffic);
         }
         for(auto& flow : pending_traffic){
-            if(flow.num_bytes > 0)
-            {
-                flow.last_arrival = last_tti;
-                flow.num_bytes = 0;
-            }
+            flow.num_bytes = 0;
+            flow.packet_bytes.clear();
+            flow.accepted_spans.clear();
         }
     }
     unsigned long long GetTotalGeneratedBytes() const { return total_generated_bytes; }

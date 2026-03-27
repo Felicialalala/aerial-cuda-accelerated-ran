@@ -91,7 +91,8 @@ private:
 
 typedef struct multiCellRRScheduler*        mcRRSchdHndl_t;
 
+static __global__ void roundRobinSchedulerKernel_type0(rrDynDescr_t* pDynDescr);
 static __global__ void roundRobinSchedulerKernel_type1(rrDynDescr_t* pDynDescr);
 
 static __global__ void roundRobinSchedulerKernel_type1_harq(rrDynDescr_t* pDynDescr);
-}
+} 

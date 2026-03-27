@@ -46,6 +46,10 @@ public:
     {
         generator->Seed(seed);
     }
+    void SetSlotDurationMs(double slot_duration_ms)
+    {
+        radio_rsrc->SetSlotDurationMs(slot_duration_ms);
+    }
     unsigned long long GetTotalGeneratedBytes() const
     {
         return generator->GetTotalGeneratedBytes();
@@ -72,6 +76,15 @@ public:
                          std::vector<unsigned long long>& queued_bytes) const
     {
         radio_rsrc->GetPerFlowStats(generated_bytes, accepted_bytes, dropped_bytes, queued_bytes);
+    }
+    void RecordMacServedBytes(const std::vector<unsigned long long>& served_bytes, int current_tti)
+    {
+        radio_rsrc->RecordServedBytes(served_bytes, current_tti);
+    }
+    void GetPacketDelayStats(PacketDelaySummary& total,
+                             std::vector<PacketDelaySummary>& per_flow) const
+    {
+        radio_rsrc->GetPacketDelayStats(total, per_flow);
     }
 private:
     std::unique_ptr<TrafficGenerator> generator;

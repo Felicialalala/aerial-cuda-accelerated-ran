@@ -95,10 +95,75 @@ namespace cumac {
     enableHarq = cellGrpPrms->harqEnabledInd;
  }
 
- multiCellRRScheduler::~multiCellRRScheduler()
- {
+multiCellRRScheduler::~multiCellRRScheduler()
+{
     CUDA_CHECK_ERR(cudaFree(pGpuDynDesc));
- }
+}
+
+static __global__ void roundRobinSchedulerKernel_type0(rrDynDescr_t* pDynDescr)
+{
+    const uint16_t cIdx = blockIdx.x;
+    const uint16_t cellIdx = pDynDescr->cellId[cIdx];
+
+    __shared__ uint16_t assocUeIdx[maxNumActUePerCell_];
+    __shared__ int numAssocUe;
+
+    for (int eIdx = threadIdx.x; eIdx < maxNumActUePerCell_; eIdx += blockDim.x) {
+        assocUeIdx[eIdx] = 0xFFFF;
+    }
+
+    if (threadIdx.x == 0) {
+        numAssocUe = 0;
+    }
+    __syncthreads();
+
+    for (int ueIdx = threadIdx.x; ueIdx < pDynDescr->nUe; ueIdx += blockDim.x) {
+        if (pDynDescr->cellAssoc[cellIdx*pDynDescr->nUe + ueIdx] == 1) {
+            const int storeIdx = atomicAdd(&numAssocUe, 1);
+            if (storeIdx < maxNumActUePerCell_) {
+                assocUeIdx[storeIdx] = ueIdx;
+            }
+        }
+    }
+    __syncthreads();
+
+    if (numAssocUe <= 0) {
+        return;
+    }
+
+    if (threadIdx.x == 0) {
+        const uint16_t numAllocRbgPerUe = floor(static_cast<float>(pDynDescr->nPrbGrp)/numAssocUe);
+        uint16_t numRemainingRbg = pDynDescr->nPrbGrp - numAllocRbgPerUe*numAssocUe;
+        uint16_t startRbgAlloc = 0;
+
+        for (int tempUeIdx = 0; tempUeIdx < numAssocUe; ++tempUeIdx) {
+            const uint16_t ueIdx = assocUeIdx[tempUeIdx];
+            if (ueIdx == 0xFFFF) {
+                continue;
+            }
+
+            const uint16_t allocLen = numAllocRbgPerUe + (numRemainingRbg > 0 ? 1 : 0);
+            uint16_t endRbgIdx = startRbgAlloc + numAllocRbgPerUe;
+            if (numRemainingRbg > 0) {
+                endRbgIdx += 1;
+                numRemainingRbg--;
+            }
+
+            for (uint16_t rbgIdx = startRbgAlloc; rbgIdx < endRbgIdx; ++rbgIdx) {
+                pDynDescr->allocSol[rbgIdx*pDynDescr->nCell + cIdx] = static_cast<int16_t>(ueIdx);
+            }
+            startRbgAlloc = endRbgIdx;
+
+            if (allocLen > 0) {
+                pDynDescr->prioWeightActUe[pDynDescr->setSchdUePerCellTTI[ueIdx]] = 0;
+            } else {
+                uint32_t tempPrio = pDynDescr->prioWeightActUe[pDynDescr->setSchdUePerCellTTI[ueIdx]] + pDynDescr->prioWeightStep;
+                tempPrio = tempPrio > 0x0000FFFF ? 0x0000FFFF : tempPrio;
+                pDynDescr->prioWeightActUe[pDynDescr->setSchdUePerCellTTI[ueIdx]] = static_cast<uint16_t>(tempPrio);
+            }
+        }
+    }
+}
 
  static __global__ void roundRobinSchedulerKernel_type1(rrDynDescr_t* pDynDescr)
  {
@@ -265,14 +330,15 @@ namespace cumac {
 
  void multiCellRRScheduler::kernelSelect()
  {
-    if (allocType == 0) { // type-0 PRB allocation
-        printf("Error: GPU RR scheduler is only supported for type-1 PRB allocation.\n");
-        return;
-    }
-
     void* kernelFunc;
 
-    if (enableHarq == 1) { // HARQ enabled
+    if (allocType == 0) { // type-0 PRB allocation
+        if (enableHarq == 1) {
+            printf("Error: GPU RR scheduler type-0 does not support HARQ.\n");
+            return;
+        }
+        kernelFunc = reinterpret_cast<void*>(roundRobinSchedulerKernel_type0);
+    } else if (enableHarq == 1) { // HARQ enabled
         kernelFunc = reinterpret_cast<void*>(roundRobinSchedulerKernel_type1_harq);
     } else {
         kernelFunc = reinterpret_cast<void*>(roundRobinSchedulerKernel_type1);

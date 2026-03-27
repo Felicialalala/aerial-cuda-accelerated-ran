@@ -19,7 +19,7 @@ BUILD_METHOD="phase4"   # phase4 | cmake | skip
 RESTORE_PARAMS=0        # 0=keep applied compile-time params, 1=restore on exit
 
 GPU_ID=0
-TTI_COUNT=400
+TTI_COUNT=2000
 DL_UL="dl"
 FADING_MODE=0           # 0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG
 UE_PER_CELL=8
@@ -29,7 +29,8 @@ UE_RADIUS_SPLITS="0.33,0.66"
 UE_STRATA_COUNTS=""
 UE_VORONOI_CLIP=0
 TRAFFIC_PERCENT=100
-TRAFFIC_RATE=5000
+PACKET_SIZE_BYTES=5000
+TRAFFIC_ARRIVAL_RATE=0.2
 CDL_PROFILES="C,D"
 CDL_DELAY_SPREADS_NS="300,1000"
 ALLOW_PROFILE_D=0
@@ -38,6 +39,7 @@ KILL_AFTER_SEC=30
 RUN_TAG=""
 COMPACT_OUTPUT=1        # 1=regular profile, 0=keep full artifacts
 CUSTOM_UE_PRG=0         # 1=use CustomUePrgScheduler for UE+PRG, 0=native
+BASELINE_SCHEDULER="pf" # pf | rr (effective for native path; maps to binary -b)
 CUSTOM_POLICY="gnnrl"   # gnnrl | legacy (effective only when --custom-ue-prg=1)
 MODEL_PATH=""          # used when --custom-policy gnnrl_model
 POLICY_TIMEOUT_MS=0    # policy timeout hint for model runtime (0=disable)
@@ -47,6 +49,9 @@ KPI_TTI_LOG_INTERVAL=100
 COMPARE_TTI_INTERVAL=0  # per-TTI CPU/GPU solution compare interval, 0=disable
 REPLAY_DUMP=0           # 1=export per-TTI RL replay transitions
 REPLAY_DIR=""           # empty means <scenario_out_dir>/replay
+ONLINE_BRIDGE=0         # 1=enable online bridge mode in binary
+ONLINE_SOCKET="/tmp/cumac_stageb_online.sock"
+EXEC_MODE="both"       # both | gpu
 
 usage() {
     cat <<EOF
@@ -69,7 +74,9 @@ Options:
   --ue-strata-counts <a,b,c>  Per-cell UE counts for center/mid/edge; empty means balanced split
   --ue-voronoi-clip <0|1>     1 clips UE samples to serving-cell Voronoi region (default: ${UE_VORONOI_CLIP})
   --traffic-percent <p>       UE traffic percentage [0,100] (default: ${TRAFFIC_PERCENT})
-  --traffic-rate <b>          Traffic packet size in bytes (default: ${TRAFFIC_RATE})
+  --packet-size-bytes <b>     Traffic packet size in bytes (default: ${PACKET_SIZE_BYTES})
+  --traffic-rate <b>          Deprecated alias of --packet-size-bytes
+  --traffic-arrival-rate <r>  Traffic arrival rate in pkt/TTI (default: ${TRAFFIC_ARRIVAL_RATE})
   --cdl-profiles <list>       Comma list, e.g. C,D (default: ${CDL_PROFILES})
   --cdl-delay-spreads <list>  Comma list (ns), aligned with profiles (default: ${CDL_DELAY_SPREADS_NS})
   --allow-profile-d <0|1>     1 to attempt CDL-D. 0 will skip D with note (default: ${ALLOW_PROFILE_D})
@@ -77,6 +84,7 @@ Options:
   --kill-after-sec <sec>      Extra grace period after timeout TERM (default: ${KILL_AFTER_SEC})
   --compact-output <0|1>      1 keeps regular artifacts only (default: ${COMPACT_OUTPUT})
   --custom-ue-prg <0|1>       1 use custom UE+PRG scheduler (default: ${CUSTOM_UE_PRG})
+  --baseline-scheduler <m>    pf | rr for native baseline/reference path (default: ${BASELINE_SCHEDULER})
   --custom-policy <name>      gnnrl | legacy | gnnrl_model (default: ${CUSTOM_POLICY})
   --model-path <path>         ONNX model path for gnnrl_model policy (default: empty)
   --policy-timeout-ms <n>     Model policy timeout hint in ms, 0=disable (default: ${POLICY_TIMEOUT_MS})
@@ -86,6 +94,9 @@ Options:
   --compare-tti <n>           CPU/GPU per-TTI compare interval, 0=disable (default: ${COMPARE_TTI_INTERVAL})
   --replay-dump <0|1>         Export RL replay transitions (default: ${REPLAY_DUMP})
   --replay-dir <path>         Base replay output dir (default: scenario local replay/)
+  --online-bridge <0|1>       Enable online bridge mode (default: ${ONLINE_BRIDGE})
+  --online-socket <path>      Unix socket path for online bridge (default: ${ONLINE_SOCKET})
+  --exec-mode <mode>          both | gpu (default: ${EXEC_MODE})
   --tag <name>                Optional run tag
   --restore-params <0|1>      Restore parameters.h on exit (default: ${RESTORE_PARAMS})
   -h, --help                  Show this help
@@ -115,7 +126,9 @@ while [[ $# -gt 0 ]]; do
         --ue-strata-counts) UE_STRATA_COUNTS="$2"; shift 2 ;;
         --ue-voronoi-clip) UE_VORONOI_CLIP="$2"; shift 2 ;;
         --traffic-percent) TRAFFIC_PERCENT="$2"; shift 2 ;;
-        --traffic-rate) TRAFFIC_RATE="$2"; shift 2 ;;
+        --packet-size-bytes) PACKET_SIZE_BYTES="$2"; shift 2 ;;
+        --traffic-rate) PACKET_SIZE_BYTES="$2"; shift 2 ;;
+        --traffic-arrival-rate) TRAFFIC_ARRIVAL_RATE="$2"; shift 2 ;;
         --cdl-profiles) CDL_PROFILES="$2"; shift 2 ;;
         --cdl-delay-spreads) CDL_DELAY_SPREADS_NS="$2"; shift 2 ;;
         --allow-profile-d) ALLOW_PROFILE_D="$2"; shift 2 ;;
@@ -123,6 +136,7 @@ while [[ $# -gt 0 ]]; do
         --kill-after-sec) KILL_AFTER_SEC="$2"; shift 2 ;;
         --compact-output) COMPACT_OUTPUT="$2"; shift 2 ;;
         --custom-ue-prg) CUSTOM_UE_PRG="$2"; shift 2 ;;
+        --baseline-scheduler) BASELINE_SCHEDULER="$2"; shift 2 ;;
         --custom-policy) CUSTOM_POLICY="$2"; shift 2 ;;
         --model-path) MODEL_PATH="$2"; shift 2 ;;
         --policy-timeout-ms) POLICY_TIMEOUT_MS="$2"; shift 2 ;;
@@ -132,6 +146,9 @@ while [[ $# -gt 0 ]]; do
         --compare-tti) COMPARE_TTI_INTERVAL="$2"; shift 2 ;;
         --replay-dump) REPLAY_DUMP="$2"; shift 2 ;;
         --replay-dir) REPLAY_DIR="$2"; shift 2 ;;
+        --online-bridge) ONLINE_BRIDGE="$2"; shift 2 ;;
+        --online-socket) ONLINE_SOCKET="$2"; shift 2 ;;
+        --exec-mode) EXEC_MODE="$2"; shift 2 ;;
         --tag) RUN_TAG="$2"; shift 2 ;;
         --restore-params) RESTORE_PARAMS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -212,6 +229,11 @@ if ! [[ "${CUSTOM_UE_PRG}" =~ ^[01]$ ]]; then
     echo "--custom-ue-prg must be 0 or 1" >&2
     exit 1
 fi
+BASELINE_SCHEDULER="$(echo "${BASELINE_SCHEDULER}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "rr" ]]; then
+    echo "--baseline-scheduler must be pf or rr" >&2
+    exit 1
+fi
 CUSTOM_POLICY="$(echo "${CUSTOM_POLICY}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${CUSTOM_POLICY}" != "gnnrl" && "${CUSTOM_POLICY}" != "legacy" && "${CUSTOM_POLICY}" != "gnnrl_model" ]]; then
     echo "--custom-policy must be gnnrl, legacy, or gnnrl_model" >&2
@@ -256,6 +278,19 @@ if ! [[ "${REPLAY_DUMP}" =~ ^[01]$ ]]; then
     echo "--replay-dump must be 0 or 1" >&2
     exit 1
 fi
+if ! [[ "${ONLINE_BRIDGE}" =~ ^[01]$ ]]; then
+    echo "--online-bridge must be 0 or 1" >&2
+    exit 1
+fi
+if [[ -z "${ONLINE_SOCKET}" ]]; then
+    echo "--online-socket cannot be empty" >&2
+    exit 1
+fi
+EXEC_MODE="$(echo "${EXEC_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${EXEC_MODE}" != "both" && "${EXEC_MODE}" != "gpu" ]]; then
+    echo "--exec-mode must be both or gpu" >&2
+    exit 1
+fi
 if ! [[ "${RESTORE_PARAMS}" =~ ^[01]$ ]]; then
     echo "--restore-params must be 0 or 1" >&2
     exit 1
@@ -268,8 +303,12 @@ awk "BEGIN {exit !(${TRAFFIC_PERCENT} >= 0 && ${TRAFFIC_PERCENT} <= 100)}" || {
     echo "--traffic-percent must be within [0,100]" >&2
     exit 1
 }
-if ! [[ "${TRAFFIC_RATE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    echo "--traffic-rate must be a positive number" >&2
+if ! [[ "${PACKET_SIZE_BYTES}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--packet-size-bytes must be a positive number" >&2
+    exit 1
+fi
+if ! [[ "${TRAFFIC_ARRIVAL_RATE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--traffic-arrival-rate must be a non-negative number" >&2
     exit 1
 fi
 
@@ -299,6 +338,9 @@ fi
 
 if [[ -n "${REPLAY_DIR}" && "${REPLAY_DIR}" != /* ]]; then
     REPLAY_DIR="${ROOT_DIR}/${REPLAY_DIR}"
+fi
+if [[ "${ONLINE_SOCKET}" != /* ]]; then
+    ONLINE_SOCKET="${ROOT_DIR}/${ONLINE_SOCKET}"
 fi
 
 PARAM_BAK="$(mktemp)"
@@ -446,6 +488,9 @@ scenario_completed_all_tti() {
     local completed_idx
     local final_idx=$((TTI_COUNT - 1))
     if [[ "${TTI_COUNT}" -gt 0 ]] && log_search_quiet "TTI_PROGRESS ${final_idx}/${final_idx}" "${log_file}"; then
+        return 0
+    fi
+    if log_search_quiet "^TRAFFIC_KPI flows=" "${log_file}" && log_search_quiet "^UE_KPI_HEADER " "${log_file}"; then
         return 0
     fi
     completed_idx="$(sed -n 's/.*TTI_PROGRESS \([0-9][0-9]*\)\/\([0-9][0-9]*\).*/\1 \2/p' "${log_file}" | awk '$1==$2{print $1}' | tail -n 1)"
@@ -628,6 +673,26 @@ EOF
 EOF
             exit 1
         fi
+        if [[ "${ONLINE_BRIDGE}" == "1" && -f "${BIN}" ]] && \
+           ([[ -f "${MAIN_SRC}" && "${MAIN_SRC}" -nt "${BIN}" ]]); then
+            cat >&2 <<EOF
+[Stage-B] ERROR: --online-bridge=1 requested, but binary is older than online bridge sources.
+[Stage-B] Rebuild first, for example:
+[Stage-B]   ./cuMAC/scripts/run_stageB_main_experiment.sh --build-method cmake --online-bridge 1 ...
+[Stage-B] or use --build-method phase4 inside container.
+EOF
+            exit 1
+        fi
+        if [[ "${EXEC_MODE}" == "gpu" && -f "${BIN}" ]] && \
+           ([[ -f "${MAIN_SRC}" && "${MAIN_SRC}" -nt "${BIN}" ]]); then
+            cat >&2 <<EOF
+[Stage-B] ERROR: --exec-mode=gpu requested, but binary is older than main experiment sources.
+[Stage-B] Rebuild first, for example:
+[Stage-B]   ./cuMAC/scripts/run_stageB_main_experiment.sh --build-method cmake --exec-mode gpu ...
+[Stage-B] or use --build-method phase4 inside container.
+EOF
+            exit 1
+        fi
         ;;
 esac
 
@@ -639,6 +704,11 @@ fi
 DL_IND=1
 if [[ "${DL_UL}" == "ul" ]]; then
     DL_IND=0
+fi
+
+BASELINE_IND=0
+if [[ "${BASELINE_SCHEDULER}" == "rr" ]]; then
+    BASELINE_IND=1
 fi
 
 TS="$(date +%Y%m%d_%H%M%S)"
@@ -714,7 +784,13 @@ for i in "${!PROFILE_ARR[@]}"; do
     fi
 
     echo "[Stage-B] Running ${SCENARIO}"
-    echo "  cmd=${BIN} -d ${DL_IND} -b 0 -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${TRAFFIC_RATE}"
+    echo "  baseline_scheduler=${BASELINE_SCHEDULER}"
+    if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
+        echo "  note=baseline scheduler selection is ignored by custom UE+PRG mode"
+    fi
+    echo "  traffic_packet_bytes=${PACKET_SIZE_BYTES}"
+    echo "  traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE}"
+    echo "  cmd=${BIN} -d ${DL_IND} -b ${BASELINE_IND} -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${PACKET_SIZE_BYTES}"
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  custom_policy=${CUSTOM_POLICY}"
         if [[ "${CUSTOM_POLICY}" == "gnnrl_model" ]]; then
@@ -725,6 +801,10 @@ for i in "${!PROFILE_ARR[@]}"; do
     if [[ "${REPLAY_DUMP}" == "1" ]]; then
         echo "  replay_dump=1 replay_dir=${SCENARIO_REPLAY_DIR}"
     fi
+    if [[ "${ONLINE_BRIDGE}" == "1" ]]; then
+        echo "  online_bridge=1 online_socket=${ONLINE_SOCKET}"
+    fi
+    echo "  exec_mode=${EXEC_MODE}"
     if [[ "${RUN_TIMEOUT_SEC}" -gt 0 ]]; then
         echo "  timeout=${RUN_TIMEOUT_SEC}s"
     fi
@@ -747,14 +827,18 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_PROGRESS_TTI_INTERVAL="${PROGRESS_TTI_INTERVAL}"
         export CUMAC_TTI_KPI_LOG_INTERVAL="${KPI_TTI_LOG_INTERVAL}"
         export CUMAC_COMPARE_TTI_INTERVAL="${COMPARE_TTI_INTERVAL}"
+        export CUMAC_TRAFFIC_ARRIVAL_RATE="${TRAFFIC_ARRIVAL_RATE}"
         export CUMAC_CUSTOM_POLICY="${CUSTOM_POLICY}"
         export CUMAC_GNNRL_MODEL_PATH="${MODEL_PATH}"
         export CUMAC_POLICY_TIMEOUT_MS="${POLICY_TIMEOUT_MS}"
         export CUMAC_RL_REPLAY_DUMP="${REPLAY_DUMP}"
         export CUMAC_RL_REPLAY_DIR="${SCENARIO_REPLAY_DIR}"
         export CUMAC_RL_REPLAY_SCENARIO="${SCENARIO}"
+        export CUMAC_ONLINE_BRIDGE="${ONLINE_BRIDGE}"
+        export CUMAC_ONLINE_SOCKET="${ONLINE_SOCKET}"
+        export CUMAC_EXEC_MODE="${EXEC_MODE}"
         cd "${OUT_DIR}"
-        RUNNER=("${BIN}" -d "${DL_IND}" -b 0 -f "${FADING_MODE}" -x "${CUSTOM_UE_PRG}" -g "${TRAFFIC_PERCENT}" -r "${TRAFFIC_RATE}")
+        RUNNER=("${BIN}" -d "${DL_IND}" -b "${BASELINE_IND}" -f "${FADING_MODE}" -x "${CUSTOM_UE_PRG}" -g "${TRAFFIC_PERCENT}" -r "${PACKET_SIZE_BYTES}")
         if command -v stdbuf >/dev/null 2>&1; then
             RUNNER=(stdbuf -oL -eL "${RUNNER[@]}")
         fi
@@ -778,7 +862,8 @@ for i in "${!PROFILE_ARR[@]}"; do
                     --output-dir "${OUT_DIR}" \
                     --slot-duration-ms 0.5 \
                     --traffic-percent "${TRAFFIC_PERCENT}" \
-                    --traffic-rate "${TRAFFIC_RATE}"
+                    --packet-size-bytes "${PACKET_SIZE_BYTES}" \
+                    --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}"
             fi
             if [[ "${COMPACT_OUTPUT}" == "1" ]]; then
                 compact_pass_outputs "${OUT_DIR}"
@@ -798,7 +883,8 @@ for i in "${!PROFILE_ARR[@]}"; do
             --output-dir "${OUT_DIR}" \
             --slot-duration-ms 0.5 \
             --traffic-percent "${TRAFFIC_PERCENT}" \
-            --traffic-rate "${TRAFFIC_RATE}"
+            --packet-size-bytes "${PACKET_SIZE_BYTES}" \
+            --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}"
     fi
 
     if [[ "${COMPACT_OUTPUT}" == "1" ]]; then
