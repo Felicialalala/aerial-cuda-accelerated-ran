@@ -19,6 +19,7 @@ if __package__ is None or __package__ == "":
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from training.gnnrl.action_modes import ACTION_MODE_JOINT, is_prg_only_type0, normalize_action_mode
 from training.gnnrl.dataset import IGNORE_INDEX, ReplayBinaryDataset
 from training.gnnrl.masks import apply_prg_action_mask, apply_ue_action_mask, sanitize_targets
 from training.gnnrl.model import ModelConfig, StageBGnnPolicy, build_model_from_config
@@ -190,17 +191,10 @@ def _action_logp_entropy(
     batch: Dict[str, torch.Tensor],
     n_cell: int,
     n_prg: int,
+    action_mode: str,
 ) -> Dict[str, torch.Tensor]:
-    ue_logits, ue_valid = apply_ue_action_mask(
-        actor_out["ue_logits"],
-        batch["action_mask_ue"],
-        n_cell=n_cell,
-        action_mask_cell_ue=batch.get("action_mask_cell_ue"),
-    )
     prg_logits, prg_valid = apply_prg_action_mask(actor_out["prg_logits"], batch["action_mask_prg_cell"], n_cell=n_cell)
 
-    ue_target, ue_bad = sanitize_targets(batch["target_ue_class"], ue_valid, ignore_index=IGNORE_INDEX)
-    # replay allocSol layout is [prg, cell] (index = prgIdx * nCell + cIdx)
     prg_target = (
         batch["target_prg_class"]
         .view(batch["target_prg_class"].shape[0], n_prg, n_cell)
@@ -208,9 +202,28 @@ def _action_logp_entropy(
         .contiguous()
     )
     prg_target, prg_bad = sanitize_targets(prg_target, prg_valid, ignore_index=IGNORE_INDEX)
-
-    ue_logp, ue_entropy, ue_valid_ratio = _reduce_multi_categorical(ue_logits, ue_target)
     prg_logp, prg_entropy, prg_valid_ratio = _reduce_multi_categorical(prg_logits, prg_target)
+
+    if is_prg_only_type0(action_mode):
+        ones = torch.ones_like(prg_logp)
+        zeros = torch.zeros_like(prg_logp)
+        return {
+            "logp": prg_logp,
+            "entropy": prg_entropy,
+            "ue_valid_ratio": ones,
+            "prg_valid_ratio": prg_valid_ratio,
+            "ue_bad_ratio": zeros,
+            "prg_bad_ratio": prg_bad.float().reshape(prg_bad.shape[0], -1).mean(dim=-1),
+        }
+
+    ue_logits, ue_valid = apply_ue_action_mask(
+        actor_out["ue_logits"],
+        batch["action_mask_ue"],
+        n_cell=n_cell,
+        action_mask_cell_ue=batch.get("action_mask_cell_ue"),
+    )
+    ue_target, ue_bad = sanitize_targets(batch["target_ue_class"], ue_valid, ignore_index=IGNORE_INDEX)
+    ue_logp, ue_entropy, ue_valid_ratio = _reduce_multi_categorical(ue_logits, ue_target)
 
     return {
         "logp": ue_logp + prg_logp,
@@ -292,7 +305,13 @@ def _collect_rollout(
                 obs_edge_index=batch["obs_edge_index"],
                 obs_edge_attr=batch["obs_edge_attr"],
             )
-            act_stat = _action_logp_entropy(actor_out, batch, n_cell=dataset.dims.n_cell, n_prg=dataset.dims.n_prg)
+            act_stat = _action_logp_entropy(
+                actor_out,
+                batch,
+                n_cell=dataset.dims.n_cell,
+                n_prg=dataset.dims.n_prg,
+                action_mode=actor.action_mode,
+            )
 
             v = critic(_state_vector(batch, state_mean=state_mean, state_std=state_std))
             nv = critic(_next_state_vector(batch, state_mean=state_mean, state_std=state_std))
@@ -405,6 +424,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--value-huber-beta", type=float, default=10.0)
     p.add_argument("--hidden-dim", type=int, default=128)
     p.add_argument("--num-cell-msg-layers", type=int, default=2)
+    p.add_argument("--action-mode", default="", help="Override action mode: joint | prg_only_type0")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     return p.parse_args()
@@ -427,12 +447,16 @@ def main() -> int:
             f"M2 currently expects n_tot_cell == n_cell, got {dims.n_tot_cell} vs {dims.n_cell}"
         )
 
+    requested_action_mode = normalize_action_mode(args.action_mode) if args.action_mode else ""
     if args.init_policy_checkpoint:
         ckpt = torch.load(args.init_policy_checkpoint, map_location="cpu")
-        actor = build_model_from_config(ckpt["model_config"])  # validates cfg compatibility implicitly via forward shapes
+        cfg_dict = dict(ckpt["model_config"])
+        cfg_dict["action_mode"] = requested_action_mode or normalize_action_mode(cfg_dict.get("action_mode", ACTION_MODE_JOINT))
+        actor = build_model_from_config(cfg_dict)  # validates cfg compatibility implicitly via forward shapes
         actor.load_state_dict(ckpt["model_state_dict"], strict=True)
-        cfg_dict = ckpt["model_config"]
+        args.action_mode = cfg_dict["action_mode"]
     else:
+        args.action_mode = requested_action_mode or ACTION_MODE_JOINT
         cfg = ModelConfig(
             n_cell=dims.n_cell,
             n_active_ue=dims.n_active_ue,
@@ -443,6 +467,7 @@ def main() -> int:
             edge_feat_dim=feat.edge,
             hidden_dim=args.hidden_dim,
             num_cell_msg_layers=args.num_cell_msg_layers,
+            action_mode=args.action_mode,
         )
         actor = StageBGnnPolicy(cfg)
         cfg_dict = actor.model_config_dict()
@@ -521,7 +546,13 @@ def main() -> int:
                     obs_edge_index=mb["obs_edge_index"],
                     obs_edge_attr=mb["obs_edge_attr"],
                 )
-                act_stat = _action_logp_entropy(out, mb, n_cell=dims.n_cell, n_prg=dims.n_prg)
+                act_stat = _action_logp_entropy(
+                    out,
+                    mb,
+                    n_cell=dims.n_cell,
+                    n_prg=dims.n_prg,
+                    action_mode=args.action_mode,
+                )
                 new_logp = act_stat["logp"]
                 entropy = act_stat["entropy"]
 

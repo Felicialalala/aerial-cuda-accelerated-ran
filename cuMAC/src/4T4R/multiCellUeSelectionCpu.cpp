@@ -20,6 +20,30 @@
 // cuMAC namespace
 namespace cumac {
 
+namespace {
+
+float queueAwarePfWeight(const mcUeSelDynDescrCpu_t* pCpuDynDesc, uint16_t actUeId)
+{
+    if (pCpuDynDesc->pfQueueBufferCoeff <= 0.0f || pCpuDynDesc->bufferSize == nullptr ||
+        actUeId >= pCpuDynDesc->nActiveUe) {
+        return 1.0f;
+    }
+
+    const float scaleBytes = pCpuDynDesc->pfQueueBufferScaleBytes > 0.0f
+                                 ? pCpuDynDesc->pfQueueBufferScaleBytes
+                                 : 1.0f;
+    const float normalizedBuffer = static_cast<float>(pCpuDynDesc->bufferSize[actUeId]) / scaleBytes;
+    return 1.0f + pCpuDynDesc->pfQueueBufferCoeff * std::log2(1.0f + normalizedBuffer);
+}
+
+float computePfMetric(const mcUeSelDynDescrCpu_t* pCpuDynDesc, float dataRate, uint16_t actUeId)
+{
+    const float pfMetric = std::pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRatesActUe[actUeId];
+    return pfMetric * queueAwarePfWeight(pCpuDynDesc, actUeId);
+}
+
+} // namespace
+
 multiCellUeSelectionCpu::multiCellUeSelectionCpu(cumacCellGrpPrms* cellGrpPrms)
 {
     pCpuDynDesc = std::make_unique<mcUeSelDynDescrCpu_t>();
@@ -49,7 +73,7 @@ void multiCellUeSelectionCpu::multiCellUeSelCpu()
                         dataRate += pCpuDynDesc->W*log2(1.0 + pCpuDynDesc->wbSinr[uIdx*pCpuDynDesc->nUeAnt + j]);
                     }
                     float dataRateF = static_cast<float>(dataRate);
-                    pfTemp.first = pow(dataRateF, pCpuDynDesc->betaCoeff)/pCpuDynDesc->avgRatesActUe[uIdx];
+                    pfTemp.first = computePfMetric(pCpuDynDesc.get(), dataRateF, uIdx);
                     pfTemp.second = uIdx;
 
                     pf.push_back(pfTemp);
@@ -105,7 +129,7 @@ void multiCellUeSelectionCpu::multiCellUeSelCpu_hetero()
                         dataRate += pCpuDynDesc->W*log2(1.0 + pCpuDynDesc->wbSinr[uIdx*pCpuDynDesc->nUeAnt + j]);
                     }
                     float dataRateF = static_cast<float>(dataRate);
-                    pfTemp.first = pow(dataRateF, pCpuDynDesc->betaCoeff)/pCpuDynDesc->avgRatesActUe[uIdx];
+                    pfTemp.first = computePfMetric(pCpuDynDesc.get(), dataRateF, uIdx);
                     pfTemp.second = uIdx;
 
                     pf.push_back(pfTemp);
@@ -164,6 +188,8 @@ void multiCellUeSelectionCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pCpuDynDesc->nUeAnt                 = cellGrpPrms->nUeAnt;
     pCpuDynDesc->W                      = cellGrpPrms->W;
     pCpuDynDesc->betaCoeff              = cellGrpPrms->betaCoeff;
+    pCpuDynDesc->pfQueueBufferCoeff     = cellGrpPrms->pfQueueBufferCoeff;
+    pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
 
     if (cellGrpPrms->numUeSchdPerCellTTIArr) { // heterogeneous UE selection across cells
         heteroUeSelCells = 1;

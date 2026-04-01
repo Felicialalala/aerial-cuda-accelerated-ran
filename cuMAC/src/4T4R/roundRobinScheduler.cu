@@ -370,6 +370,13 @@ void multiCellRRScheduler::setup(cumacCellGrpUeStatus*     cellGrpUeStatus,
                                  cumacCellGrpPrms*         cellGrpPrms,
                                  cudaStream_t              strm)
 {
+    if (cellGrpPrms->allocType == 0) {
+        const size_t allocBytes = static_cast<size_t>(cellGrpPrms->nCell) *
+                                  static_cast<size_t>(cellGrpPrms->nPrbGrp) *
+                                  sizeof(int16_t);
+        CUDA_CHECK_ERR(cudaMemsetAsync(schdSol->allocSol, 0xFF, allocBytes, strm));
+    }
+
     pCpuDynDesc->cellId                 = cellGrpPrms->cellId;
     pCpuDynDesc->allocSol               = schdSol->allocSol;
     pCpuDynDesc->cellAssoc              = cellGrpPrms->cellAssoc;

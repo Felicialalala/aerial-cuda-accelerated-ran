@@ -219,9 +219,9 @@ void OnlineFeatureCodec::buildActionMask(const cumacCellGrpUeStatus* cellGrpUeSt
                 continue;
             }
             hasAssoc = true;
-            if (hasBuffer) {
-                cellUeMask[cIdx * m_nActiveUe + ueIdx] = 1U;
-            }
+            // Keep cellUeMask as pure association so PRG-only Type-0 mode can
+            // reconstruct the native "all active UE slots" baseline exactly.
+            cellUeMask[cIdx * m_nActiveUe + ueIdx] = 1U;
         }
         ueMask[ueIdx] = (hasAssoc && hasBuffer) ? 1U : 0U;
     }

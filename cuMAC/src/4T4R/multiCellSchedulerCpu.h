@@ -34,6 +34,7 @@ typedef struct mcDynDescrCpu {
     cuComplex*  estH_fr; 
     cuComplex*  prdMat;
     float*      avgRates;
+    uint32_t*   bufferSize;
     float*      sinVal; // singular values associated with each precoder matrix, per cell-UE link, per PRG, per layer (maximum number of layers is equal to the number of UE antennas) for the selected/scheduled UEs 
     float*      postEqSinr; // global post-eq SINR array
     uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
@@ -50,6 +51,8 @@ typedef struct mcDynDescrCpu {
     float       W;
     float       sigmaSqrd; // noise variance if channel is not normalized; 1/SNR if channel is normalized with transmit power, limitation: SNR (per antenna) should be <= 111 dB
     float       betaCoeff; // coefficient for improving cell edge UEs' performance in multi-cell scheduling
+    float       pfQueueBufferCoeff; // coefficient for queue-aware PF weighting
+    float       pfQueueBufferScaleBytes; // normalization scale in bytes for queue-aware PF weighting
 } mcDynDescrCpu_t;
 
 class multiCellSchedulerCpu {

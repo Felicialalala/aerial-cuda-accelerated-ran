@@ -16,9 +16,82 @@
  */
 
 #include "cumac.h"
+#include <cstdlib>
 
 // cuMAC namespace
 namespace cumac {
+
+namespace {
+
+constexpr const char* kEffectiveLayersEnv = "CUMAC_EFFECTIVE_LAYERS";
+
+uint8_t resolveEffectiveLayerCap(const uint8_t maxSupportedLayers)
+{
+    struct ParsedConfig {
+        bool initialized = false;
+        bool hasEnv = false;
+        bool invalid = false;
+        bool warningPrinted = false;
+        long parsed = 0;
+        char raw[32] = {0};
+    };
+
+    static ParsedConfig cfg;
+    if (!cfg.initialized) {
+        cfg.initialized = true;
+        const char* env = std::getenv(kEffectiveLayersEnv);
+        if (env != nullptr && env[0] != '\0') {
+            cfg.hasEnv = true;
+            std::snprintf(cfg.raw, sizeof(cfg.raw), "%s", env);
+            char* end = nullptr;
+            cfg.parsed = std::strtol(env, &end, 10);
+            cfg.invalid = (end == env || (end != nullptr && *end != '\0') || cfg.parsed < 0);
+        }
+    }
+
+    if (!cfg.hasEnv) {
+        return maxSupportedLayers;
+    }
+
+    if (cfg.invalid) {
+        if (!cfg.warningPrinted) {
+            printf("WARNING: invalid %s=%s, fallback to adaptive max=%u\n",
+                   kEffectiveLayersEnv,
+                   cfg.raw,
+                   static_cast<unsigned>(maxSupportedLayers));
+            cfg.warningPrinted = true;
+        }
+        return maxSupportedLayers;
+    }
+
+    if (cfg.parsed == 0) {
+        return maxSupportedLayers;
+    }
+
+    if (cfg.parsed > maxSupportedLayers) {
+        if (!cfg.warningPrinted) {
+            printf("WARNING: %s=%ld exceeds supported max=%u, clamp to %u\n",
+                   kEffectiveLayersEnv,
+                   cfg.parsed,
+                   static_cast<unsigned>(maxSupportedLayers),
+                   static_cast<unsigned>(maxSupportedLayers));
+            cfg.warningPrinted = true;
+        }
+        return maxSupportedLayers;
+    }
+
+    return static_cast<uint8_t>(cfg.parsed);
+}
+
+inline uint8_t clampSelectedLayers(uint8_t layers, uint8_t maxEffectiveLayers)
+{
+    if (layers == 0xFF) {
+        return 0xFF;
+    }
+    return layers > maxEffectiveLayers ? maxEffectiveLayers : layers;
+}
+
+} // namespace
 
 multiCellLayerSelCpu::multiCellLayerSelCpu(cumacCellGrpPrms* cellGrpPrms)
 {
@@ -54,6 +127,7 @@ void multiCellLayerSelCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pDynDescr->nCell                  = cellGrpPrms->nCell;
     pDynDescr->totNumCell             = cellGrpPrms->totNumCell;
     pDynDescr->nUeAnt                 = cellGrpPrms->nUeAnt;
+    pDynDescr->maxEffectiveLayers     = resolveEffectiveLayerCap(cellGrpPrms->nUeAnt);
     pDynDescr->sinValThr              = cellGrpPrms->sinValThr;
     allocType                         = cellGrpPrms->allocType;
     precodingScheme                   = cellGrpPrms->precodingScheme;
@@ -180,7 +254,7 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type0()
          }
       }
 
-      pDynDescr->layerSelSol[uIdx] = numLayers;
+      pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers, pDynDescr->maxEffectiveLayers);
    }
 }
 
@@ -219,7 +293,9 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1()
       }
 
       if (numAllocPrg > 0) {
-         pDynDescr->layerSelSol[uIdx] = floor(static_cast<float>(numLayers)/numAllocPrg);
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(
+             static_cast<uint8_t>(floor(static_cast<float>(numLayers)/numAllocPrg)),
+             pDynDescr->maxEffectiveLayers);
       } else {
          pDynDescr->layerSelSol[uIdx] = 0xFF;
       }
@@ -285,7 +361,7 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_cfr()
          }
       }
 
-      pDynDescr->layerSelSol[uIdx] = numLayers;
+      pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers, pDynDescr->maxEffectiveLayers);
    }
 }
 
@@ -300,7 +376,8 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_harq()
       }
 
       if (pDynDescr->newDataActUe[globalUidx] != 1) { // NOT scheduled for new transmission
-         pDynDescr->layerSelSol[uIdx] = pDynDescr->layerSelSolLastTx[uIdx];
+         pDynDescr->layerSelSol[uIdx] =
+             clampSelectedLayers(pDynDescr->layerSelSolLastTx[uIdx], pDynDescr->maxEffectiveLayers);
       } else {
          uint16_t numLayers = 0;
 
@@ -326,7 +403,9 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_harq()
             }
          }
          if (numAllocPrg > 0) {
-            pDynDescr->layerSelSol[uIdx] = floor(static_cast<float>(numLayers)/numAllocPrg);
+            pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(
+                static_cast<uint8_t>(floor(static_cast<float>(numLayers)/numAllocPrg)),
+                pDynDescr->maxEffectiveLayers);
          } else {
             pDynDescr->layerSelSol[uIdx] = 0xFF;
          }
@@ -348,7 +427,8 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_cfr_harq()
       }
 
       if (pDynDescr->newDataActUe[globalUidx] != 1) { // NOT scheduled for new transmission
-         pDynDescr->layerSelSol[uIdx] = pDynDescr->layerSelSolLastTx[uIdx];
+         pDynDescr->layerSelSol[uIdx] =
+             clampSelectedLayers(pDynDescr->layerSelSolLastTx[uIdx], pDynDescr->maxEffectiveLayers);
       } else {
          uint8_t cIdx = 0;
          bool assocCellFound = false;
@@ -396,7 +476,7 @@ void multiCellLayerSelCpu::mcLayerSelKernel_type1_cfr_harq()
             }
          }
 
-         pDynDescr->layerSelSol[uIdx] = numLayers;
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers, pDynDescr->maxEffectiveLayers);
       }
    }
 }

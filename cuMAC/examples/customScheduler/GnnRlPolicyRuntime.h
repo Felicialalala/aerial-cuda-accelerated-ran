@@ -17,9 +17,15 @@ namespace cumac {
 
 class GnnRlPolicyRuntime {
 public:
+    enum class ActionMode : uint8_t {
+        Joint = 0,
+        PrgOnlyType0 = 1,
+    };
+
     struct Config {
         std::string modelPath;
         int timeoutMs = 0;
+        ActionMode actionMode = ActionMode::Joint;
         // Subtracted from NO_UE class logit during decode (positive encourages scheduling).
         float noUeBias = 0.0f;
         // Minimum per-cell scheduled-slot ratio to enforce after argmax decode.
@@ -86,6 +92,8 @@ private:
                           const cumacCellGrpPrms* cellGrpPrmsCpu);
     void buildActionMask(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                          const cumacCellGrpPrms* cellGrpPrmsCpu);
+    void populateType0AllUeSelection(const cumacCellGrpPrms* cellGrpPrmsCpu,
+                                     cumacSchdSol* schdSolCpu) const;
     bool decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
                      cumacSchdSol* schdSolCpu) const;
 

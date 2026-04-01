@@ -25,6 +25,11 @@ float clampMin(float v, float lo)
     return std::max(v, lo);
 }
 
+const char* actionModeToString(const GnnRlPolicyRuntime::ActionMode mode)
+{
+    return mode == GnnRlPolicyRuntime::ActionMode::PrgOnlyType0 ? "prg_only_type0" : "joint";
+}
+
 } // namespace
 
 GnnRlPolicyRuntime::GnnRlPolicyRuntime(const Config& cfg) : m_cfg(cfg)
@@ -110,6 +115,7 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
               << " nSchedUe=" << m_nSchedUe
               << " nPrbGrp=" << m_nPrbGrp
               << " numUeSchdPerCellTTI=" << m_numUeSchdPerCellTTI
+              << " actionMode=" << actionModeToString(m_cfg.actionMode)
               << " noUeBias=" << m_cfg.noUeBias
               << " minSchedRatio=" << m_cfg.minSchedRatio
               << " noPrgBias=" << m_cfg.noPrgBias
@@ -388,6 +394,32 @@ bool GnnRlPolicyRuntime::buildAndRunModel(cudaStream_t stream)
     return true;
 }
 
+void GnnRlPolicyRuntime::populateType0AllUeSelection(const cumacCellGrpPrms* cellGrpPrmsCpu,
+                                                     cumacSchdSol* schdSolCpu) const
+{
+    if (cellGrpPrmsCpu == nullptr || schdSolCpu == nullptr || schdSolCpu->setSchdUePerCellTTI == nullptr) {
+        return;
+    }
+
+    for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
+        uint32_t localSlot = 0U;
+        for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
+            if (!assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
+                continue;
+            }
+            if (localSlot >= m_numUeSchdPerCellTTI) {
+                break;
+            }
+            const uint32_t schedSlot = cIdx * m_numUeSchdPerCellTTI + localSlot;
+            if (schedSlot >= m_nSchedUe) {
+                break;
+            }
+            schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(ueIdx);
+            localSlot += 1U;
+        }
+    }
+}
+
 bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
                                      cumacSchdSol* schdSolCpu) const
 {
@@ -398,59 +430,31 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
     std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + m_nSchedUe, 0xFFFF);
     std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (m_totNumCell * m_nPrbGrp), static_cast<int16_t>(-1));
 
-    const uint32_t ueNoClass = m_nActiveUe;
-    const uint32_t ueClassCount = m_nActiveUe + 1U;
+    if (m_cfg.actionMode == ActionMode::PrgOnlyType0) {
+        populateType0AllUeSelection(cellGrpPrmsCpu, schdSolCpu);
+    } else {
+        const uint32_t ueNoClass = m_nActiveUe;
+        const uint32_t ueClassCount = m_nActiveUe + 1U;
 
-    for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
-        // In custom pipeline, per-cell slot hints may be stale/under-estimated.
-        // Use the configured per-cell slot budget as the primary limit.
-        const uint32_t numCellSched = m_numUeSchdPerCellTTI;
-        std::vector<uint8_t> usedUe(m_nActiveUe, 0U);
-        std::vector<uint32_t> unscheduledSlots;
-        unscheduledSlots.reserve(numCellSched);
-        uint32_t scheduledCnt = 0U;
+        for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
+            // In custom pipeline, per-cell slot hints may be stale/under-estimated.
+            // Use the configured per-cell slot budget as the primary limit.
+            const uint32_t numCellSched = m_numUeSchdPerCellTTI;
+            std::vector<uint8_t> usedUe(m_nActiveUe, 0U);
+            std::vector<uint32_t> unscheduledSlots;
+            unscheduledSlots.reserve(numCellSched);
+            uint32_t scheduledCnt = 0U;
 
-        for (uint32_t localIdx = 0; localIdx < m_numUeSchdPerCellTTI; ++localIdx) {
-            const uint32_t schedSlot = cIdx * m_numUeSchdPerCellTTI + localIdx;
-            if (localIdx >= numCellSched || schedSlot >= m_nSchedUe) {
-                continue;
-            }
-
-            const size_t base = static_cast<size_t>(schedSlot) * ueClassCount;
-            uint32_t bestClass = ueNoClass;
-            float bestScore = m_ueLogitsHost[base + ueNoClass] - m_cfg.noUeBias;
-
-            for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
-                if (m_ueMaskHost[ueIdx] == 0U || usedUe[ueIdx] != 0U || !assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
+            for (uint32_t localIdx = 0; localIdx < m_numUeSchdPerCellTTI; ++localIdx) {
+                const uint32_t schedSlot = cIdx * m_numUeSchdPerCellTTI + localIdx;
+                if (localIdx >= numCellSched || schedSlot >= m_nSchedUe) {
                     continue;
                 }
-                const float s = m_ueLogitsHost[base + ueIdx];
-                if (s > bestScore) {
-                    bestScore = s;
-                    bestClass = ueIdx;
-                }
-            }
 
-            if (bestClass != ueNoClass) {
-                schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(bestClass);
-                usedUe[bestClass] = 1U;
-                scheduledCnt += 1U;
-            } else {
-                unscheduledSlots.push_back(schedSlot);
-            }
-        }
-
-        // Guardrail against decode collapse: force-fill a minimum number of slots from legal UEs.
-        const float ratio = std::max(0.0f, std::min(1.0f, m_cfg.minSchedRatio));
-        const uint32_t minSched = static_cast<uint32_t>(std::floor(ratio * static_cast<float>(numCellSched) + 1.0e-6f));
-        if (scheduledCnt < minSched && !unscheduledSlots.empty()) {
-            for (uint32_t schedSlot : unscheduledSlots) {
-                if (scheduledCnt >= minSched) {
-                    break;
-                }
                 const size_t base = static_cast<size_t>(schedSlot) * ueClassCount;
-                int32_t bestUe = -1;
-                float bestScore = std::numeric_limits<float>::lowest();
+                uint32_t bestClass = ueNoClass;
+                float bestScore = m_ueLogitsHost[base + ueNoClass] - m_cfg.noUeBias;
+
                 for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
                     if (m_ueMaskHost[ueIdx] == 0U || usedUe[ueIdx] != 0U || !assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
                         continue;
@@ -458,13 +462,45 @@ bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
                     const float s = m_ueLogitsHost[base + ueIdx];
                     if (s > bestScore) {
                         bestScore = s;
-                        bestUe = static_cast<int32_t>(ueIdx);
+                        bestClass = ueIdx;
                     }
                 }
-                if (bestUe >= 0) {
-                    schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(bestUe);
-                    usedUe[static_cast<uint32_t>(bestUe)] = 1U;
+
+                if (bestClass != ueNoClass) {
+                    schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(bestClass);
+                    usedUe[bestClass] = 1U;
                     scheduledCnt += 1U;
+                } else {
+                    unscheduledSlots.push_back(schedSlot);
+                }
+            }
+
+            // Guardrail against decode collapse: force-fill a minimum number of slots from legal UEs.
+            const float ratio = std::max(0.0f, std::min(1.0f, m_cfg.minSchedRatio));
+            const uint32_t minSched = static_cast<uint32_t>(std::floor(ratio * static_cast<float>(numCellSched) + 1.0e-6f));
+            if (scheduledCnt < minSched && !unscheduledSlots.empty()) {
+                for (uint32_t schedSlot : unscheduledSlots) {
+                    if (scheduledCnt >= minSched) {
+                        break;
+                    }
+                    const size_t base = static_cast<size_t>(schedSlot) * ueClassCount;
+                    int32_t bestUe = -1;
+                    float bestScore = std::numeric_limits<float>::lowest();
+                    for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
+                        if (m_ueMaskHost[ueIdx] == 0U || usedUe[ueIdx] != 0U || !assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
+                            continue;
+                        }
+                        const float s = m_ueLogitsHost[base + ueIdx];
+                        if (s > bestScore) {
+                            bestScore = s;
+                            bestUe = static_cast<int32_t>(ueIdx);
+                        }
+                    }
+                    if (bestUe >= 0) {
+                        schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(bestUe);
+                        usedUe[static_cast<uint32_t>(bestUe)] = 1U;
+                        scheduledCnt += 1U;
+                    }
                 }
             }
         }

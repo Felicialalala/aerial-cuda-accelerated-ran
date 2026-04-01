@@ -27,6 +27,32 @@ constexpr uint16_t numRunSchKnlTimeMsr = 1000;
 
 #define dir 0
 
+static __device__ __forceinline__ float queueAwarePfWeight(const mcDynDescr_t* pDynDescr, int16_t ueIdx)
+{
+  if (pDynDescr->pfQueueBufferCoeff <= 0.0f || pDynDescr->bufferSize == nullptr ||
+      pDynDescr->setSchdUePerCellTTI == nullptr || ueIdx < 0 ||
+      static_cast<uint16_t>(ueIdx) >= pDynDescr->nUe) {
+    return 1.0f;
+  }
+
+  const uint16_t actUeId = pDynDescr->setSchdUePerCellTTI[ueIdx];
+  if (actUeId == 0xFFFF || actUeId >= pDynDescr->nActiveUe) {
+    return 1.0f;
+  }
+
+  const float scaleBytes = pDynDescr->pfQueueBufferScaleBytes > 0.0f
+                               ? pDynDescr->pfQueueBufferScaleBytes
+                               : 1.0f;
+  const float normalizedBuffer = static_cast<float>(pDynDescr->bufferSize[actUeId]) / scaleBytes;
+  return 1.0f + pDynDescr->pfQueueBufferCoeff * log2f(1.0f + normalizedBuffer);
+}
+
+static __device__ __forceinline__ float computePfMetric(const mcDynDescr_t* pDynDescr, float dataRate, int16_t ueIdx)
+{
+  const float pfMetric = pow(dataRate, pDynDescr->betaCoeff) / pDynDescr->avgRates[ueIdx];
+  return pfMetric * queueAwarePfWeight(pDynDescr, ueIdx);
+}
+
 
 static __device__ __constant__ uint16_t pow2NArr[64][128] = {{2,2,4,4,8,8,8,8,16,16,16,16,16,16,16,16,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,32,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128},
 {2,4,8,8,16,16,16,16,32,32,32,32,32,32,32,32,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,64,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,128,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256,256},
@@ -658,7 +684,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = uIdx;
         }
         if (cnt){
@@ -955,7 +981,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = uIdx;
         }
         if (cnt){
@@ -1030,7 +1056,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void lwPfSchedulerKerne
                 pfMetric[threadIdx.x] += pDynDescr->W*static_cast<float>(log2(static_cast<double>(sinrTemp + 1.0)));
             }
     
-            pfMetric[threadIdx.x] = pow(pfMetric[threadIdx.x], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[threadIdx.x] = computePfMetric(pDynDescr, pfMetric[threadIdx.x], uIdx);
             ueIdxArr[threadIdx.x] = uIdx;
         }
         __syncthreads();
@@ -1224,7 +1250,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void lwPfSchedulerKerne
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = uIdx;
         }
         if (cnt){
@@ -1512,7 +1538,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
 
             if (rbgIdx == 0) {
@@ -2182,7 +2208,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
           __syncthreads(); 
 
           if (uIdx >= 0 && eIdx == 0) {
-              pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+              pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
               ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
   
               if (rbgIdx == 0) {
@@ -2659,7 +2685,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
 
             if (rbgIdx == 0) {
@@ -3142,7 +3168,7 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads();
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = uIdx;
         }
         if (cnt){
@@ -3426,7 +3452,7 @@ static __global__ void multiCellSchedulerKernel_Asim_type1_svdPrdMmseIrc_rm(mcDy
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
 
             if (rbgIdx == 0) {
@@ -3677,7 +3703,7 @@ static __global__ void multiCellSchedulerKernel_Asim_type1_svdPrdMmse_rm(mcDynDe
           __syncthreads(); 
   
           if (uIdx >= 0 && eIdx == 0) {
-              pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+              pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
               ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
   
               if (rbgIdx == 0) {
@@ -4228,7 +4254,7 @@ static __global__ void multiCellSchedulerKernel_Asim_type1_svdPrdMmseIrc_rm_harq
 
         if (uIdx >= 0 && eIdx == 0) {
             if (pDynDescr->newDataActUe[pDynDescr->setSchdUePerCellTTI[uIdx]] == 1) { // the UE is scheduled for new transmission
-                pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+                pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
                 ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
 
                 if (rbgIdx == 0) {
@@ -4507,7 +4533,7 @@ while (cnt) {
 
      if (uIdx >= 0 && eIdx == 0) {
          if (pDynDescr->newDataActUe[pDynDescr->setSchdUePerCellTTI[uIdx]] == 1) { // the UE is scheduled for new transmission
-             pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+             pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
              ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
 
              if (rbgIdx == 0) {
@@ -4921,9 +4947,9 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
             if (uIdx >= 0 && eIdx == 0) {
                 if (pDynDescr->newDataActUe[pDynDescr->setSchdUePerCellTTI[uIdx]] == 1) { // the UE is scheduled for new transmission
                     if (pfMetric[realAssocUeIdxInBlk] == 0) {
-                        pfMetric[realAssocUeIdxInBlk] = pow(1.0, pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+                        pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, 1.0f, uIdx);
                     } else {
-                        pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+                        pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
                     }
                     ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
 
@@ -5132,9 +5158,9 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
 
           if (uIdx >= 0 && eIdx == 0) {
               if (pfMetric[realAssocUeIdxInBlk] == 0) {
-                  pfMetric[realAssocUeIdxInBlk] = pow(1.0, pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+                  pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, 1.0f, uIdx);
               } else {
-                pfMetric[realAssocUeIdxInBlk] = pow(pfMetric[realAssocUeIdxInBlk], pDynDescr->betaCoeff)/pDynDescr->avgRates[uIdx];
+                pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
               }
               ueIdxArr[realAssocUeIdxInBlk] = pDynDescr->nPrbGrp*uIdx + rbgIdx;
   
@@ -5419,11 +5445,13 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   pCpuDynDesc->totNumCell           = simParam->totNumCell; // number of all cells in the network. (not needed if channel buffer only contains channels within coordinated cells)
   pCpuDynDesc->cellId               = cellGrpPrms->cellId;  
   pCpuDynDesc->avgRates             = cellGrpUeStatus->avgRates;
+  pCpuDynDesc->bufferSize           = cellGrpUeStatus->bufferSize;
   pCpuDynDesc->allocSol             = schdSol->allocSol;
   pCpuDynDesc->pfMetricArr          = schdSol->pfMetricArr;
   pCpuDynDesc->pfIdArr              = schdSol->pfIdArr;
   pCpuDynDesc->cellAssoc            = cellGrpPrms->cellAssoc;
   pCpuDynDesc->nUe                  = cellGrpPrms->nUe; // total number of UEs
+  pCpuDynDesc->nActiveUe            = cellGrpPrms->nActiveUe;
   pCpuDynDesc->nCell                = cellGrpPrms->nCell; // number of coordinated cells
   pCpuDynDesc->nPrbGrp              = cellGrpPrms->nPrbGrp;
   pCpuDynDesc->nBsAnt               = cellGrpPrms->nBsAnt;
@@ -5436,6 +5464,8 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   allocType                         = cellGrpPrms->allocType;
   precodingScheme                   = cellGrpPrms->precodingScheme;
   pCpuDynDesc->betaCoeff            = cellGrpPrms->betaCoeff;
+  pCpuDynDesc->pfQueueBufferCoeff   = cellGrpPrms->pfQueueBufferCoeff;
+  pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
   pCpuDynDesc->sinVal               = cellGrpPrms->sinVal;
   columnMajor                       = in_columnMajor;
   halfPrecision                     = in_halfPrecision;
@@ -5517,11 +5547,13 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   pCpuDynDesc->postEqSinr           = cellGrpPrms->postEqSinr;
   pCpuDynDesc->cellId               = cellGrpPrms->cellId;  
   pCpuDynDesc->avgRates             = cellGrpUeStatus->avgRates;
+  pCpuDynDesc->bufferSize           = cellGrpUeStatus->bufferSize;
   pCpuDynDesc->allocSol             = schdSol->allocSol;
   pCpuDynDesc->pfMetricArr          = schdSol->pfMetricArr;
   pCpuDynDesc->pfIdArr              = schdSol->pfIdArr;
   pCpuDynDesc->cellAssoc            = cellGrpPrms->cellAssoc;
   pCpuDynDesc->nUe                  = cellGrpPrms->nUe; // total number of UEs
+  pCpuDynDesc->nActiveUe            = cellGrpPrms->nActiveUe;
   pCpuDynDesc->nCell                = cellGrpPrms->nCell; // number of coordinated cells
   pCpuDynDesc->nPrbGrp              = cellGrpPrms->nPrbGrp;
   pCpuDynDesc->nBsAnt               = cellGrpPrms->nBsAnt;
@@ -5534,6 +5566,8 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   allocType                         = cellGrpPrms->allocType;
   precodingScheme                   = cellGrpPrms->precodingScheme;
   pCpuDynDesc->betaCoeff            = cellGrpPrms->betaCoeff;
+  pCpuDynDesc->pfQueueBufferCoeff   = cellGrpPrms->pfQueueBufferCoeff;
+  pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
   pCpuDynDesc->sinVal_asim          = cellGrpPrms->sinVal_asim;
   columnMajor                       = in_columnMajor;
   halfPrecision                     = in_halfPrecision;
@@ -5599,6 +5633,8 @@ void multiCellScheduler::debugLog()
     printf("allocType: %d\n", allocType);
     printf("precodingScheme: %d\n", precodingScheme);
     printf("betaCoeff: %f\n", pCpuDynDesc->betaCoeff);
+    printf("pfQueueBufferCoeff: %f\n", pCpuDynDesc->pfQueueBufferCoeff);
+    printf("pfQueueBufferScaleBytes: %f\n", pCpuDynDesc->pfQueueBufferScaleBytes);
     printf("columnMajor: %d\n", columnMajor);
 
     uint16_t* log_cellId = new uint16_t[pCpuDynDesc->nCell];

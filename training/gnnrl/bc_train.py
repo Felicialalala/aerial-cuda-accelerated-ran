@@ -20,6 +20,7 @@ if __package__ is None or __package__ == "":
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from training.gnnrl.action_modes import ACTION_MODE_JOINT, action_mode_choices, is_prg_only_type0
 from training.gnnrl.dataset import IGNORE_INDEX, ReplayBinaryDataset
 from training.gnnrl.masks import (
     apply_prg_action_mask,
@@ -56,6 +57,7 @@ def _epoch_loop(
     n_active_ue: int,
     n_sched_ue: int,
     prg_loss_weight: float,
+    action_mode: str,
     device: torch.device,
 ) -> Dict[str, float]:
     training = optimizer is not None
@@ -89,32 +91,42 @@ def _epoch_loop(
         ue_logits_raw = out["ue_logits"]
         prg_logits_raw = out["prg_logits"]
 
-        ue_logits, ue_valid = apply_ue_action_mask(
-            ue_logits_raw,
-            batch["action_mask_ue"],
-            n_cell=n_cell,
-            action_mask_cell_ue=batch.get("action_mask_cell_ue"),
-        )
         prg_logits, prg_valid = apply_prg_action_mask(
             prg_logits_raw, batch["action_mask_prg_cell"], n_cell=n_cell
         )
-
-        ue_target, ue_bad = sanitize_targets(batch["target_ue_class"], ue_valid, ignore_index=IGNORE_INDEX)
         # replay allocSol layout is [prg, cell] (index = prgIdx * nCell + cIdx)
         prg_target = batch["target_prg_class"].view(bsz, n_prg, n_cell).transpose(1, 2).contiguous()
         prg_target, prg_bad = sanitize_targets(prg_target, prg_valid, ignore_index=IGNORE_INDEX)
 
-        ue_loss = F.cross_entropy(
-            ue_logits.reshape(-1, n_active_ue + 1),
-            ue_target.reshape(-1),
-            ignore_index=IGNORE_INDEX,
-        )
         prg_loss = F.cross_entropy(
             prg_logits.reshape(-1, n_sched_ue + 1),
             prg_target.reshape(-1),
             ignore_index=IGNORE_INDEX,
         )
-        loss = ue_loss + prg_loss_weight * prg_loss
+
+        if is_prg_only_type0(action_mode):
+            ue_loss = prg_loss.new_zeros(())
+            loss = prg_loss_weight * prg_loss
+            acc_ue = 1.0
+            legal_ue = 1.0
+            bad_ue = 0.0
+        else:
+            ue_logits, ue_valid = apply_ue_action_mask(
+                ue_logits_raw,
+                batch["action_mask_ue"],
+                n_cell=n_cell,
+                action_mask_cell_ue=batch.get("action_mask_cell_ue"),
+            )
+            ue_target, ue_bad = sanitize_targets(batch["target_ue_class"], ue_valid, ignore_index=IGNORE_INDEX)
+            ue_loss = F.cross_entropy(
+                ue_logits.reshape(-1, n_active_ue + 1),
+                ue_target.reshape(-1),
+                ignore_index=IGNORE_INDEX,
+            )
+            loss = ue_loss + prg_loss_weight * prg_loss
+            acc_ue = classification_accuracy(ue_logits, ue_target, ignore_index=IGNORE_INDEX)
+            legal_ue = predicted_legal_ratio(ue_logits, ue_valid)
+            bad_ue = float(ue_bad.float().mean().item())
 
         if training:
             assert optimizer is not None
@@ -127,11 +139,11 @@ def _epoch_loop(
         total_ue_loss += float(ue_loss.item()) * bsz
         total_prg_loss += float(prg_loss.item()) * bsz
 
-        acc_ue_sum += classification_accuracy(ue_logits, ue_target, ignore_index=IGNORE_INDEX)
+        acc_ue_sum += acc_ue
         acc_prg_sum += classification_accuracy(prg_logits, prg_target, ignore_index=IGNORE_INDEX)
-        legal_ue_sum += predicted_legal_ratio(ue_logits, ue_valid)
+        legal_ue_sum += legal_ue
         legal_prg_sum += predicted_legal_ratio(prg_logits, prg_valid)
-        bad_ue_sum += float(ue_bad.float().mean().item())
+        bad_ue_sum += bad_ue
         bad_prg_sum += float(prg_bad.float().mean().item())
 
     denom = max(total_samples, 1)
@@ -163,6 +175,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-workers", type=int, default=0)
     p.add_argument("--hidden-dim", type=int, default=128)
     p.add_argument("--num-cell-msg-layers", type=int, default=2)
+    p.add_argument("--action-mode", choices=list(action_mode_choices()), default=ACTION_MODE_JOINT)
     p.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     return p.parse_args()
 
@@ -224,6 +237,7 @@ def main() -> int:
         edge_feat_dim=feat.edge,
         hidden_dim=args.hidden_dim,
         num_cell_msg_layers=args.num_cell_msg_layers,
+        action_mode=args.action_mode,
     )
     model = StageBGnnPolicy(model_cfg).to(device)
 
@@ -249,6 +263,7 @@ def main() -> int:
             n_active_ue=dims.n_active_ue,
             n_sched_ue=dims.n_sched_ue,
             prg_loss_weight=args.prg_loss_weight,
+            action_mode=args.action_mode,
             device=device,
         )
         with torch.no_grad():
@@ -261,6 +276,7 @@ def main() -> int:
                 n_active_ue=dims.n_active_ue,
                 n_sched_ue=dims.n_sched_ue,
                 prg_loss_weight=args.prg_loss_weight,
+                action_mode=args.action_mode,
                 device=device,
             )
 

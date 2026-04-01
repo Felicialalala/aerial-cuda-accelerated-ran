@@ -8,12 +8,29 @@ from pathlib import Path
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Compare Stage-B RR and PF KPI summaries.")
+    p = argparse.ArgumentParser(description="Compare Stage-B RR and PF-like KPI summaries.")
     p.add_argument("--rr", required=True, help="RR run directory or RR kpi_summary.json path")
     p.add_argument("--pf", required=True, help="PF run directory or PF kpi_summary.json path")
     p.add_argument("--output-dir", required=True, help="Directory to write comparison outputs")
     p.add_argument("--top-n", type=int, default=10, help="Top-N UE deltas to include in the text summary")
+    p.add_argument(
+        "--compare-baseline",
+        default="pf",
+        help="Label for the second baseline in output file names and columns (default: pf)",
+    )
     return p.parse_args()
+
+
+def normalize_compare_baseline(value):
+    baseline = (value or "pf").strip().lower()
+    if not baseline:
+        return "pf"
+    safe = "".join(ch if ch.isalnum() else "_" for ch in baseline)
+    return safe or "pf"
+
+
+def compare_display_name(compare_baseline):
+    return compare_baseline.upper()
 
 
 def resolve_summary_path(path_str):
@@ -72,7 +89,7 @@ def format_value(v, unit=None):
     return f"{v:.10f}" if isinstance(v, float) else str(v)
 
 
-def build_metric_rows(rr, pf):
+def build_metric_rows(rr, pf, compare_baseline):
     metrics = [
         {
             "name": "traffic.served_mbps_est",
@@ -82,11 +99,25 @@ def build_metric_rows(rr, pf):
             "pf": safe_get(pf, "traffic", "served_mbps_est"),
         },
         {
+            "name": "traffic.goodput_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "traffic", "goodput_mbps"),
+            "pf": safe_get(pf, "traffic", "goodput_mbps"),
+        },
+        {
             "name": "global_kpi.cluster_sum_throughput_mbps",
             "unit": "Mbps",
             "direction": "higher_better",
             "rr": safe_get(rr, "global_kpi", "cluster_sum_throughput_mbps"),
             "pf": safe_get(pf, "global_kpi", "cluster_sum_throughput_mbps"),
+        },
+        {
+            "name": "global_kpi.cluster_goodput_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "cluster_goodput_mbps"),
+            "pf": safe_get(pf, "global_kpi", "cluster_goodput_mbps"),
         },
         {
             "name": "global_kpi.cluster_spectral_efficiency_bps_per_hz",
@@ -103,6 +134,13 @@ def build_metric_rows(rr, pf):
             "pf": safe_get(pf, "global_kpi", "average_ue_throughput_mbps"),
         },
         {
+            "name": "global_kpi.average_ue_goodput_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "average_ue_goodput_mbps"),
+            "pf": safe_get(pf, "global_kpi", "average_ue_goodput_mbps"),
+        },
+        {
             "name": "global_kpi.ue_throughput_jain",
             "unit": None,
             "direction": "higher_better",
@@ -110,11 +148,25 @@ def build_metric_rows(rr, pf):
             "pf": safe_get(pf, "global_kpi", "ue_throughput_jain"),
         },
         {
+            "name": "global_kpi.ue_goodput_jain",
+            "unit": None,
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "ue_goodput_jain"),
+            "pf": safe_get(pf, "global_kpi", "ue_goodput_jain"),
+        },
+        {
             "name": "global_kpi.ue_throughput_p5_mbps",
             "unit": "Mbps",
             "direction": "higher_better",
             "rr": safe_get(rr, "global_kpi", "ue_throughput_p5_mbps"),
             "pf": safe_get(pf, "global_kpi", "ue_throughput_p5_mbps"),
+        },
+        {
+            "name": "global_kpi.ue_goodput_p5_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "ue_goodput_p5_mbps"),
+            "pf": safe_get(pf, "global_kpi", "ue_goodput_p5_mbps"),
         },
         {
             "name": "global_kpi.cell_edge_spectral_efficiency_p5_bps_per_hz",
@@ -129,6 +181,13 @@ def build_metric_rows(rr, pf):
             "direction": "higher_better",
             "rr": safe_get(rr, "global_kpi", "ue_throughput_p10_mbps"),
             "pf": safe_get(pf, "global_kpi", "ue_throughput_p10_mbps"),
+        },
+        {
+            "name": "global_kpi.ue_goodput_p10_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "ue_goodput_p10_mbps"),
+            "pf": safe_get(pf, "global_kpi", "ue_goodput_p10_mbps"),
         },
         {
             "name": "global_kpi.global_tb_bler",
@@ -290,9 +349,9 @@ def build_metric_rows(rr, pf):
         elif abs(pf_val - rr_val) <= 1.0e-12:
             row["winner"] = "tie"
         elif row["direction"] == "higher_better":
-            row["winner"] = "pf" if pf_val > rr_val else "rr"
+            row["winner"] = compare_baseline if pf_val > rr_val else "rr"
         else:
-            row["winner"] = "pf" if pf_val < rr_val else "rr"
+            row["winner"] = compare_baseline if pf_val < rr_val else "rr"
     return metrics
 
 
@@ -393,35 +452,52 @@ def build_per_cell_delta(rr, pf):
     return rows
 
 
-def build_summary(rr, pf, top_n):
+def build_summary(rr, pf, top_n, compare_baseline):
+    display_name = compare_display_name(compare_baseline)
+    metric_rows = build_metric_rows(rr, pf, compare_baseline)
+    compare_consistency = build_consistency_rows(pf, compare_baseline)
+    per_cell_delta = build_per_cell_delta(rr, pf)
+    per_ue_delta = build_per_ue_delta(rr, pf, top_n)
     return {
+        "compare_baseline": compare_baseline,
+        "compare_display_name": display_name,
         "rr_summary_path": rr["_summary_path"],
         "pf_summary_path": pf["_summary_path"],
+        "other_summary_path": pf["_summary_path"],
         "rr_run_dir": rr.get("run_dir"),
         "pf_run_dir": pf.get("run_dir"),
+        "other_run_dir": pf.get("run_dir"),
         "rr_tti_count": rr.get("tti_count"),
         "pf_tti_count": pf.get("tti_count"),
         "rr_ue_count": rr.get("ue_count"),
         "pf_ue_count": pf.get("ue_count"),
-        "metric_source_note": "RR vs PF should be judged mainly by traffic/global_kpi. CPU/GPU compare fields are per-run consistency checks, not baseline winners.",
+        "metric_source_note": (
+            f"RR vs {display_name} should be judged mainly by traffic/global_kpi. "
+            "CPU/GPU compare fields are per-run consistency checks, not baseline winners."
+        ),
         "metric_definitions": rr.get("metric_definitions") or pf.get("metric_definitions") or {},
-        "rr_vs_pf_metrics": build_metric_rows(rr, pf),
+        "rr_vs_pf_metrics": metric_rows,
+        "rr_vs_compare_metrics": metric_rows,
         "rr_cpu_gpu_consistency": build_consistency_rows(rr, "rr"),
-        "pf_cpu_gpu_consistency": build_consistency_rows(pf, "pf"),
-        "per_cell_delta": build_per_cell_delta(rr, pf),
-        "per_ue_delta": build_per_ue_delta(rr, pf, top_n),
+        "pf_cpu_gpu_consistency": compare_consistency,
+        "compare_cpu_gpu_consistency": compare_consistency,
+        "per_cell_delta": per_cell_delta,
+        "per_ue_delta": per_ue_delta,
     }
 
 
 def write_json(out_dir, summary):
-    path = out_dir / "rr_vs_pf_compare.json"
+    path = out_dir / f"rr_vs_{summary['compare_baseline']}_compare.json"
     path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path
 
 
 def write_csv(out_dir, summary):
-    path = out_dir / "rr_vs_pf_compare.csv"
-    lines = ["metric,rr,pf,pf_minus_rr,pf_over_rr_ratio,direction,winner,unit,note"]
+    compare_baseline = summary["compare_baseline"]
+    path = out_dir / f"rr_vs_{compare_baseline}_compare.csv"
+    lines = [
+        f"metric,rr,{compare_baseline},{compare_baseline}_minus_rr,{compare_baseline}_over_rr_ratio,direction,winner,unit,note"
+    ]
     for row in summary["rr_vs_pf_metrics"]:
         lines.append(
             ",".join(
@@ -443,28 +519,30 @@ def write_csv(out_dir, summary):
 
 
 def write_text(out_dir, summary):
-    path = out_dir / "rr_vs_pf_compare.txt"
+    compare_baseline = summary["compare_baseline"]
+    display_name = summary["compare_display_name"]
+    path = out_dir / f"rr_vs_{compare_baseline}_compare.txt"
     lines = [
         f"rr_summary_path: {summary['rr_summary_path']}",
-        f"pf_summary_path: {summary['pf_summary_path']}",
+        f"{compare_baseline}_summary_path: {summary['other_summary_path']}",
         f"rr_run_dir: {summary['rr_run_dir']}",
-        f"pf_run_dir: {summary['pf_run_dir']}",
+        f"{compare_baseline}_run_dir: {summary['other_run_dir']}",
         f"rr_tti_count: {summary['rr_tti_count']}",
-        f"pf_tti_count: {summary['pf_tti_count']}",
+        f"{compare_baseline}_tti_count: {summary['pf_tti_count']}",
         f"rr_ue_count: {summary['rr_ue_count']}",
-        f"pf_ue_count: {summary['pf_ue_count']}",
+        f"{compare_baseline}_ue_count: {summary['pf_ue_count']}",
         "",
         "[Interpretation]",
         summary["metric_source_note"],
         "",
-        "[RR vs PF Metrics]",
+        f"[RR vs {display_name} Metrics]",
     ]
     for row in summary["rr_vs_pf_metrics"]:
         lines.append(
             f"{row['name']}: rr={format_value(row['rr'], row['unit'])} "
-            f"pf={format_value(row['pf'], row['unit'])} "
-            f"pf_minus_rr={format_value(row['pf_minus_rr'], row['unit'])} "
-            f"pf_over_rr_ratio={format_value(row['pf_over_rr_ratio'])} "
+            f"{compare_baseline}={format_value(row['pf'], row['unit'])} "
+            f"{compare_baseline}_minus_rr={format_value(row['pf_minus_rr'], row['unit'])} "
+            f"{compare_baseline}_over_rr_ratio={format_value(row['pf_over_rr_ratio'])} "
             f"winner={row['winner']}"
             + (f" | {row['note']}" if row.get("note") else "")
         )
@@ -481,7 +559,7 @@ def write_text(out_dir, summary):
     lines.extend(
         [
             "",
-            "[PF CPU-GPU Consistency]",
+            f"[{display_name} CPU-GPU Consistency]",
         ]
     )
     for key, value in summary["pf_cpu_gpu_consistency"].items():
@@ -499,10 +577,10 @@ def write_text(out_dir, summary):
         lines.append(
             f"cell_id={row['cell_id']} "
             f"rr_cell_sum_thr_mbps={format_value(row['rr_cell_sum_thr_mbps'], 'Mbps')} "
-            f"pf_cell_sum_thr_mbps={format_value(row['pf_cell_sum_thr_mbps'], 'Mbps')} "
-            f"pf_minus_rr_cell_sum_thr_mbps={format_value(row['pf_minus_rr_cell_sum_thr_mbps'], 'Mbps')} "
+            f"{compare_baseline}_cell_sum_thr_mbps={format_value(row['pf_cell_sum_thr_mbps'], 'Mbps')} "
+            f"{compare_baseline}_minus_rr_cell_sum_thr_mbps={format_value(row['pf_minus_rr_cell_sum_thr_mbps'], 'Mbps')} "
             f"rr_cell_avg_queue_delay_est_ms={format_value(row['rr_cell_avg_queue_delay_est_ms'], 'ms')} "
-            f"pf_cell_avg_queue_delay_est_ms={format_value(row['pf_cell_avg_queue_delay_est_ms'], 'ms')}"
+            f"{compare_baseline}_cell_avg_queue_delay_est_ms={format_value(row['pf_cell_avg_queue_delay_est_ms'], 'ms')}"
         )
 
     lines.extend(
@@ -515,9 +593,9 @@ def write_text(out_dir, summary):
         lines.append(
             f"ue_id={row['ue_id']} "
             f"rr_avg_thr_mbps={format_value(row['rr_avg_thr_mbps'], 'Mbps')} "
-            f"pf_avg_thr_mbps={format_value(row['pf_avg_thr_mbps'], 'Mbps')} "
-            f"pf_minus_rr_avg_thr_mbps={format_value(row['pf_minus_rr_avg_thr_mbps'], 'Mbps')} "
-            f"pf_over_rr_avg_thr_ratio={format_value(row['pf_over_rr_avg_thr_ratio'])}"
+            f"{compare_baseline}_avg_thr_mbps={format_value(row['pf_avg_thr_mbps'], 'Mbps')} "
+            f"{compare_baseline}_minus_rr_avg_thr_mbps={format_value(row['pf_minus_rr_avg_thr_mbps'], 'Mbps')} "
+            f"{compare_baseline}_over_rr_avg_thr_ratio={format_value(row['pf_over_rr_avg_thr_ratio'])}"
         )
 
     lines.extend(
@@ -530,10 +608,10 @@ def write_text(out_dir, summary):
         lines.append(
             f"ue_id={row['ue_id']} "
             f"rr_queue_delay_est_ms={format_value(row['rr_queue_delay_est_ms'], 'ms')} "
-            f"pf_queue_delay_est_ms={format_value(row['pf_queue_delay_est_ms'], 'ms')} "
-            f"pf_minus_rr_queue_delay_est_ms={format_value(row['pf_minus_rr_queue_delay_est_ms'], 'ms')} "
+            f"{compare_baseline}_queue_delay_est_ms={format_value(row['pf_queue_delay_est_ms'], 'ms')} "
+            f"{compare_baseline}_minus_rr_queue_delay_est_ms={format_value(row['pf_minus_rr_queue_delay_est_ms'], 'ms')} "
             f"rr_scheduled_ratio={format_value(row['rr_scheduled_ratio'])} "
-            f"pf_scheduled_ratio={format_value(row['pf_scheduled_ratio'])}"
+            f"{compare_baseline}_scheduled_ratio={format_value(row['pf_scheduled_ratio'])}"
         )
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -542,19 +620,21 @@ def write_text(out_dir, summary):
 
 def main():
     args = parse_args()
+    compare_baseline = normalize_compare_baseline(args.compare_baseline)
     rr = load_summary(args.rr)
     pf = load_summary(args.pf)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    summary = build_summary(rr, pf, args.top_n)
+    summary = build_summary(rr, pf, args.top_n, compare_baseline)
     json_path = write_json(out_dir, summary)
     txt_path = write_text(out_dir, summary)
     csv_path = write_csv(out_dir, summary)
 
-    print(f"RR vs PF comparison written: {json_path}")
-    print(f"RR vs PF comparison written: {txt_path}")
-    print(f"RR vs PF comparison written: {csv_path}")
+    display_name = compare_display_name(compare_baseline)
+    print(f"RR vs {display_name} comparison written: {json_path}")
+    print(f"RR vs {display_name} comparison written: {txt_path}")
+    print(f"RR vs {display_name} comparison written: {csv_path}")
 
 
 if __name__ == "__main__":

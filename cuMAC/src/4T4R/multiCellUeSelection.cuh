@@ -44,6 +44,8 @@ namespace cumac {
    uint8_t     nUeAnt;
    float       W; // frequency bandwidth (Hz) of a PRB group
    float       betaCoeff; // coefficient for improving cell edge UEs' performance in multi-cell scheduling
+   float       pfQueueBufferCoeff; // coefficient for queue-aware PF weighting
+   float       pfQueueBufferScaleBytes; // normalization scale in bytes for queue-aware PF weighting
 } mcUeSelDynDescr_t;
 
  class multiCellUeSelection {
@@ -98,4 +100,3 @@ namespace cumac {
  static __global__ void multiCellUeSelKernel(mcUeSelDynDescr_t* pDynDescr);
  static __global__ void multiCellUeSelKernel_hetero(mcUeSelDynDescr_t* pDynDescr);
 }
-

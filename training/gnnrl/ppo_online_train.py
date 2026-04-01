@@ -26,6 +26,12 @@ if __package__ is None or __package__ == "":
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from training.gnnrl.action_modes import (
+    ACTION_MODE_JOINT,
+    build_type0_all_ue_action,
+    is_prg_only_type0,
+    normalize_action_mode,
+)
 from training.gnnrl.aerial_env import AerialEnvClient, AerialEnvConfig
 from training.gnnrl.dataset import IGNORE_INDEX
 from training.gnnrl.masks import apply_prg_action_mask, apply_ue_action_mask, sanitize_targets
@@ -386,44 +392,56 @@ def _action_logp_entropy(
     actor_out: Dict[str, torch.Tensor],
     batch: Dict[str, torch.Tensor],
     n_cell: int,
+    action_mode: str,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    prg_logits, prg_valid = apply_prg_action_mask(actor_out["prg_logits"], batch["action_mask_prg_cell"], n_cell=n_cell)
+    prg_target, _ = sanitize_targets(batch["target_prg_class"], prg_valid, ignore_index=IGNORE_INDEX)
+    prg_logp, prg_entropy = _reduce_multi_categorical(prg_logits, prg_target)
+    if is_prg_only_type0(action_mode):
+        return prg_logp, prg_entropy
+
     ue_logits, ue_valid = apply_ue_action_mask(
         actor_out["ue_logits"],
         batch["action_mask_ue"],
         n_cell=n_cell,
         action_mask_cell_ue=batch["action_mask_cell_ue"],
     )
-    prg_logits, prg_valid = apply_prg_action_mask(actor_out["prg_logits"], batch["action_mask_prg_cell"], n_cell=n_cell)
-
     ue_target, _ = sanitize_targets(batch["target_ue_class"], ue_valid, ignore_index=IGNORE_INDEX)
-    prg_target, _ = sanitize_targets(batch["target_prg_class"], prg_valid, ignore_index=IGNORE_INDEX)
-
     ue_logp, ue_entropy = _reduce_multi_categorical(ue_logits, ue_target)
-    prg_logp, prg_entropy = _reduce_multi_categorical(prg_logits, prg_target)
     return ue_logp + prg_logp, 0.5 * (ue_entropy + prg_entropy)
 
 
-def _sample_action(actor_out: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], dims: EnvDims):
-    ue_logits, _ = apply_ue_action_mask(
-        actor_out["ue_logits"],
-        batch["action_mask_ue"],
-        n_cell=dims.n_cell,
-        action_mask_cell_ue=batch["action_mask_cell_ue"],
-    )
+def _sample_action(actor_out: Dict[str, torch.Tensor], batch: Dict[str, torch.Tensor], dims: EnvDims, action_mode: str):
     prg_logits, _ = apply_prg_action_mask(actor_out["prg_logits"], batch["action_mask_prg_cell"], n_cell=dims.n_cell)
 
-    ue_dist = Categorical(logits=ue_logits.squeeze(0))
-    ue_class = ue_dist.sample()  # [S]
-    ue_logp = ue_dist.log_prob(ue_class).mean()
-    ue_entropy = ue_dist.entropy().mean()
+    if is_prg_only_type0(action_mode):
+        ue_action = build_type0_all_ue_action(batch["action_mask_cell_ue"], n_sched_ue=dims.n_sched_ue).squeeze(0)
+        ue_class = torch.where(
+            ue_action >= 0,
+            ue_action,
+            torch.full_like(ue_action, dims.n_active_ue),
+        )
+        ue_np = ue_action.detach().cpu().numpy().astype(np.int32, copy=False)
+        ue_logp = prg_logits.new_zeros(())
+        ue_entropy = prg_logits.new_zeros(())
+    else:
+        ue_logits, _ = apply_ue_action_mask(
+            actor_out["ue_logits"],
+            batch["action_mask_ue"],
+            n_cell=dims.n_cell,
+            action_mask_cell_ue=batch["action_mask_cell_ue"],
+        )
+        ue_dist = Categorical(logits=ue_logits.squeeze(0))
+        ue_class = ue_dist.sample()  # [S]
+        ue_logp = ue_dist.log_prob(ue_class).mean()
+        ue_entropy = ue_dist.entropy().mean()
+        ue_np = ue_class.detach().cpu().numpy().astype(np.int32, copy=False)
+        ue_np = np.where(ue_np == dims.n_active_ue, -1, ue_np).astype(np.int32, copy=False)
 
     prg_dist = Categorical(logits=prg_logits.squeeze(0))  # [C, P, S+1]
     prg_class = prg_dist.sample()  # [C, P]
     prg_logp = prg_dist.log_prob(prg_class).mean()
     prg_entropy = prg_dist.entropy().mean()
-
-    ue_np = ue_class.detach().cpu().numpy().astype(np.int32, copy=False)
-    ue_np = np.where(ue_np == dims.n_active_ue, -1, ue_np).astype(np.int32, copy=False)
 
     prg_np = prg_class.detach().cpu().numpy().astype(np.int16, copy=False)  # [C, P]
     prg_np = np.where(prg_np == dims.n_sched_ue, -1, prg_np).astype(np.int16, copy=False)
@@ -435,7 +453,7 @@ def _sample_action(actor_out: Dict[str, torch.Tensor], batch: Dict[str, torch.Te
         "target_ue_class": ue_class.detach().to(torch.long),
         "target_prg_class": prg_class.detach().to(torch.long),
         "logp": float((ue_logp + prg_logp).item()),
-        "entropy": float((0.5 * (ue_entropy + prg_entropy)).item()),
+        "entropy": float((prg_entropy if is_prg_only_type0(action_mode) else (0.5 * (ue_entropy + prg_entropy))).item()),
     }
 
 
@@ -470,6 +488,7 @@ def _collect_rollout(
     gae_lambda: float,
     normalize_reward: bool,
     normalize_adv: bool,
+    action_mode: str,
     state_norm: Optional[RunningNorm],
     reward_norm: Optional[RunningScalarNorm],
 ) -> Dict[str, torch.Tensor]:
@@ -517,7 +536,7 @@ def _collect_rollout(
                 obs_edge_index=batch["obs_edge_index"],
                 obs_edge_attr=batch["obs_edge_attr"],
             )
-            sampled = _sample_action(actor_out, batch, dims=dims)
+            sampled = _sample_action(actor_out, batch, dims=dims, action_mode=action_mode)
 
         next_obs, reward_raw, done, info = runner.step(sampled["action_ue_select"], sampled["action_prg_alloc"])
         reward_terms = info.get("reward_terms", (0.0, 0.0, 0.0, 0.0))
@@ -661,6 +680,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--init-policy-checkpoint", default="", help="Optional warm-start checkpoint")
     p.add_argument("--hidden-dim", type=int, default=128)
     p.add_argument("--num-cell-msg-layers", type=int, default=2)
+    p.add_argument("--action-mode", default="", help="Override action mode: joint | prg_only_type0")
     p.add_argument("--out-dir", default="training/gnnrl/checkpoints/m3_online_ppo")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
@@ -697,9 +717,14 @@ def main() -> int:
         if int(dims0.alloc_type) != 0:
             raise NotImplementedError(f"online PPO currently supports alloc_type=0 only, got {dims0.alloc_type}")
 
+        requested_action_mode = normalize_action_mode(args.action_mode) if args.action_mode else ""
         if args.init_policy_checkpoint:
             ckpt = torch.load(args.init_policy_checkpoint, map_location="cpu")
-            actor = build_model_from_config(ckpt["model_config"])
+            model_cfg = dict(ckpt["model_config"])
+            model_cfg["action_mode"] = requested_action_mode or normalize_action_mode(
+                model_cfg.get("action_mode", ACTION_MODE_JOINT)
+            )
+            actor = build_model_from_config(model_cfg)
             try:
                 actor.load_state_dict(ckpt["model_state_dict"], strict=True)
                 print(f"[init] strict checkpoint load ok: {args.init_policy_checkpoint}")
@@ -710,8 +735,9 @@ def main() -> int:
                     f"loaded={loaded}/{total}, ckpt={args.init_policy_checkpoint}"
                 )
                 print(f"[init] strict load error: {e}")
-            model_cfg = ckpt["model_config"]
+            args.action_mode = model_cfg["action_mode"]
         else:
+            args.action_mode = requested_action_mode or ACTION_MODE_JOINT
             cfg = ModelConfig(
                 n_cell=dims.n_cell,
                 n_active_ue=dims.n_active_ue,
@@ -722,9 +748,16 @@ def main() -> int:
                 edge_feat_dim=2,
                 hidden_dim=args.hidden_dim,
                 num_cell_msg_layers=args.num_cell_msg_layers,
+                action_mode=args.action_mode,
             )
             actor = StageBGnnPolicy(cfg)
             model_cfg = actor.model_config_dict()
+
+        print(f"[launch] action_mode={args.action_mode}")
+        print(f"[launch] sim_bin={args.sim_bin}")
+        print(f"[launch] sim_args={args.sim_args}")
+        if args.sim_env:
+            print(f"[launch] sim_env={' '.join(args.sim_env)}")
 
         actor.to(device)
         critic = StateValueNet(input_dim=5 + 8 + 2, hidden_dim=model_cfg["hidden_dim"]).to(device)
@@ -760,6 +793,7 @@ def main() -> int:
                 gae_lambda=args.gae_lambda,
                 normalize_reward=(args.normalize_reward == 1),
                 normalize_adv=(args.normalize_adv == 1),
+                action_mode=args.action_mode,
                 state_norm=state_norm,
                 reward_norm=reward_norm,
             )
@@ -792,7 +826,12 @@ def main() -> int:
                         obs_edge_index=mb["obs_edge_index"],
                         obs_edge_attr=mb["obs_edge_attr"],
                     )
-                    new_logp, entropy = _action_logp_entropy(actor_out, mb, n_cell=dims.n_cell)
+                    new_logp, entropy = _action_logp_entropy(
+                        actor_out,
+                        mb,
+                        n_cell=dims.n_cell,
+                        action_mode=args.action_mode,
+                    )
                     value_pred = critic(_state_vec(mb, state_norm=state_norm))
 
                     old_logp_mb = mb["old_logp"]

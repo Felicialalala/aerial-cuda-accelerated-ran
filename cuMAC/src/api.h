@@ -436,6 +436,8 @@ namespace cumac {
         uint8_t     receiverScheme; // receiver type: only support 1 - MMSE-IRC
         uint8_t     allocType; // PRB allocation type: 0 - non-consecutive type 0 allocate, 1 - consecutive type 1 allocate
         float       betaCoeff = 1.0; // coefficient for balancing cell-center and cell-edge UEs' performance in multi-cell scheduling. Default value is 1.0
+        float       pfQueueBufferCoeff = 0.0; // optional queue-aware PF multiplier coefficient; 0 keeps the original PF metric
+        float       pfQueueBufferScaleBytes = 1.0; // normalization scale in bytes for queue-aware PF weighting
         float       sinValThr = 0.1; // (For 4TR SU-MIMO only) singular value threshold for layer selection, value is in (0, 1). Default value is 0.1
         float       corrThr = 0.5; // channel vector correlation value threshold for layer selection,  value is in (0, 1). Default value is 0.5
         uint16_t    prioWeightStep = 100; // step size for UE priority weight increment per TTI if UE does not get scheduled. Default is 100

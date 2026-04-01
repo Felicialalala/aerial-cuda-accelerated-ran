@@ -33,8 +33,14 @@ public:
         GnnRlModel = 2,
     };
 
+    enum class ActionMode : uint8_t {
+        Joint = 0,
+        PrgOnlyType0 = 1,
+    };
+
     struct Config {
         PolicyMode policyMode = PolicyMode::GnnRlHeuristic;
+        ActionMode actionMode = ActionMode::Joint;
         float sinrWeight = 1.0f;
         float pfWeight = 0.25f;
         float bufferWeight = 0.05f;

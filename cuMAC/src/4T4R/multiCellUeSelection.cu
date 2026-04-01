@@ -26,6 +26,26 @@ namespace cumac {
 
  #define dir 0 // controls direction of comparator sorts
 
+ inline __device__ float queueAwarePfWeight(const mcUeSelDynDescr_t* pDynDescr, uint16_t actUeId)
+ {
+    if (pDynDescr->pfQueueBufferCoeff <= 0.0f || pDynDescr->bufferSize == nullptr ||
+        actUeId >= pDynDescr->nActiveUe) {
+       return 1.0f;
+    }
+
+    const float scaleBytes = pDynDescr->pfQueueBufferScaleBytes > 0.0f
+                                 ? pDynDescr->pfQueueBufferScaleBytes
+                                 : 1.0f;
+    const float normalizedBuffer = static_cast<float>(pDynDescr->bufferSize[actUeId]) / scaleBytes;
+    return 1.0f + pDynDescr->pfQueueBufferCoeff * log2f(1.0f + normalizedBuffer);
+ }
+
+ inline __device__ float computePfMetric(const mcUeSelDynDescr_t* pDynDescr, float dataRate, uint16_t actUeId)
+ {
+    const float pfMetric = pow(dataRate, pDynDescr->betaCoeff) / pDynDescr->avgRatesActUe[actUeId];
+    return pfMetric * queueAwarePfWeight(pDynDescr, actUeId);
+ }
+
  inline __device__ int smallestPow2(int k)
  {
     if (k == 1) {
@@ -132,7 +152,7 @@ namespace cumac {
                dataRate += pDynDescr->W*log2(1.0 + pDynDescr->wbSinr[uIdx*pDynDescr->nUeAnt + j]);
             }
             float dataRateF = static_cast<float>(dataRate);
-            avgRate[storeIdx] = pow(dataRateF, pDynDescr->betaCoeff)/pDynDescr->avgRatesActUe[uIdx];
+            avgRate[storeIdx] = computePfMetric(pDynDescr, dataRateF, uIdx);
             ueIds[storeIdx] = uIdx; // global UE index
          } else { // re-transmission
             avgRate[storeIdx] = std::numeric_limits<float>::max();
@@ -193,7 +213,7 @@ namespace cumac {
                dataRate += pDynDescr->W*log2(1.0 + pDynDescr->wbSinr[uIdx*pDynDescr->nUeAnt + j]);
             }
             float dataRateF = static_cast<float>(dataRate);
-            avgRate[storeIdx] = pow(dataRateF, pDynDescr->betaCoeff)/pDynDescr->avgRatesActUe[uIdx];
+            avgRate[storeIdx] = computePfMetric(pDynDescr, dataRateF, uIdx);
             ueIds[storeIdx] = uIdx; // global UE index
          } else { // re-transmission
             avgRate[storeIdx] = std::numeric_limits<float>::max();
@@ -272,6 +292,8 @@ namespace cumac {
    pCpuDynDesc->nUeAnt                 = cellGrpPrms->nUeAnt;
    pCpuDynDesc->W                      = cellGrpPrms->W;
    pCpuDynDesc->betaCoeff              = cellGrpPrms->betaCoeff;
+   pCpuDynDesc->pfQueueBufferCoeff     = cellGrpPrms->pfQueueBufferCoeff;
+   pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
 
    if (cellGrpPrms->numUeSchdPerCellTTIArr != nullptr) { // heterogeneous UE selection across cells
       heteroUeSelCells = 1;
@@ -343,4 +365,3 @@ namespace cumac {
 
  }
 }
-

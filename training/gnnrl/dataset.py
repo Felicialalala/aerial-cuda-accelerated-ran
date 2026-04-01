@@ -206,8 +206,6 @@ class ReplayBinaryDataset(Dataset):
         else:
             cell_ue.fill_(1)
 
-        if n_cell > 0:
-            cell_ue &= action_mask_ue.view(1, n_active_ue)
         return cell_ue
 
     @staticmethod

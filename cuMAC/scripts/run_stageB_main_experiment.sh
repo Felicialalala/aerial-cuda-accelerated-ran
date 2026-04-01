@@ -16,18 +16,21 @@ MATRIX_SCRIPT="${ROOT_DIR}/cuMAC/scripts/summarize_stageB_matrix.py"
 ARCH="$(uname -m)"
 BUILD_DIR="${ROOT_DIR}/build.${ARCH}"
 BUILD_METHOD="phase4"   # phase4 | cmake | skip
+BUILD_ONLY=0            # 1=apply params + build only, skip scenario execution
 RESTORE_PARAMS=0        # 0=keep applied compile-time params, 1=restore on exit
 
 GPU_ID=0
 TTI_COUNT=2000
 DL_UL="dl"
 FADING_MODE=0           # 0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG
+TOPOLOGY_SCENARIO="7cell"   # 7cell | 3cell
 UE_PER_CELL=8
 TOPOLOGY_SEED=0
 UE_PLACEMENT="uniform"      # uniform | stratified
 UE_RADIUS_SPLITS="0.33,0.66"
 UE_STRATA_COUNTS=""
-UE_VORONOI_CLIP=0
+UE_VORONOI_CLIP=1
+BS_TX_PATTERN="omni"        # omni | sector
 TRAFFIC_PERCENT=100
 PACKET_SIZE_BYTES=5000
 TRAFFIC_ARRIVAL_RATE=0.2
@@ -39,8 +42,9 @@ KILL_AFTER_SEC=30
 RUN_TAG=""
 COMPACT_OUTPUT=1        # 1=regular profile, 0=keep full artifacts
 CUSTOM_UE_PRG=0         # 1=use CustomUePrgScheduler for UE+PRG, 0=native
-BASELINE_SCHEDULER="pf" # pf | rr (effective for native path; maps to binary -b)
+BASELINE_SCHEDULER="pf" # pf | pfq | rr (effective for native path; maps to binary -b)
 CUSTOM_POLICY="gnnrl"   # gnnrl | legacy (effective only when --custom-ue-prg=1)
+GNNRL_ACTION_MODE="joint" # joint | prg_only_type0
 MODEL_PATH=""          # used when --custom-policy gnnrl_model
 POLICY_TIMEOUT_MS=0    # policy timeout hint for model runtime (0=disable)
 COMPACT_TTI_LOG=1       # 1=compact per-TTI stage logs
@@ -52,10 +56,11 @@ REPLAY_DIR=""           # empty means <scenario_out_dir>/replay
 ONLINE_BRIDGE=0         # 1=enable online bridge mode in binary
 ONLINE_SOCKET="/tmp/cumac_stageb_online.sock"
 EXEC_MODE="both"       # both | gpu
+EFFECTIVE_LAYERS=0     # 0=auto, otherwise cap adaptive layer selection to <= this value
 
 usage() {
     cat <<EOF
-Stage-B main experiment script (7-site coordinated cluster only, no outer interferer ring, 4T4R, Type-0 bitmap allocation).
+Stage-B main experiment script (3-cell or 7-cell coordinated cluster only, no outer interferer ring, 4T4R, Type-0 bitmap allocation).
 
 Usage:
   $(basename "$0") [options]
@@ -63,16 +68,19 @@ Usage:
 Options:
   --build-dir <path>          Build directory (default: ${BUILD_DIR})
   --build-method <m>          phase4 | cmake | skip (default: ${BUILD_METHOD})
+  --build-only <0|1>          1 only applies params/builds binary, skips scenario run (default: ${BUILD_ONLY})
   --gpu <id>                  GPU device id (default: ${GPU_ID})
   --tti <count>               Number of simulated TTIs (default: ${TTI_COUNT})
   --mode <dl|ul>              Downlink or uplink (default: ${DL_UL})
   --fading-mode <0|1|2|3|4>   0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG (default: ${FADING_MODE})
+  --topology-scenario <m>     Coordinated-cluster topology: 7cell | 3cell (default: ${TOPOLOGY_SCENARIO})
   --ue-per-cell <n>           Active/scheduled UE per cell (default: ${UE_PER_CELL})
   --topology-seed <n>         Fixed topology/random seed (default: ${TOPOLOGY_SEED})
   --ue-placement <m>          UE placement mode: uniform | stratified (default: ${UE_PLACEMENT})
   --ue-radius-splits <a,b>    Stratified center/mid upper radius ratios (default: ${UE_RADIUS_SPLITS})
   --ue-strata-counts <a,b,c>  Per-cell UE counts for center/mid/edge; empty means balanced split
   --ue-voronoi-clip <0|1>     1 clips UE samples to serving-cell Voronoi region (default: ${UE_VORONOI_CLIP})
+  --bs-tx-pattern <m>         BS tx pattern: omni | sector (default: ${BS_TX_PATTERN})
   --traffic-percent <p>       UE traffic percentage [0,100] (default: ${TRAFFIC_PERCENT})
   --packet-size-bytes <b>     Traffic packet size in bytes (default: ${PACKET_SIZE_BYTES})
   --traffic-rate <b>          Deprecated alias of --packet-size-bytes
@@ -84,8 +92,9 @@ Options:
   --kill-after-sec <sec>      Extra grace period after timeout TERM (default: ${KILL_AFTER_SEC})
   --compact-output <0|1>      1 keeps regular artifacts only (default: ${COMPACT_OUTPUT})
   --custom-ue-prg <0|1>       1 use custom UE+PRG scheduler (default: ${CUSTOM_UE_PRG})
-  --baseline-scheduler <m>    pf | rr for native baseline/reference path (default: ${BASELINE_SCHEDULER})
+  --baseline-scheduler <m>    pf | pfq | rr for native baseline/reference path (default: ${BASELINE_SCHEDULER})
   --custom-policy <name>      gnnrl | legacy | gnnrl_model (default: ${CUSTOM_POLICY})
+  --gnnrl-action-mode <m>     joint | prg_only_type0 for gnnrl_model decode (default: ${GNNRL_ACTION_MODE})
   --model-path <path>         ONNX model path for gnnrl_model policy (default: empty)
   --policy-timeout-ms <n>     Model policy timeout hint in ms, 0=disable (default: ${POLICY_TIMEOUT_MS})
   --compact-tti-log <0|1>     1 compact per-TTI logs (default: ${COMPACT_TTI_LOG})
@@ -97,12 +106,13 @@ Options:
   --online-bridge <0|1>       Enable online bridge mode (default: ${ONLINE_BRIDGE})
   --online-socket <path>      Unix socket path for online bridge (default: ${ONLINE_SOCKET})
   --exec-mode <mode>          both | gpu (default: ${EXEC_MODE})
+  --effective-layers <n>      0=auto; otherwise cap adaptive layer selection to <= n (default: ${EFFECTIVE_LAYERS})
   --tag <name>                Optional run tag
   --restore-params <0|1>      Restore parameters.h on exit (default: ${RESTORE_PARAMS})
   -h, --help                  Show this help
 
 Notes:
-  1) In pure 7-cell mode (no outer interferers), current code path is unstable for CDL (fading-mode 3/4) and may segfault.
+  1) In pure coordinated-cluster mode (no outer interferers), current code path is unstable for CDL (fading-mode 3/4) and may segfault.
      Use fading-mode 0/1/2 for stable baseline runs.
   2) Current chanModels implementation does not support LOS path for CDL-D/E and may exit.
      By default this script skips CDL-D unless --allow-profile-d=1.
@@ -115,16 +125,19 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         --build-method) BUILD_METHOD="$2"; shift 2 ;;
+        --build-only) BUILD_ONLY="$2"; shift 2 ;;
         --gpu) GPU_ID="$2"; shift 2 ;;
         --tti) TTI_COUNT="$2"; shift 2 ;;
         --mode) DL_UL="$2"; shift 2 ;;
         --fading-mode) FADING_MODE="$2"; shift 2 ;;
+        --topology-scenario) TOPOLOGY_SCENARIO="$2"; shift 2 ;;
         --ue-per-cell) UE_PER_CELL="$2"; shift 2 ;;
         --topology-seed) TOPOLOGY_SEED="$2"; shift 2 ;;
         --ue-placement) UE_PLACEMENT="$2"; shift 2 ;;
         --ue-radius-splits) UE_RADIUS_SPLITS="$2"; shift 2 ;;
         --ue-strata-counts) UE_STRATA_COUNTS="$2"; shift 2 ;;
         --ue-voronoi-clip) UE_VORONOI_CLIP="$2"; shift 2 ;;
+        --bs-tx-pattern) BS_TX_PATTERN="$2"; shift 2 ;;
         --traffic-percent) TRAFFIC_PERCENT="$2"; shift 2 ;;
         --packet-size-bytes) PACKET_SIZE_BYTES="$2"; shift 2 ;;
         --traffic-rate) PACKET_SIZE_BYTES="$2"; shift 2 ;;
@@ -138,6 +151,7 @@ while [[ $# -gt 0 ]]; do
         --custom-ue-prg) CUSTOM_UE_PRG="$2"; shift 2 ;;
         --baseline-scheduler) BASELINE_SCHEDULER="$2"; shift 2 ;;
         --custom-policy) CUSTOM_POLICY="$2"; shift 2 ;;
+        --gnnrl-action-mode) GNNRL_ACTION_MODE="$2"; shift 2 ;;
         --model-path) MODEL_PATH="$2"; shift 2 ;;
         --policy-timeout-ms) POLICY_TIMEOUT_MS="$2"; shift 2 ;;
         --compact-tti-log) COMPACT_TTI_LOG="$2"; shift 2 ;;
@@ -149,6 +163,7 @@ while [[ $# -gt 0 ]]; do
         --online-bridge) ONLINE_BRIDGE="$2"; shift 2 ;;
         --online-socket) ONLINE_SOCKET="$2"; shift 2 ;;
         --exec-mode) EXEC_MODE="$2"; shift 2 ;;
+        --effective-layers) EFFECTIVE_LAYERS="$2"; shift 2 ;;
         --tag) RUN_TAG="$2"; shift 2 ;;
         --restore-params) RESTORE_PARAMS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -173,6 +188,27 @@ if [[ "${BUILD_METHOD}" != "phase4" && "${BUILD_METHOD}" != "cmake" && "${BUILD_
     echo "--build-method must be one of: phase4, cmake, skip" >&2
     exit 1
 fi
+if ! [[ "${BUILD_ONLY}" =~ ^[01]$ ]]; then
+    echo "--build-only must be 0 or 1" >&2
+    exit 1
+fi
+TOPOLOGY_SCENARIO="$(echo "${TOPOLOGY_SCENARIO}" | tr '[:upper:]' '[:lower:]')"
+case "${TOPOLOGY_SCENARIO}" in
+    7|7cell|7cells|7site|7-site)
+        TOPOLOGY_SCENARIO="7cell"
+        TOPOLOGY_NUM_CELLS=7
+        TOPOLOGY_DESC="7-site hex cluster"
+        ;;
+    3|3cell|3cells|3site|3-site)
+        TOPOLOGY_SCENARIO="3cell"
+        TOPOLOGY_NUM_CELLS=3
+        TOPOLOGY_DESC="3-site triangle cluster"
+        ;;
+    *)
+        echo "--topology-scenario must be 7cell or 3cell" >&2
+        exit 1
+        ;;
+esac
 if ! [[ "${UE_PER_CELL}" =~ ^[0-9]+$ ]] || [[ "${UE_PER_CELL}" -lt 1 ]]; then
     echo "--ue-per-cell must be a positive integer" >&2
     exit 1
@@ -209,6 +245,11 @@ if ! [[ "${UE_VORONOI_CLIP}" =~ ^[01]$ ]]; then
     echo "--ue-voronoi-clip must be 0 or 1" >&2
     exit 1
 fi
+BS_TX_PATTERN="$(echo "${BS_TX_PATTERN}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${BS_TX_PATTERN}" != "omni" && "${BS_TX_PATTERN}" != "sector" ]]; then
+    echo "--bs-tx-pattern must be omni or sector" >&2
+    exit 1
+fi
 if ! [[ "${ALLOW_PROFILE_D}" =~ ^[01]$ ]]; then
     echo "--allow-profile-d must be 0 or 1" >&2
     exit 1
@@ -221,6 +262,10 @@ if ! [[ "${KILL_AFTER_SEC}" =~ ^[0-9]+$ ]] || [[ "${KILL_AFTER_SEC}" -lt 1 ]]; t
     echo "--kill-after-sec must be a positive integer" >&2
     exit 1
 fi
+if ! [[ "${EFFECTIVE_LAYERS}" =~ ^[0-9]+$ ]]; then
+    echo "--effective-layers must be a non-negative integer" >&2
+    exit 1
+fi
 if ! [[ "${COMPACT_OUTPUT}" =~ ^[01]$ ]]; then
     echo "--compact-output must be 0 or 1" >&2
     exit 1
@@ -230,13 +275,18 @@ if ! [[ "${CUSTOM_UE_PRG}" =~ ^[01]$ ]]; then
     exit 1
 fi
 BASELINE_SCHEDULER="$(echo "${BASELINE_SCHEDULER}" | tr '[:upper:]' '[:lower:]')"
-if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "rr" ]]; then
-    echo "--baseline-scheduler must be pf or rr" >&2
+if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "pfq" && "${BASELINE_SCHEDULER}" != "rr" ]]; then
+    echo "--baseline-scheduler must be pf, pfq, or rr" >&2
     exit 1
 fi
 CUSTOM_POLICY="$(echo "${CUSTOM_POLICY}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${CUSTOM_POLICY}" != "gnnrl" && "${CUSTOM_POLICY}" != "legacy" && "${CUSTOM_POLICY}" != "gnnrl_model" ]]; then
     echo "--custom-policy must be gnnrl, legacy, or gnnrl_model" >&2
+    exit 1
+fi
+GNNRL_ACTION_MODE="$(echo "${GNNRL_ACTION_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${GNNRL_ACTION_MODE}" != "joint" && "${GNNRL_ACTION_MODE}" != "prg_only_type0" ]]; then
+    echo "--gnnrl-action-mode must be joint or prg_only_type0" >&2
     exit 1
 fi
 if ! [[ "${POLICY_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
@@ -325,7 +375,7 @@ fi
 
 if [[ "${FADING_MODE}" == "3" || "${FADING_MODE}" == "4" ]]; then
     cat >&2 <<EOF
-[Stage-B] ERROR: pure 7-cell topology (numCellConst=7, numCoorCellConst=7) currently crashes with CDL (fading-mode ${FADING_MODE}).
+[Stage-B] ERROR: pure coordinated topology without outer interferers (topology_scenario=${TOPOLOGY_SCENARIO}, numCellConst=${TOPOLOGY_NUM_CELLS}, numCoorCellConst=${TOPOLOGY_NUM_CELLS}) currently crashes with CDL (fading-mode ${FADING_MODE}).
 Use --fading-mode 0/1/2 for stable baseline runs in this topology.
 EOF
     exit 1
@@ -596,15 +646,15 @@ compact_pass_outputs() {
         "${out_dir}/kpi_summary.txt"
 }
 
-echo "[Stage-B] Apply main experiment parameters (7-site only, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation)..."
+echo "[Stage-B] Apply main experiment parameters (${TOPOLOGY_DESC}, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation)..."
 set_param gpuDeviceIdx "${GPU_ID}"
 set_param numSimChnRlz "${TTI_COUNT}"
 set_param seedConst "${TOPOLOGY_SEED}"
 set_param slotDurationConst "0.5e-3"
 set_param scsConst "30000.0"
 set_param cellRadiusConst "500"
-set_param numCellConst "7"
-set_param numCoorCellConst "7"
+set_param numCellConst "${TOPOLOGY_NUM_CELLS}"
+set_param numCoorCellConst "${TOPOLOGY_NUM_CELLS}"
 set_param numUePerCellConst "${UE_PER_CELL}"
 set_param numUeForGrpConst "${UE_PER_CELL}"
 set_param numActiveUePerCellConst "${UE_PER_CELL}"
@@ -701,6 +751,13 @@ if [[ ! -x "${BIN}" ]]; then
     exit 1
 fi
 
+if [[ "${BUILD_ONLY}" == "1" ]]; then
+    echo "[Stage-B] Build-only mode ready."
+    echo "[Stage-B] Binary: ${BIN}"
+    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} exec_mode=${EXEC_MODE} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE}"
+    exit 0
+fi
+
 DL_IND=1
 if [[ "${DL_UL}" == "ul" ]]; then
     DL_IND=0
@@ -709,6 +766,8 @@ fi
 BASELINE_IND=0
 if [[ "${BASELINE_SCHEDULER}" == "rr" ]]; then
     BASELINE_IND=1
+elif [[ "${BASELINE_SCHEDULER}" == "pfq" ]]; then
+    BASELINE_IND=2
 fi
 
 TS="$(date +%Y%m%d_%H%M%S)"
@@ -788,12 +847,15 @@ for i in "${!PROFILE_ARR[@]}"; do
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  note=baseline scheduler selection is ignored by custom UE+PRG mode"
     fi
+    echo "  topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL}"
+    echo "  ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN}"
     echo "  traffic_packet_bytes=${PACKET_SIZE_BYTES}"
     echo "  traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE}"
     echo "  cmd=${BIN} -d ${DL_IND} -b ${BASELINE_IND} -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${PACKET_SIZE_BYTES}"
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  custom_policy=${CUSTOM_POLICY}"
         if [[ "${CUSTOM_POLICY}" == "gnnrl_model" ]]; then
+            echo "  gnnrl_action_mode=${GNNRL_ACTION_MODE}"
             echo "  model_path=${MODEL_PATH}"
             echo "  policy_timeout_ms=${POLICY_TIMEOUT_MS}"
         fi
@@ -805,6 +867,7 @@ for i in "${!PROFILE_ARR[@]}"; do
         echo "  online_bridge=1 online_socket=${ONLINE_SOCKET}"
     fi
     echo "  exec_mode=${EXEC_MODE}"
+    echo "  effective_layers=${EFFECTIVE_LAYERS}"
     if [[ "${RUN_TIMEOUT_SEC}" -gt 0 ]]; then
         echo "  timeout=${RUN_TIMEOUT_SEC}s"
     fi
@@ -823,12 +886,14 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_UE_RADIUS_SPLITS="${UE_RADIUS_SPLITS}"
         export CUMAC_UE_STRATA_COUNTS="${UE_STRATA_COUNTS}"
         export CUMAC_UE_VORONOI_CLIP="${UE_VORONOI_CLIP}"
+        export CUMAC_BS_TX_PATTERN="${BS_TX_PATTERN}"
         export CUMAC_COMPACT_TTI_LOG="${COMPACT_TTI_LOG}"
         export CUMAC_PROGRESS_TTI_INTERVAL="${PROGRESS_TTI_INTERVAL}"
         export CUMAC_TTI_KPI_LOG_INTERVAL="${KPI_TTI_LOG_INTERVAL}"
         export CUMAC_COMPARE_TTI_INTERVAL="${COMPARE_TTI_INTERVAL}"
         export CUMAC_TRAFFIC_ARRIVAL_RATE="${TRAFFIC_ARRIVAL_RATE}"
         export CUMAC_CUSTOM_POLICY="${CUSTOM_POLICY}"
+        export CUMAC_GNNRL_ACTION_MODE="${GNNRL_ACTION_MODE}"
         export CUMAC_GNNRL_MODEL_PATH="${MODEL_PATH}"
         export CUMAC_POLICY_TIMEOUT_MS="${POLICY_TIMEOUT_MS}"
         export CUMAC_RL_REPLAY_DUMP="${REPLAY_DUMP}"
@@ -837,6 +902,7 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_ONLINE_BRIDGE="${ONLINE_BRIDGE}"
         export CUMAC_ONLINE_SOCKET="${ONLINE_SOCKET}"
         export CUMAC_EXEC_MODE="${EXEC_MODE}"
+        export CUMAC_EFFECTIVE_LAYERS="${EFFECTIVE_LAYERS}"
         cd "${OUT_DIR}"
         RUNNER=("${BIN}" -d "${DL_IND}" -b "${BASELINE_IND}" -f "${FADING_MODE}" -x "${CUSTOM_UE_PRG}" -g "${TRAFFIC_PERCENT}" -r "${PACKET_SIZE_BYTES}")
         if command -v stdbuf >/dev/null 2>&1; then

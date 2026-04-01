@@ -48,6 +48,8 @@ typedef struct mcUeSelDynDescrCpu {
     uint8_t     nUeAnt;
     float       W; // frequency bandwidth (Hz) of a PRB group
     float       betaCoeff; // coefficient for improving cell edge UEs' performance in multi-cell scheduling
+    float       pfQueueBufferCoeff; // coefficient for queue-aware PF weighting
+    float       pfQueueBufferScaleBytes; // normalization scale in bytes for queue-aware PF weighting
 } mcUeSelDynDescrCpu_t;
 
 class multiCellUeSelectionCpu {

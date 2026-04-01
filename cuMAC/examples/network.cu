@@ -48,6 +48,42 @@ std::vector<HexCoord> buildHexSiteLayout()
     };
 }
 
+std::vector<HexCoord> buildCoordinatedSiteLayout(const int numCells)
+{
+    if (numCells == 3) {
+        // Three adjacent sites on the first ring form an equilateral triangle with edge length = siteSpacing.
+        return {
+            {0, 0},
+            {1, 0},
+            {0, 1},
+        };
+    }
+    if (numCells == 7) {
+        return {
+            {0, 0},
+            {1, 0}, {0, 1}, {-1, 1}, {-1, 0}, {0, -1}, {1, -1},
+        };
+    }
+
+    std::vector<HexCoord> layout = buildHexSiteLayout();
+    if (numCells >= 0 && numCells <= static_cast<int>(layout.size())) {
+        layout.resize(static_cast<size_t>(numCells));
+    }
+    return layout;
+}
+
+const char* coordinatedSiteLayoutLabel(const int numCells)
+{
+    switch (numCells) {
+        case 3:
+            return "3cell_triangle";
+        case 7:
+            return "7cell_hex";
+        default:
+            return "generic_hex_prefix";
+    }
+}
+
 inline std::pair<float, float> axialToCartesian(const HexCoord& coord, float siteSpacing)
 {
     const float x = siteSpacing * (static_cast<float>(coord.q) + 0.5f * static_cast<float>(coord.r));
@@ -60,6 +96,11 @@ enum class UePlacementMode {
     Stratified,
 };
 
+enum class BsTxPatternMode {
+    Sectorized,
+    Omnidirectional,
+};
+
 struct UePlacementConfig {
     UePlacementMode mode;
     float centerMaxRatio;
@@ -69,29 +110,42 @@ struct UePlacementConfig {
     std::array<int, 3> strataCounts;
 };
 
-inline float computeVoronoiRadialLimit(const networkData* netData, int servingCellIdx, float dirX, float dirY)
+inline bool equalsIgnoreCase(const char* lhs, const char* rhs)
 {
-    const float servingX = netData->bsPos[servingCellIdx][0];
-    const float servingY = netData->bsPos[servingCellIdx][1];
-    float maxRadius = std::numeric_limits<float>::infinity();
+    if (lhs == nullptr || rhs == nullptr) {
+        return false;
+    }
+    while (*lhs != '\0' && *rhs != '\0') {
+        if (std::tolower(static_cast<unsigned char>(*lhs)) != std::tolower(static_cast<unsigned char>(*rhs))) {
+            return false;
+        }
+        ++lhs;
+        ++rhs;
+    }
+    return *lhs == '\0' && *rhs == '\0';
+}
+
+inline bool isInsideServingVoronoiRegion(const networkData* netData, int servingCellIdx, float ueX, float ueY)
+{
+    const float servingDx = ueX - netData->bsPos[servingCellIdx][0];
+    const float servingDy = ueY - netData->bsPos[servingCellIdx][1];
+    const float servingDist2 = servingDx * servingDx + servingDy * servingDy;
+    constexpr float distEpsilon = 1.0e-4f;
 
     for (int otherCellIdx = 0; otherCellIdx < netData->numCoorCell; ++otherCellIdx) {
         if (otherCellIdx == servingCellIdx) {
             continue;
         }
 
-        const float deltaX = netData->bsPos[otherCellIdx][0] - servingX;
-        const float deltaY = netData->bsPos[otherCellIdx][1] - servingY;
-        const float projection = dirX * deltaX + dirY * deltaY;
-        if (projection <= 0.0f) {
-            continue;
+        const float otherDx = ueX - netData->bsPos[otherCellIdx][0];
+        const float otherDy = ueY - netData->bsPos[otherCellIdx][1];
+        const float otherDist2 = otherDx * otherDx + otherDy * otherDy;
+        if (otherDist2 + distEpsilon < servingDist2) {
+            return false;
         }
-
-        const float boundaryRadius = (deltaX * deltaX + deltaY * deltaY) / (2.0f * projection);
-        maxRadius = std::min(maxRadius, boundaryRadius);
     }
 
-    return maxRadius;
+    return true;
 }
 
 static unsigned int getTopologySeed()
@@ -114,7 +168,7 @@ static UePlacementConfig getUePlacementConfig()
     UePlacementConfig cfg{UePlacementMode::Uniform, 0.33f, 0.66f, false, true, {0, 0, 0}};
 
     const char* envMode = std::getenv("CUMAC_UE_PLACEMENT_MODE");
-    if (envMode != nullptr && envMode[0] != '\0' && std::strcmp(envMode, "stratified") == 0) {
+    if (envMode != nullptr && envMode[0] != '\0' && equalsIgnoreCase(envMode, "stratified")) {
         cfg.mode = UePlacementMode::Stratified;
     }
 
@@ -147,6 +201,21 @@ static UePlacementConfig getUePlacementConfig()
     }
 
     return cfg;
+}
+
+static BsTxPatternMode getBsTxPatternMode()
+{
+    static BsTxPatternMode mode = []() {
+        const char* envMode = std::getenv("CUMAC_BS_TX_PATTERN");
+        if (envMode == nullptr || envMode[0] == '\0') {
+            return BsTxPatternMode::Sectorized;
+        }
+        if (equalsIgnoreCase(envMode, "omni") || equalsIgnoreCase(envMode, "omnidirectional")) {
+            return BsTxPatternMode::Omnidirectional;
+        }
+        return BsTxPatternMode::Sectorized;
+    }();
+    return mode;
 }
 
 } // namespace
@@ -3622,8 +3691,9 @@ uint32_t network::determineTbsPdsch(int rbSize, int nDataSymb, int nrOfLayers, f
 void network::genNetTopology()
 {
     const float siteSpacing = 2.0f * netData->cellRadius;
-    const std::vector<HexCoord> layout = buildHexSiteLayout();
+    const std::vector<HexCoord> layout = buildCoordinatedSiteLayout(netData->numCell);
     const UePlacementConfig placementCfg = getUePlacementConfig();
+    const BsTxPatternMode bsTxPattern = getBsTxPatternMode();
     std::array<int, 3> strataCounts = {0, 0, 0};
     if (netData->numCell > layout.size()) {
         throw std::runtime_error("Requested cell count exceeds hardcoded 2-ring hex layout capacity");
@@ -3651,9 +3721,11 @@ void network::genNetTopology()
         }
     }
 
-    printf("Topology configuration: seed=%u, ue_placement=%s, radius_splits=(%.2f, %.2f), strata_counts=(%d,%d,%d), voronoi_clip=%s\n",
+    printf("Topology configuration: cluster_layout=%s, seed=%u, ue_placement=%s, tx_pattern=%s, radius_splits=(%.2f, %.2f), strata_counts=(%d,%d,%d), voronoi_clip=%s\n",
+           coordinatedSiteLayoutLabel(netData->numCell),
            seed,
            placementCfg.mode == UePlacementMode::Stratified ? "stratified" : "uniform",
+           bsTxPattern == BsTxPatternMode::Omnidirectional ? "omni" : "sectorized",
            placementCfg.centerMaxRatio,
            placementCfg.midMaxRatio,
            strataCounts[0],
@@ -3668,14 +3740,16 @@ void network::genNetTopology()
         netData->bsPos[cIdx][2] = netData->bsHeight;
 
         float orientation = 0.0f;
-        if (cIdx > 0) {
+        if (bsTxPattern == BsTxPatternMode::Sectorized && cIdx > 0) {
             orientation = std::atan2(-coorY, -coorX);
         }
         netData->cellOrien[cIdx] = orientation;
+    }
 
-        if (cIdx >= netData->numCoorCell) {
-            continue;
-        }
+    for (int cIdx = 0; cIdx < netData->numCoorCell; ++cIdx) {
+        const float coorX = netData->bsPos[cIdx][0];
+        const float coorY = netData->bsPos[cIdx][1];
+        const float orientation = netData->cellOrien[cIdx];
 
         for (int uIdx = 0; uIdx < netData->numActiveUesPerCell; ++uIdx) {
             float innerDist = netData->minD2Bs;
@@ -3706,23 +3780,32 @@ void network::genNetTopology()
             bool placed = false;
             constexpr int maxPlacementAttempts = 512;
             for (int attemptIdx = 0; attemptIdx < maxPlacementAttempts; ++attemptIdx) {
-                float randomAngle = 2.0f * static_cast<float>(M_PI) * uniformRealDist(randomEngine) / 3.0f
-                                    - static_cast<float>(M_PI) / 3.0f;
-                randomAngle += orientation;
+                float randomAngle = 0.0f;
+                if (bsTxPattern == BsTxPatternMode::Omnidirectional) {
+                    randomAngle = 2.0f * static_cast<float>(M_PI) * uniformRealDist(randomEngine) - static_cast<float>(M_PI);
+                } else {
+                    randomAngle = 2.0f * static_cast<float>(M_PI) * uniformRealDist(randomEngine) / 3.0f
+                                  - static_cast<float>(M_PI) / 3.0f;
+                    randomAngle += orientation;
+                }
 
                 const float dirX = std::cos(randomAngle);
                 const float dirY = std::sin(randomAngle);
-                float clippedOuterDist = outerDist;
-                if (placementCfg.enforceVoronoiClip) {
-                    clippedOuterDist = std::min(clippedOuterDist, computeVoronoiRadialLimit(netData.get(), cIdx, dirX, dirY));
-                }
-                if (clippedOuterDist < innerDist) {
+                if (outerDist < innerDist) {
                     continue;
                 }
 
-                const float randomDistance = innerDist + (clippedOuterDist - innerDist) * uniformRealDist(randomEngine);
-                netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][0] = dirX * randomDistance + coorX;
-                netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][1] = dirY * randomDistance + coorY;
+                const float randomDistance = std::sqrt(innerDist * innerDist +
+                                                       (outerDist * outerDist - innerDist * innerDist) * uniformRealDist(randomEngine));
+                const float ueX = dirX * randomDistance + coorX;
+                const float ueY = dirY * randomDistance + coorY;
+                if (placementCfg.enforceVoronoiClip &&
+                    !isInsideServingVoronoiRegion(netData.get(), cIdx, ueX, ueY)) {
+                    continue;
+                }
+
+                netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][0] = ueX;
+                netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][1] = ueY;
                 placed = true;
                 break;
             }
@@ -3791,6 +3874,7 @@ void network::initStrongestCellAssociation()
 void network::genLSFading()
 {
     std::lognormal_distribution<float> ln_distribution(0.0, netData->sfStd);
+    const BsTxPatternMode bsTxPattern = getBsTxPatternMode();
 
     // for testing
     float** snrDBAssoc = new float*[netData->numCell];
@@ -3805,23 +3889,26 @@ void network::genLSFading()
             float deltaH = netData->bsPos[cIdx][2] - netData->uePos[uIdx][2];
             float distanceBsUe_3D = sqrt(pow(distanceBsUe_2D, 2.0) + pow(deltaH, 2.0));
 
-            // antenna attenuation
-            float theta = 180.0 - atan(distanceBsUe_2D/deltaH)*180.0/M_PI;
-            float phi = atan2(netData->uePos[uIdx][1] - netData->bsPos[cIdx][1], 
-                        netData->uePos[uIdx][0] - netData->bsPos[cIdx][0]);
-            phi = phi>=0?phi:(2.0*M_PI+phi);
-            float degreeGap = phi - sectorOrien;
-            if (degreeGap > M_PI) {
-                degreeGap = 2.0*M_PI - degreeGap;
-            } else if (degreeGap < -M_PI) {
-                degreeGap = 2.0*M_PI + degreeGap;
-            }
-            degreeGap = degreeGap*180.0/M_PI;
+            float antGain = netData->GEmax;
+            if (bsTxPattern == BsTxPatternMode::Sectorized) {
+                // Preserve the legacy 3GPP-like sector antenna pattern for non-Stage-B paths.
+                float theta = 180.0 - atan(distanceBsUe_2D/deltaH)*180.0/M_PI;
+                float phi = atan2(netData->uePos[uIdx][1] - netData->bsPos[cIdx][1],
+                                  netData->uePos[uIdx][0] - netData->bsPos[cIdx][0]);
+                phi = phi >= 0 ? phi : (2.0f * static_cast<float>(M_PI) + phi);
+                float degreeGap = phi - sectorOrien;
+                if (degreeGap > M_PI) {
+                    degreeGap = 2.0f * static_cast<float>(M_PI) - degreeGap;
+                } else if (degreeGap < -M_PI) {
+                    degreeGap = 2.0f * static_cast<float>(M_PI) + degreeGap;
+                }
+                degreeGap = degreeGap * 180.0f / static_cast<float>(M_PI);
 
-            float antAttenVerti = -std::min(12.0*pow((theta-netData->bsAntDownTilt)/65.0, 2.0), 30.0);
-            float antAttenHoriz = -std::min(12.0*pow(degreeGap/65.0, 2.0), 30.0);
-            float antAtten = -std::min(-(antAttenVerti+antAttenHoriz), float(30.0));
-            float antGain = netData->GEmax + antAtten;
+                float antAttenVerti = -std::min(12.0f * pow((theta - netData->bsAntDownTilt) / 65.0f, 2.0f), 30.0f);
+                float antAttenHoriz = -std::min(12.0f * pow(degreeGap / 65.0f, 2.0f), 30.0f);
+                float antAtten = -std::min(-(antAttenVerti + antAttenHoriz), 30.0f);
+                antGain = netData->GEmax + antAtten;
+            }
             // pathloss + shadow fading
             float PL = 32.4+20.0*log10(netData->carrierFreq)+30.0*log10(distanceBsUe_3D);
             float SF=10.0*log10(ln_distribution(randomEngine));

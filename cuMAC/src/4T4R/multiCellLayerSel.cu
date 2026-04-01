@@ -16,14 +16,87 @@
  */
 
  #include "cumac.h"
+ #include <cstdlib>
 
 // cuMAC namespace
 namespace cumac {
 
  // #define SCHEDULER_KERNEL_TIME_MEASURE_ 
  #ifdef SCHEDULER_KERNEL_TIME_MEASURE_
- constexpr uint16_t numRunSchKnlTimeMsr 1000;
+constexpr uint16_t numRunSchKnlTimeMsr 1000;
  #endif
+
+namespace {
+
+constexpr const char* kEffectiveLayersEnv = "CUMAC_EFFECTIVE_LAYERS";
+
+uint8_t resolveEffectiveLayerCap(const uint8_t maxSupportedLayers)
+{
+   struct ParsedConfig {
+      bool initialized = false;
+      bool hasEnv = false;
+      bool invalid = false;
+      bool warningPrinted = false;
+      long parsed = 0;
+      char raw[32] = {0};
+   };
+
+   static ParsedConfig cfg;
+   if (!cfg.initialized) {
+      cfg.initialized = true;
+      const char* env = std::getenv(kEffectiveLayersEnv);
+      if (env != nullptr && env[0] != '\0') {
+         cfg.hasEnv = true;
+         std::snprintf(cfg.raw, sizeof(cfg.raw), "%s", env);
+         char* end = nullptr;
+         cfg.parsed = std::strtol(env, &end, 10);
+         cfg.invalid = (end == env || (end != nullptr && *end != '\0') || cfg.parsed < 0);
+      }
+   }
+
+   if (!cfg.hasEnv) {
+      return maxSupportedLayers;
+   }
+
+   if (cfg.invalid) {
+      if (!cfg.warningPrinted) {
+         printf("WARNING: invalid %s=%s, fallback to adaptive max=%u\n",
+                kEffectiveLayersEnv,
+                cfg.raw,
+                static_cast<unsigned>(maxSupportedLayers));
+         cfg.warningPrinted = true;
+      }
+      return maxSupportedLayers;
+   }
+
+   if (cfg.parsed == 0) {
+      return maxSupportedLayers;
+   }
+
+   if (cfg.parsed > maxSupportedLayers) {
+      if (!cfg.warningPrinted) {
+         printf("WARNING: %s=%ld exceeds supported max=%u, clamp to %u\n",
+                kEffectiveLayersEnv,
+                cfg.parsed,
+                static_cast<unsigned>(maxSupportedLayers),
+                static_cast<unsigned>(maxSupportedLayers));
+         cfg.warningPrinted = true;
+      }
+      return maxSupportedLayers;
+   }
+
+   return static_cast<uint8_t>(cfg.parsed);
+}
+
+static __device__ __forceinline__ uint8_t clampSelectedLayers(uint8_t layers, uint8_t maxEffectiveLayers)
+{
+   if (layers == 0xFF) {
+      return 0xFF;
+   }
+   return layers > maxEffectiveLayers ? maxEffectiveLayers : layers;
+}
+
+} // namespace
 
  multiCellLayerSel::multiCellLayerSel(cumacCellGrpPrms* cellGrpPrms)
  {
@@ -122,9 +195,9 @@ namespace cumac {
 
    if (uIdx < pDynDescr->nUe && prgIdx == 0) {
       if (numLayers[threadIdx.x] < numLayers[threadIdx.x+1]) {
-         pDynDescr->layerSelSol[uIdx] = numLayers[threadIdx.x];
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers[threadIdx.x], pDynDescr->maxEffectiveLayers);
       } else {
-         pDynDescr->layerSelSol[uIdx] = numLayers[threadIdx.x+1];
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers[threadIdx.x+1], pDynDescr->maxEffectiveLayers);
       }
    }
  }
@@ -178,7 +251,9 @@ namespace cumac {
    if (uIdx < pDynDescr->nUe && prgIdx == 0) {
       numLayers[threadIdx.x] += numLayers[threadIdx.x+1];
       if (numAllocPrg > 0) {
-         pDynDescr->layerSelSol[uIdx] = floor(static_cast<float>(numLayers[threadIdx.x])/numAllocPrg);
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(
+             static_cast<uint8_t>(floor(static_cast<float>(numLayers[threadIdx.x])/numAllocPrg)),
+             pDynDescr->maxEffectiveLayers);
       } else {
          pDynDescr->layerSelSol[uIdx] = 0xFF;
       }
@@ -201,13 +276,14 @@ namespace cumac {
       int8_t riVal = pDynDescr->riActUe[globalUidx];
       if (riVal >= 1 && riVal <= pDynDescr->nUeAnt) { // valid RI
          if (numAllocPrg > 0) {
-            pDynDescr->layerSelSol[uIdx] = static_cast<uint8_t>(riVal);
+            pDynDescr->layerSelSol[uIdx] =
+                clampSelectedLayers(static_cast<uint8_t>(riVal), pDynDescr->maxEffectiveLayers);
          } else {
             pDynDescr->layerSelSol[uIdx] = 0xFF;
          }
       } else {
          if (numAllocPrg > 0) {
-            pDynDescr->layerSelSol[uIdx] = 1;
+            pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(1, pDynDescr->maxEffectiveLayers);
          } else {
             pDynDescr->layerSelSol[uIdx] = 0xFF;
          }
@@ -283,9 +359,9 @@ namespace cumac {
 
    if (uIdx < pDynDescr->nUe && prgIdx == 0) {
       if (numLayers[threadIdx.x] < numLayers[threadIdx.x+1]) {
-         pDynDescr->layerSelSol[uIdx] = numLayers[threadIdx.x];
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers[threadIdx.x], pDynDescr->maxEffectiveLayers);
       } else {
-         pDynDescr->layerSelSol[uIdx] = numLayers[threadIdx.x+1];
+         pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(numLayers[threadIdx.x+1], pDynDescr->maxEffectiveLayers);
       }
    }  
  }*/
@@ -342,12 +418,15 @@ namespace cumac {
          numLayers[threadIdx.x] += numLayers[threadIdx.x+1];
 
          if (numAllocPrg > 0) {
-            pDynDescr->layerSelSol[uIdx] = floor(static_cast<float>(numLayers[threadIdx.x])/numAllocPrg);
+            pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(
+                static_cast<uint8_t>(floor(static_cast<float>(numLayers[threadIdx.x])/numAllocPrg)),
+                pDynDescr->maxEffectiveLayers);
          } else {
             pDynDescr->layerSelSol[uIdx] = 0xFF;
          }
       } else { // the UE is scheduled for re-transmission
-         pDynDescr->layerSelSol[uIdx] = pDynDescr->layerSelSolLastTx[uIdx];
+         pDynDescr->layerSelSol[uIdx] =
+             clampSelectedLayers(pDynDescr->layerSelSolLastTx[uIdx], pDynDescr->maxEffectiveLayers);
       }
    }
  }
@@ -369,20 +448,22 @@ namespace cumac {
          int8_t riVal = pDynDescr->riActUe[globalUidx];
          if (riVal >= 1 && riVal <= pDynDescr->nUeAnt) { // valid RI
             if (numAllocPrg > 0) {
-               pDynDescr->layerSelSol[uIdx] = static_cast<uint8_t>(riVal);
+               pDynDescr->layerSelSol[uIdx] =
+                   clampSelectedLayers(static_cast<uint8_t>(riVal), pDynDescr->maxEffectiveLayers);
             } else {
                pDynDescr->layerSelSol[uIdx] = 0xFF;
             }
          } else { // valid RI
             if (numAllocPrg > 0) {
-               pDynDescr->layerSelSol[uIdx] = 1;
+               pDynDescr->layerSelSol[uIdx] = clampSelectedLayers(1, pDynDescr->maxEffectiveLayers);
             } else {
                pDynDescr->layerSelSol[uIdx] = 0xFF;
             }
             
          }
       } else { // the UE is scheduled for re-transmission
-         pDynDescr->layerSelSol[uIdx] = pDynDescr->layerSelSolLastTx[uIdx];
+         pDynDescr->layerSelSol[uIdx] =
+             clampSelectedLayers(pDynDescr->layerSelSolLastTx[uIdx], pDynDescr->maxEffectiveLayers);
       }
    }
  }
@@ -538,6 +619,7 @@ namespace cumac {
     pCpuDynDesc->nCell                  = cellGrpPrms->nCell;
     pCpuDynDesc->totNumCell             = cellGrpPrms->totNumCell;
     pCpuDynDesc->nUeAnt                 = cellGrpPrms->nUeAnt;
+    pCpuDynDesc->maxEffectiveLayers     = resolveEffectiveLayerCap(cellGrpPrms->nUeAnt);
     pCpuDynDesc->sinValThr              = cellGrpPrms->sinValThr;
     allocType                           = cellGrpPrms->allocType;
     precodingScheme                     = cellGrpPrms->precodingScheme;

@@ -40,8 +40,8 @@
  #define scsConst          30000.0
  #define numMcsLevels           28
  #define cellRadiusConst          500
- #define numCellConst          7
- #define numCoorCellConst          7
+ #define numCellConst          3
+ #define numCoorCellConst          3
  #define numUePerCellConst          8
  #define numUeForGrpConst          8
  // assumption's that numUePerCellConst <= numUeForGrpConst

@@ -51,6 +51,7 @@ namespace cumac {
    uint16_t    totNumCell;
    uint8_t     nTxAnt;
    uint8_t     nRxAnt;
+   uint8_t     maxEffectiveLayers;
 
    // parameters not included in the API data structures
    // (set up internally in cuMAC setup() function)

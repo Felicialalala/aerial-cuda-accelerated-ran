@@ -379,9 +379,9 @@ void ReplayWriter::buildActionMask(const cumacCellGrpUeStatus* cellGrpUeStatusCp
                 continue;
             }
             hasAssoc = true;
-            if (hasBuffer) {
-                cellUeMask[cIdx * m_nActiveUe + ueIdx] = 1U;
-            }
+            // Store association-only cell/UE compatibility. action_mask_ue
+            // still captures buffer availability for joint UE selection.
+            cellUeMask[cIdx * m_nActiveUe + ueIdx] = 1U;
         }
         ueMask[ueIdx] = (hasAssoc && hasBuffer) ? 1U : 0U;
     }
@@ -530,6 +530,7 @@ void ReplayWriter::writeMeta() const
          << "  \"record_count\": " << m_recordCount << ",\n"
          << "  \"record_bytes\": " << m_recordBytes << ",\n"
          << "  \"has_action_mask_cell_ue\": true,\n"
+         << "  \"action_mask_cell_ue_semantics\": \"assoc_only\",\n"
          << "  \"dims\": {\n"
          << "    \"n_cell\": " << m_nCell << ",\n"
          << "    \"n_active_ue\": " << m_nActiveUe << ",\n"

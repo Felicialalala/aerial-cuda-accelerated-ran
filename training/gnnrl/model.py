@@ -11,6 +11,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from training.gnnrl.action_modes import ACTION_MODE_JOINT, normalize_action_mode
+
 
 @dataclass(frozen=True)
 class ModelConfig:
@@ -24,6 +26,7 @@ class ModelConfig:
     hidden_dim: int = 128
     num_cell_msg_layers: int = 2
     max_prg: int = 512
+    action_mode: str = ACTION_MODE_JOINT
 
 
 class CellMessageLayer(nn.Module):
@@ -72,6 +75,7 @@ class StageBGnnPolicy(nn.Module):
     def __init__(self, cfg: ModelConfig):
         super().__init__()
         self.cfg = cfg
+        self.action_mode = normalize_action_mode(cfg.action_mode)
 
         if cfg.n_sched_ue % cfg.n_cell != 0:
             raise ValueError(f"n_sched_ue={cfg.n_sched_ue} must be divisible by n_cell={cfg.n_cell}")
@@ -212,6 +216,7 @@ class StageBGnnPolicy(nn.Module):
             "hidden_dim": self.cfg.hidden_dim,
             "num_cell_msg_layers": self.cfg.num_cell_msg_layers,
             "max_prg": self.cfg.max_prg,
+            "action_mode": self.action_mode,
         }
 
 

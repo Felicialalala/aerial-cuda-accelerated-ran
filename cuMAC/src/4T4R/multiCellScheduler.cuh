@@ -51,6 +51,7 @@ typedef struct mcDynDescr {
   uint16_t*   cellId; // IDs of coordinated cells
   uint8_t*    cellAssoc;
   float*      avgRates;
+  uint32_t*   bufferSize;
   float*      postEqSinr; // global post-eq SINR array
   float*      sinVal; 
   uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
@@ -72,6 +73,7 @@ typedef struct mcDynDescr {
 
   //----------------- parameters (common for both DL and UL) ----------------- 
   uint16_t    nUe; // total number of selected UEs in the coordinated cells
+  uint16_t    nActiveUe; // total number of active UEs in the coordinated cells
   uint16_t    nCell; // number of coordinated cells
   uint8_t     numUeSchdPerCellTTI; // number of UEs scheduled per TTI per cell
   uint16_t    totNumCell; // number of all cells in the network. (not needed if channel buffer only contains channels within coordinated cells)
@@ -82,6 +84,8 @@ typedef struct mcDynDescr {
   float       sigmaSqrd; // noise variance if channel is not normalized; 1/SNR if channel is normalized with transmit power, limitation: SNR (per antenna) should be <= 111 dB
   uint16_t    nMaxSchdUePerRnd; // maximum number of UEs per cell that can be scheduled per round 
   float       betaCoeff; // coefficient for improving cell edge UEs' performance in multi-cell scheduling
+  float       pfQueueBufferCoeff; // coefficient for queue-aware PF weighting
+  float       pfQueueBufferScaleBytes; // normalization scale in bytes for queue-aware PF weighting
 } mcDynDescr_t;
 
 class multiCellScheduler {

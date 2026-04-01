@@ -25,6 +25,35 @@ namespace cumac {
 #define numRunSchKnlTimeMsr    1000
 #endif
 
+namespace {
+
+float queueAwarePfWeight(const mcDynDescrCpu_t* pCpuDynDesc, uint16_t ueIdx)
+{
+    if (pCpuDynDesc->pfQueueBufferCoeff <= 0.0f || pCpuDynDesc->bufferSize == nullptr ||
+        pCpuDynDesc->setSchdUePerCellTTI == nullptr || ueIdx >= pCpuDynDesc->nUe) {
+        return 1.0f;
+    }
+
+    const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+    if (actUeId == 0xFFFF || actUeId >= pCpuDynDesc->nActiveUe) {
+        return 1.0f;
+    }
+
+    const float scaleBytes = pCpuDynDesc->pfQueueBufferScaleBytes > 0.0f
+                                 ? pCpuDynDesc->pfQueueBufferScaleBytes
+                                 : 1.0f;
+    const float normalizedBuffer = static_cast<float>(pCpuDynDesc->bufferSize[actUeId]) / scaleBytes;
+    return 1.0f + pCpuDynDesc->pfQueueBufferCoeff * std::log2(1.0f + normalizedBuffer);
+}
+
+float computePfMetric(const mcDynDescrCpu_t* pCpuDynDesc, float dataRate, uint16_t ueIdx)
+{
+    const float pfMetric = std::pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+    return pfMetric * queueAwarePfWeight(pCpuDynDesc, ueIdx);
+}
+
+} // namespace
+
 multiCellSchedulerCpu::multiCellSchedulerCpu(cumacCellGrpPrms* cellGrpPrms)
 {
      matAlg      = std::make_unique<cpuMatAlg>();
@@ -112,7 +141,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_noPrdMmse()
                     }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
-                float pfMetric = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+                float pfMetric = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
                 if (pfMetric > maxv) {
                     maxv = pfMetric;
                     maxi = ueIdx;
@@ -213,7 +242,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
                     }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
-                float pfMetric = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+                float pfMetric = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
 
                 if (pfMetric > maxv) {
                     maxv = pfMetric;
@@ -332,7 +361,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_cm()
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
 
-                pfTemp.first = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+                pfTemp.first = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
                 pf.push_back(pfTemp);
             }
         }
@@ -494,7 +523,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_cm()
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
 
-                pfTemp.first = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+                pfTemp.first = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
                 pf.push_back(pfTemp);
             }
         }
@@ -655,7 +684,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_NoPrdMmse_rm()
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
 
-                pfTemp.first = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+                pfTemp.first = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
                 pf.push_back(pfTemp);
             }
         }
@@ -773,7 +802,7 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_type1_svdPrdMmse_UL()
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(1.0 + sinrTemp)));
                 }
 
-                pfTemp.first = pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
+                pfTemp.first = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
                 pf.push_back(pfTemp);
             }
         }
@@ -848,6 +877,7 @@ void multiCellSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
 
     pCpuDynDesc->cellId                 = cellGrpPrms->cellId;
     pCpuDynDesc->avgRates               = cellGrpUeStatus->avgRates;
+    pCpuDynDesc->bufferSize             = cellGrpUeStatus->bufferSize;
     pCpuDynDesc->allocSol               = schdSol->allocSol;
     pCpuDynDesc->cellAssoc              = cellGrpPrms->cellAssoc;
     pCpuDynDesc->nUe                    = cellGrpPrms->nUe; // total number of UEs across all coordinated cells
@@ -861,6 +891,8 @@ void multiCellSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pCpuDynDesc->numUeSchdPerCellTTI    = cellGrpPrms->numUeSchdPerCellTTI;
     pCpuDynDesc->sigmaSqrd              = cellGrpPrms->sigmaSqrd;
     pCpuDynDesc->betaCoeff              = cellGrpPrms->betaCoeff;
+    pCpuDynDesc->pfQueueBufferCoeff     = cellGrpPrms->pfQueueBufferCoeff;
+    pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
     pCpuDynDesc->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
     pCpuDynDesc->postEqSinr             = cellGrpPrms->postEqSinr;   
     precodingScheme                     = cellGrpPrms->precodingScheme;
@@ -895,6 +927,8 @@ void multiCellSchedulerCpu::debugLog()
     printf("allocType: %d\n", allocType);
     printf("precodingScheme: %d\n", precodingScheme);
     printf("betaCoeff: %f\n", pCpuDynDesc->betaCoeff);
+    printf("pfQueueBufferCoeff: %f\n", pCpuDynDesc->pfQueueBufferCoeff);
+    printf("pfQueueBufferScaleBytes: %f\n", pCpuDynDesc->pfQueueBufferScaleBytes);
     printf("columnMajor: %d\n", columnMajor);
 
     printf("cellId: ");

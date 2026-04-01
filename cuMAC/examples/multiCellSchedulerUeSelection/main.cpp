@@ -46,7 +46,7 @@ void usage()
     printf("cuMAC DL/UL scheduler pipeline test with [Arguments]\n");
     printf("Arguments:\n");
     printf("  -d  [Indication for DL/UL: 0 - UL, 1 - DL (default 1)]\n");
-    printf("  -b  [Indication for RR baseline/reference-check mode: 0 - PF reference check, 1 - RR baseline (default 0)]\n");
+    printf("  -b  [Indication for baseline/reference-check mode: 0 - PF reference check, 1 - RR baseline, 2 - queue-aware PF reference check (default 0)]\n");
     printf("  -p  [Indication for using FP16 PRG allocation kernel: 0 - FP32, 1 - FP16 (default 0)]\n");
     printf("  -t  [Indication for saving TV before return: 0 - not saving TV, 1 - save TV for GPU scheduler, 2 - save TV for CPU scheduler, 3 - save per-cell TVs for testMAC/cuMAC-CP (default 0)]\n");
     printf("  -f  [Indication for choosing fast fading: 0 - Rayleigh fading, 1 - GPU TDL CFR on Prg, 2 - GPU TDL CFR on Sc and Prg, 3 - GPU CDL CFR on Prg, 4 - GPU CDL CFR on Sc and Prg (default 0)]\n"); // currently only CFR on Prg is used in network class, so 2 / 4 is not recommended
@@ -56,13 +56,18 @@ void usage()
     printf("Example 1 (call cuMAC DL scheduler pipeline with CPU reference check): './multiCellSchedulerUeSelection'\n");
     printf("Example 2 (call cuMAC UL scheduler pipeline with CPU reference check): './multiCellSchedulerUeSelection -d 0'\n");
     printf("Example 3 (call cuMAC DL scheduler pipeline with RR baseline): './multiCellSchedulerUeSelection -b 1'\n");
-    printf("Example 4 (call cuMAC DL scheduler pipeline using GPU TDL channel): './multiCellSchedulerUeSelection -f <1 or 2>'\n");
-    printf("Example 4 (call cuMAC DL scheduler pipeline using GPU CDL channel): './multiCellSchedulerUeSelection -f <3 or 4>'\n");
-    printf("Example 5 (create cuMAC test vector for DL: './multiCellSchedulerUeSelection -t 1'\n");
+    printf("Example 4 (call cuMAC DL scheduler pipeline with queue-aware PF): './multiCellSchedulerUeSelection -b 2'\n");
+    printf("Example 5 (call cuMAC DL scheduler pipeline using GPU TDL channel): './multiCellSchedulerUeSelection -f <1 or 2>'\n");
+    printf("Example 6 (call cuMAC DL scheduler pipeline using GPU CDL channel): './multiCellSchedulerUeSelection -f <3 or 4>'\n");
+    printf("Example 7 (create cuMAC test vector for DL: './multiCellSchedulerUeSelection -t 1'\n");
     // <channel_file> = ~/mnt/cuMAC/100randTTI570Ues2ta2raUMa_xpol_2.5GHz.mat
 }
 
 namespace {
+
+constexpr uint8_t kBaselinePf = 0;
+constexpr uint8_t kBaselineRr = 1;
+constexpr uint8_t kBaselinePfQueueAware = 2;
 
 enum class ExecMode {
     Both,
@@ -83,6 +88,24 @@ ExecMode parseExecMode(const std::string& value)
     }
     fprintf(stderr, "ERROR: Unsupported CUMAC_EXEC_MODE=%s. Supported values: both, gpu.\n", value.c_str());
     exit(1);
+}
+
+const char* baselineModeLabel(uint8_t baseline)
+{
+    switch (baseline) {
+        case kBaselineRr:
+            return "RR baseline";
+        case kBaselinePfQueueAware:
+            return "queue-aware PF reference check";
+        case kBaselinePf:
+        default:
+            return "PF reference check";
+    }
+}
+
+const char* nativePfLabel(uint8_t baseline)
+{
+    return baseline == kBaselinePfQueueAware ? "queue-aware PF" : "PF";
 }
 
 const char* execModeToString(const ExecMode mode)
@@ -155,6 +178,7 @@ void copyGpuUeSelectionToCpu(cumacSchdSol* schdSolCpu,
 void populateType0AllUeSelection(cumacSchdSol* schdSolCpu,
                                  cumacSchdSol* schdSolGpu,
                                  const cumacCellGrpPrms* cellGrpPrmsCpu,
+                                 const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                                  cudaStream_t stream)
 {
     if (schdSolCpu == nullptr || schdSolGpu == nullptr || cellGrpPrmsCpu == nullptr) {
@@ -162,8 +186,20 @@ void populateType0AllUeSelection(cumacSchdSol* schdSolCpu,
     }
     const uint32_t nSchedSlots = cellGrpPrmsCpu->nUe;
     const uint32_t nActiveUe = cellGrpPrmsCpu->nActiveUe;
+    const bool hasMacBufferState =
+        cellGrpUeStatusCpu != nullptr && cellGrpUeStatusCpu->bufferSize != nullptr;
     for (uint32_t uIdx = 0; uIdx < nSchedSlots; ++uIdx) {
-        schdSolCpu->setSchdUePerCellTTI[uIdx] = (uIdx < nActiveUe) ? static_cast<uint16_t>(uIdx) : 0xFFFF;
+        if (uIdx >= nActiveUe) {
+            schdSolCpu->setSchdUePerCellTTI[uIdx] = 0xFFFF;
+            continue;
+        }
+
+        if (hasMacBufferState && cellGrpUeStatusCpu->bufferSize[uIdx] == 0) {
+            schdSolCpu->setSchdUePerCellTTI[uIdx] = 0xFFFF;
+            continue;
+        }
+
+        schdSolCpu->setSchdUePerCellTTI[uIdx] = static_cast<uint16_t>(uIdx);
     }
     const size_t ueSelBytes = static_cast<size_t>(nSchedSlots) * sizeof(uint16_t);
     CUDA_CHECK_ERR(cudaMemcpyAsync(
@@ -476,15 +512,21 @@ int main(int argc, char* argv[])
   }
 
   if (cpuRrRefIndStr.size() == 0) {
-      baseline = 0;
+      baseline = kBaselinePf;
   } else {
-      baseline = static_cast<uint8_t>(cpuRrRefIndStr[0] - '0');
+      int parsedBaseline = -1;
+      if (1 != sscanf(cpuRrRefIndStr.c_str(), "%d", &parsedBaseline) ||
+          parsedBaseline < static_cast<int>(kBaselinePf) ||
+          parsedBaseline > static_cast<int>(kBaselinePfQueueAware)) {
+          fprintf(stderr, "ERROR: -b must be 0 (PF), 1 (RR), or 2 (queue-aware PF).\n");
+          exit(1);
+      }
+      baseline = static_cast<uint8_t>(parsedBaseline);
   }
-  if (baseline == 1) {
-    printf("cuMAC scheduler pipeline test: RR baseline on CPU and GPU paths\n");
-  } else {
-    printf("cuMAC scheduler pipeline test: PF reference check (CPU and GPU)\n");
-  }
+  const bool rrBaseline = baseline == kBaselineRr;
+  const bool queueAwarePfBaseline = baseline == kBaselinePfQueueAware;
+  const char* pfModeLabel = nativePfLabel(baseline);
+  printf("cuMAC scheduler pipeline test: %s on CPU and GPU paths\n", baselineModeLabel(baseline));
 
   switch (fastFadingMode)
   {
@@ -556,6 +598,10 @@ int main(int argc, char* argv[])
   const bool onlineBridgeEnabled = getEnvInt("CUMAC_ONLINE_BRIDGE", 0) != 0;
   const std::string onlineSocketPath = getEnvString("CUMAC_ONLINE_SOCKET", "/tmp/cumac_stageb_online.sock");
   const bool onlinePersistentMode = onlineBridgeEnabled && (getEnvInt("CUMAC_ONLINE_PERSISTENT", 1) != 0);
+  const float pfQueueBufferCoeff =
+      queueAwarePfBaseline ? getEnvFloat("CUMAC_PFQ_BUFFER_COEFF", 0.25f) : 0.0f;
+  const float pfQueueBufferScaleBytes = std::max(
+      1.0f, getEnvFloat("CUMAC_PFQ_BUFFER_SCALE_BYTES", std::max(packetSizeBytes, 1.0f)));
   if (compareTtiInterval < 0) {
       compareTtiInterval = 0;
   }
@@ -614,6 +660,15 @@ int main(int argc, char* argv[])
 
   // create API
   net->createAPI();
+  net->cellGrpPrmsGpu->pfQueueBufferCoeff = pfQueueBufferCoeff;
+  net->cellGrpPrmsGpu->pfQueueBufferScaleBytes = pfQueueBufferScaleBytes;
+  net->cellGrpPrmsCpu->pfQueueBufferCoeff = pfQueueBufferCoeff;
+  net->cellGrpPrmsCpu->pfQueueBufferScaleBytes = pfQueueBufferScaleBytes;
+  if (queueAwarePfBaseline) {
+    printf("Queue-aware PF weighting: buffer_coeff=%.3f buffer_scale_bytes=%.3f\n",
+           pfQueueBufferCoeff,
+           pfQueueBufferScaleBytes);
+  }
 
 
   // Initialize traffic service
@@ -643,17 +698,17 @@ int main(int argc, char* argv[])
   cumac::mcRRUeSelHndl_t rrUeSelGpu = nullptr;
   cumac::mcSchdHndl_t mcSchGpu = nullptr;
   cumac::mcRRSchdHndl_t rrSchGpu = nullptr;
-  if (baseline == 1) {
+  if (rrBaseline) {
     printf("Using GPU RR UE selection\n");
     rrUeSelGpu = new cumac::multiCellRRUeSel(net->cellGrpPrmsGpu.get());
 
     printf("Using GPU RR UE scheduler\n");
     rrSchGpu = new cumac::multiCellRRScheduler(net->cellGrpPrmsGpu.get());
   } else {
-    printf("Using GPU multi-cell PF UE selection\n");
+    printf("Using GPU multi-cell %s UE selection\n", pfModeLabel);
     mcUeSelGpu = new cumac::multiCellUeSelection(net->cellGrpPrmsGpu.get());
 
-    printf("Using GPU multi-cell PF scheduler\n");
+    printf("Using GPU multi-cell %s scheduler\n", pfModeLabel);
     mcSchGpu = new cumac::multiCellScheduler(net->cellGrpPrmsGpu.get());
   }
   std::unique_ptr<cumac::CustomUePrgScheduler> customUePrgScheduler;
@@ -740,17 +795,17 @@ int main(int argc, char* argv[])
   mcUeSelCpuHndl_t  mcUeSelCpu  = nullptr;
   mcSchdCpuHndl_t   mcSchCpu    = nullptr;
   if (runCpuReferencePath) {
-    if (baseline == 1) { // RR baseline
+    if (rrBaseline) { // RR baseline
       printf("Using CPU RR UE selection\n");
       rrUeSelCpu = new roundRobinUeSelCpu(net->cellGrpPrmsCpu.get());
 
       printf("Using CPU RR UE scheduler\n");
       rrSchCpu = new roundRobinSchedulerCpu(net->cellGrpPrmsCpu.get());
     } else { // CPU reference check
-      printf("Using CPU multi-cell PF UE selection\n");
+      printf("Using CPU multi-cell %s UE selection\n", pfModeLabel);
       mcUeSelCpu = new multiCellUeSelectionCpu(net->cellGrpPrmsCpu.get());
 
-      printf("Using CPU multi-cell PF scheduler\n");
+      printf("Using CPU multi-cell %s scheduler\n", pfModeLabel);
       mcSchCpu = new multiCellSchedulerCpu(net->cellGrpPrmsCpu.get());
     }
   }
@@ -771,10 +826,12 @@ int main(int argc, char* argv[])
   const int nUeAnt = net->cellGrpPrmsCpu->nUeAnt;
   const bool type0AllUeScheduling = net->cellGrpPrmsCpu->allocType == 0;
   std::vector<double> ueMcsSum(nActiveUe, 0.0);
+  std::vector<double> ueLayerSum(nActiveUe, 0.0);
   std::vector<uint32_t> ueMcsCnt(nActiveUe, 0);
   std::vector<unsigned long long> ueTbTxPkts(nActiveUe, 0ULL);
   std::vector<unsigned long long> ueTbSuccPkts(nActiveUe, 0ULL);
   std::vector<unsigned long long> ueTbErrCount(nActiveUe, 0ULL);
+  std::vector<unsigned long long> ueGoodputBytes(nActiveUe, 0ULL);
   std::vector<double> uePredBlerSum(nActiveUe, 0.0);
   std::vector<uint32_t> uePredBlerCnt(nActiveUe, 0U);
   std::vector<double> ueWbSinrLinSumAll(nActiveUe, 0.0);
@@ -992,11 +1049,15 @@ int main(int argc, char* argv[])
       std::cout << "CPU PF UE selection completed [custom]" << std::endl;
     } else if (type0AllUeScheduling) {
       stageTrace(t, "before_type0_all_ue_selection");
-      populateType0AllUeSelection(net->schdSolCpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsCpu.get(), cuStrmMain);
+      populateType0AllUeSelection(net->schdSolCpu.get(),
+                                  net->schdSolGpu.get(),
+                                  net->cellGrpPrmsCpu.get(),
+                                  net->cellGrpUeStatusCpu.get(),
+                                  cuStrmMain);
       stageTrace(t, "after_type0_all_ue_selection");
-      std::cout<<"Type-0 scheduling: using all active UEs for RBG allocation"<<std::endl;
+      std::cout<<"Type-0 scheduling: using active UEs with MAC backlog for RBG allocation"<<std::endl;
     } else {
-      if (baseline == 1) {
+      if (rrBaseline) {
         stageTrace(t, "before_gpu_rr_ue_sel_setup");
         rrUeSelGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
@@ -1013,17 +1074,17 @@ int main(int argc, char* argv[])
         mcUeSelGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_ue_sel_setup");
-        std::cout<<"GPU PF UE selection setup completed"<<std::endl;
+        std::cout<<"GPU "<<pfModeLabel<<" UE selection setup completed"<<std::endl;
 
         stageTrace(t, "before_gpu_ue_sel_run");
         mcUeSelGpu->run(cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_ue_sel_run");
-        std::cout<<"GPU PF UE selection run completed"<<std::endl;
+        std::cout<<"GPU "<<pfModeLabel<<" UE selection run completed"<<std::endl;
       }
 
       if (runCpuReferencePath) {
-        if (baseline == 1) {
+        if (rrBaseline) {
           rrUeSelCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
           rrUeSelCpu->run();
           std::cout<<"CPU RR UE selection completed"<<std::endl;
@@ -1034,7 +1095,7 @@ int main(int argc, char* argv[])
           stageTrace(t, "before_cpu_ue_sel_run");
           mcUeSelCpu->run();
           stageTrace(t, "after_cpu_ue_sel_run");
-          std::cout<<"CPU PF UE selection completed"<<std::endl;
+          std::cout<<"CPU "<<pfModeLabel<<" UE selection completed"<<std::endl;
         }
       } else {
         copyGpuUeSelectionToCpu(net->schdSolCpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsCpu.get(), cuStrmMain);
@@ -1064,7 +1125,7 @@ int main(int argc, char* argv[])
         printf("Multi-cell scheduler: calling light-weight kernel\n");
       }
       std::cout<<"GPU scheduler setup started"<<std::endl;
-      if (baseline == 1) {
+      if (rrBaseline) {
         stageTrace(t, "before_gpu_rr_sch_setup");
         rrSchGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
@@ -1075,11 +1136,11 @@ int main(int argc, char* argv[])
         mcSchGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), net->simParam.get(), columnMajor, halfPrecision, lightWeight, percSmNumThrdBlk, cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_sch_setup");
-        std::cout<<"GPU PF scheduler setup completed"<<std::endl;
+        std::cout<<"GPU "<<pfModeLabel<<" scheduler setup completed"<<std::endl;
       }
 
       if (runCpuReferencePath) {
-        if (baseline == 1) {
+        if (rrBaseline) {
           rrSchCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
         } else {
           stageTrace(t, "before_cpu_sch_setup");
@@ -1117,7 +1178,7 @@ int main(int argc, char* argv[])
       std::cout << "CPU scheduler run completed [custom]" << std::endl;
     } else {
       std::cout<<"GPU scheduler run started"<<std::endl;
-      if (baseline == 1) {
+      if (rrBaseline) {
         stageTrace(t, "before_gpu_rr_sch_run");
         rrSchGpu->run(cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
@@ -1128,11 +1189,11 @@ int main(int argc, char* argv[])
         mcSchGpu->run(cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_sch_run");
-        std::cout<<"GPU PF scheduler run completed"<<std::endl;
+        std::cout<<"GPU "<<pfModeLabel<<" scheduler run completed"<<std::endl;
       }
 
       if (runCpuReferencePath) {
-        if (baseline == 1) {
+        if (rrBaseline) {
           std::cout<<"CPU scheduler run started"<<std::endl;
           rrSchCpu->run();
           std::cout<<"CPU scheduler run completed"<<std::endl;
@@ -1186,7 +1247,12 @@ int main(int argc, char* argv[])
       const uint16_t activeUeId = net->schdSolCpu.get()->setSchdUePerCellTTI[schdUidx];
       const int16_t mcs = net->schdSolCpu.get()->mcsSelSol[schdUidx];
       if (activeUeId != 0xFFFF && activeUeId < static_cast<uint16_t>(nActiveUe) && mcs >= 0) {
+        const int layerCount = (net->schdSolCpu.get()->layerSelSol[schdUidx] >= 1 &&
+                                net->schdSolCpu.get()->layerSelSol[schdUidx] <= nUeAnt)
+                                   ? static_cast<int>(net->schdSolCpu.get()->layerSelSol[schdUidx])
+                                   : 1;
         ueMcsSum[activeUeId] += static_cast<double>(mcs);
+        ueLayerSum[activeUeId] += static_cast<double>(layerCount);
         ueMcsCnt[activeUeId] += 1;
       }
     }
@@ -1200,7 +1266,7 @@ int main(int argc, char* argv[])
     std::cout<<"Scheduling solution transferred to host"<<std::endl;
 
     bool solCheckPass = true;
-    if (runCpuReferencePath && baseline == 0 && compareTtiInterval > 0) {
+    if (runCpuReferencePath && !rrBaseline && compareTtiInterval > 0) {
       if (((t + 1) % compareTtiInterval) == 0 || (!onlineBridgeEnabled && t == (numSimChnRlz - 1))) {
         solCheckPass = net->compareCpuGpuAllocSol();
       }
@@ -1271,6 +1337,9 @@ int main(int argc, char* argv[])
                                : -1;
       if (tbErr == 0) {
         ueTbSuccPkts[activeUeId] += 1ULL;
+        if (static_cast<size_t>(activeUeId) < servedBytesThisTti.size()) {
+          ueGoodputBytes[activeUeId] += servedBytesThisTti[activeUeId];
+        }
       }
       if (tbErr == 1) {
         ueTbErrCount[activeUeId] += 1ULL;
@@ -1370,7 +1439,7 @@ int main(int argc, char* argv[])
   } else if (!runCpuReferencePath) {
     cpuGpuPerfCheckPass = true;
     printf("CPU and GPU scheduler performance check result: BYPASS (gpu-only execution mode)\n");
-  } else if (baseline == 1) { 
+  } else if (rrBaseline) {
     cpuGpuPerfCheckPass = 1;
   } else {
     cpuGpuPerfCheckPass = net->compareCpuGpuSchdPerf();
@@ -1395,6 +1464,10 @@ int main(int argc, char* argv[])
     for (int uIdx = 0; uIdx < totNumActiveUesConst; uIdx++) {
       mac_buffer_bytes += net->cellGrpUeStatusCpu.get()->bufferSize[uIdx];
     }
+    unsigned long long goodput_bytes = 0;
+    for (int uIdx = 0; uIdx < nActiveUe; ++uIdx) {
+      goodput_bytes += ueGoodputBytes[uIdx];
+    }
 
     unsigned long long served_bytes_est = 0;
     if (accepted_bytes > (flow_queued_bytes + mac_buffer_bytes)) {
@@ -1405,6 +1478,7 @@ int main(int argc, char* argv[])
     double total_time_s = static_cast<double>(kpiTtiCount) * slotDurationConst;
     double offered_mbps = total_time_s > 0.0 ? (generated_bytes * 8.0) / total_time_s / 1e6 : 0.0;
     double served_mbps_est = total_time_s > 0.0 ? (served_bytes_est * 8.0) / total_time_s / 1e6 : 0.0;
+    double goodput_mbps = total_time_s > 0.0 ? (goodput_bytes * 8.0) / total_time_s / 1e6 : 0.0;
     double drop_rate = generated_bytes > 0 ? static_cast<double>(dropped_bytes) / static_cast<double>(generated_bytes) : 0.0;
     double queue_delay_est_ms = served_mbps_est > 0.0 ? (mac_buffer_bytes * 8.0) / (served_mbps_est * 1e6) * 1e3 : 0.0;
 
@@ -1412,6 +1486,7 @@ int main(int argc, char* argv[])
            traffic_num_flows, generated_pkts, generated_bytes, accepted_bytes, dropped_bytes, flow_queued_bytes, mac_buffer_bytes, served_bytes_est);
     printf("TRAFFIC_KPI offered_mbps=%.6f served_mbps_est=%.6f drop_rate=%.6f queue_delay_est_ms=%.6f\n",
            offered_mbps, served_mbps_est, drop_rate, queue_delay_est_ms);
+    printf("TRAFFIC_GOODPUT goodput_bytes=%llu goodput_mbps=%.6f\n", goodput_bytes, goodput_mbps);
     printf("TRAFFIC_PKT_DELAY served_pkt_count=%llu pending_pkt_count=%llu mean_ms=%.6f p50_ms=%.6f p90_ms=%.6f p95_ms=%.6f max_ms=%.6f\n",
            trafficPacketDelay.served_packets,
            trafficPacketDelay.pending_packets,
@@ -1423,6 +1498,7 @@ int main(int argc, char* argv[])
   } else {
     printf("TRAFFIC_KPI flows=0 generated_pkts=0 generated_bytes=0 accepted_bytes=0 dropped_bytes=0 flow_queued_bytes=0 mac_buffer_bytes=0 served_bytes_est=0\n");
     printf("TRAFFIC_KPI offered_mbps=0.000000 served_mbps_est=0.000000 drop_rate=0.000000 queue_delay_est_ms=0.000000\n");
+    printf("TRAFFIC_GOODPUT goodput_bytes=0 goodput_mbps=0.000000\n");
     printf("TRAFFIC_PKT_DELAY served_pkt_count=0 pending_pkt_count=0 mean_ms=0.000000 p50_ms=0.000000 p90_ms=0.000000 p95_ms=0.000000 max_ms=0.000000\n");
   }
 
@@ -1462,13 +1538,17 @@ int main(int argc, char* argv[])
     }
   }
 
-  printf("UE_KPI_HEADER cell_id ue_local_id ue_id avg_thr_mbps avg_mcs_tx_only avg_mcs_all_tti0 scheduled_tti_count no_tx_tti_count scheduled_ratio avg_wb_sinr_db avg_sched_wb_sinr_db avg_predicted_bler tb_err_count tb_bler flow_drop_rate tx_success_rate tx_drop_rate tx_total_pkts tx_success_pkts queue_delay_est_ms generated_bytes accepted_bytes dropped_bytes flow_queued_bytes mac_buffer_bytes mcs_samples\n");
+  printf("UE_KPI_HEADER cell_id ue_local_id ue_id avg_thr_mbps avg_mcs_tx_only avg_mcs_all_tti0 avg_selected_layers_tx_only avg_selected_layers_all_tti scheduled_tti_count no_tx_tti_count scheduled_ratio avg_wb_sinr_db avg_sched_wb_sinr_db avg_predicted_bler tb_err_count tb_bler flow_drop_rate tx_success_rate tx_drop_rate tx_total_pkts tx_success_pkts queue_delay_est_ms generated_bytes accepted_bytes dropped_bytes flow_queued_bytes mac_buffer_bytes mcs_samples\n");
+  printf("UE_GOODPUT_HEADER ue_id goodput_bytes goodput_mbps\n");
   printf("UE_PKT_DELAY_HEADER ue_id served_pkt_count pending_pkt_count packet_delay_mean_ms packet_delay_p50_ms packet_delay_p90_ms packet_delay_p95_ms packet_delay_max_ms\n");
   for (int ueId = 0; ueId < nActiveUe; ++ueId) {
     const double avgMcsTxOnly = ueMcsCnt[ueId] > 0 ? (ueMcsSum[ueId] / static_cast<double>(ueMcsCnt[ueId])) : -1.0;
     const int kpiTtiCount = std::max(1, executedTtiCount);
     const double totalTimeS = static_cast<double>(kpiTtiCount) * slotDurationConst;
     const double avgMcsAllTti0 = ueMcsSum[ueId] / static_cast<double>(kpiTtiCount);
+    const double avgSelectedLayersTxOnly =
+        ueMcsCnt[ueId] > 0 ? (ueLayerSum[ueId] / static_cast<double>(ueMcsCnt[ueId])) : -1.0;
+    const double avgSelectedLayersAllTti = ueLayerSum[ueId] / static_cast<double>(kpiTtiCount);
     const unsigned long long generated = (ueId < static_cast<int>(ueGeneratedBytes.size())) ? ueGeneratedBytes[ueId] : 0ULL;
     const unsigned long long accepted = (ueId < static_cast<int>(ueAcceptedBytes.size())) ? ueAcceptedBytes[ueId] : 0ULL;
     const unsigned long long dropped = (ueId < static_cast<int>(ueDroppedBytes.size())) ? ueDroppedBytes[ueId] : 0ULL;
@@ -1479,10 +1559,12 @@ int main(int argc, char* argv[])
     const unsigned long long txTotalPkts = ueTbTxPkts[ueId];
     const unsigned long long txSuccessPkts = ueTbSuccPkts[ueId];
     const unsigned long long tbErrCount = ueTbErrCount[ueId];
+    const unsigned long long goodputBytes = ueGoodputBytes[ueId];
     const unsigned long long servedBytesEst =
         accepted > (flowQueued + macBuffer) ? (accepted - flowQueued - macBuffer) : 0ULL;
     const double avgThrBps = totalTimeS > 0.0 ? (static_cast<double>(servedBytesEst) * 8.0) / totalTimeS : 0.0;
     const double avgThrMbps = avgThrBps / 1.0e6;
+    const double goodputMbps = totalTimeS > 0.0 ? (static_cast<double>(goodputBytes) * 8.0) / totalTimeS / 1.0e6 : 0.0;
     const double txSuccessRate = txTotalPkts > 0 ? static_cast<double>(txSuccessPkts) / static_cast<double>(txTotalPkts) : 0.0;
     const double txDropRate = txTotalPkts > 0 ? 1.0 - txSuccessRate : 0.0;
     const double avgPredictedBler = uePredBlerCnt[ueId] > 0
@@ -1503,13 +1585,15 @@ int main(int argc, char* argv[])
                                         : 0.0;
     const double ueDelayMs = avgThrBps > 0.0 ? (static_cast<double>(macBuffer) * 8.0 / avgThrBps * 1.0e3) : 0.0;
 
-    printf("UE_KPI cell_id=%d ue_local_id=%d ue_id=%d avg_thr_mbps=%.6f avg_mcs_tx_only=%.6f avg_mcs_all_tti0=%.6f scheduled_tti_count=%u no_tx_tti_count=%u scheduled_ratio=%.6f avg_wb_sinr_db=%.6f avg_sched_wb_sinr_db=%.6f avg_predicted_bler=%.6f tb_err_count=%llu tb_bler=%.6f flow_drop_rate=%.6f tx_success_rate=%.6f tx_drop_rate=%.6f tx_total_pkts=%llu tx_success_pkts=%llu queue_delay_est_ms=%.6f generated_bytes=%llu accepted_bytes=%llu dropped_bytes=%llu flow_queued_bytes=%llu mac_buffer_bytes=%llu mcs_samples=%u\n",
+    printf("UE_KPI cell_id=%d ue_local_id=%d ue_id=%d avg_thr_mbps=%.6f avg_mcs_tx_only=%.6f avg_mcs_all_tti0=%.6f avg_selected_layers_tx_only=%.6f avg_selected_layers_all_tti=%.6f scheduled_tti_count=%u no_tx_tti_count=%u scheduled_ratio=%.6f avg_wb_sinr_db=%.6f avg_sched_wb_sinr_db=%.6f avg_predicted_bler=%.6f tb_err_count=%llu tb_bler=%.6f flow_drop_rate=%.6f tx_success_rate=%.6f tx_drop_rate=%.6f tx_total_pkts=%llu tx_success_pkts=%llu queue_delay_est_ms=%.6f generated_bytes=%llu accepted_bytes=%llu dropped_bytes=%llu flow_queued_bytes=%llu mac_buffer_bytes=%llu mcs_samples=%u\n",
            ueCellId[ueId],
            ueLocalId[ueId],
            ueId,
            avgThrMbps,
            avgMcsTxOnly,
            avgMcsAllTti0,
+           avgSelectedLayersTxOnly,
+           avgSelectedLayersAllTti,
            scheduledTtiCount,
            noTxTtiCount,
            scheduledRatio,
@@ -1530,6 +1614,10 @@ int main(int argc, char* argv[])
            flowQueued,
            macBuffer,
            ueMcsCnt[ueId]);
+    printf("UE_GOODPUT ue_id=%d goodput_bytes=%llu goodput_mbps=%.6f\n",
+           ueId,
+           goodputBytes,
+           goodputMbps);
     const PacketDelaySummary pktSummary =
         ueId < static_cast<int>(uePacketDelay.size()) ? uePacketDelay[ueId] : PacketDelaySummary{};
     printf("UE_PKT_DELAY ue_id=%d served_pkt_count=%llu pending_pkt_count=%llu packet_delay_mean_ms=%.6f packet_delay_p50_ms=%.6f packet_delay_p90_ms=%.6f packet_delay_p95_ms=%.6f packet_delay_max_ms=%.6f\n",

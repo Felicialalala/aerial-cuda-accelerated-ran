@@ -40,18 +40,21 @@
   - [`cuMAC/examples/customScheduler/GnnRlPolicyRuntime.cpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/customScheduler/GnnRlPolicyRuntime.cpp)
   - [`cuMAC/examples/customScheduler/CustomUePrgScheduler.cpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/customScheduler/CustomUePrgScheduler.cpp)
 
-## 3. 当前冻结假设
+## 3. 当前训练约束
 
-当前训练/桥接/部署都默认与当前 Stage-B 基线保持以下一致：
+当前训练/桥接/部署要求满足以下约束：
 
 - `alloc_type = 0`
 - `n_tot_cell == n_cell`
-- `n_cell = 7`
-- `n_active_ue = 56`
-- `n_sched_ue = 56`
+- `n_active_ue % n_cell == 0`
+- `n_sched_ue % n_cell == 0`
 - `n_prg = 68`
-- `n_edges = 42`
-- `action_alloc_len = 476`
+
+这意味着当前实现并不只锁死在 `7-cell`。
+只要编译期场景满足上面的维度约束，当前主线同样支持：
+
+- 默认 `7cell`：`n_cell=7`、`n_active_ue=56`、`n_sched_ue=56`、`n_edges=42`、`action_alloc_len=476`
+- 当前 `3cell`：`n_cell=3`、`n_active_ue=24`、`n_sched_ue=24`、`n_edges=6`、`action_alloc_len=204`
 
 补充说明：
 
@@ -283,7 +286,21 @@ struct StepReqHeader {
 
 ## 7.1 前置条件
 
-如果要直接用 `ppo_online_train.py` 拉起 binary，而不是走 `run_stageB_main_experiment.sh`，需要先保证：
+推荐优先使用 [`cuMAC/scripts/run_stageB_online_train.sh`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/scripts/run_stageB_online_train.sh)。
+
+原因：
+
+- 它会复用 Stage-B 主脚本的编译参数注入逻辑
+- 现在已经支持 `--topology-scenario 7cell|3cell`
+- 可以避免 online 训练和 baseline/回放采集之间的配置漂移
+
+另外，开始任何 Python 训练前都要先确认当前环境可导入：
+
+- `torch`
+- `numpy`
+- `matplotlib`（仅画图可选）
+
+如果要直接用 `ppo_online_train.py` 拉起 binary，而不是走 launcher，需要先保证：
 
 - `parameters.h` 已经是当前 Stage-B 固定配置
 - binary 已经在这个配置下重新编译
@@ -298,27 +315,29 @@ struct StepReqHeader {
   --fading-mode 0 \
   --cdl-profiles NA \
   --cdl-delay-spreads 0 \
+  --topology-scenario 3cell \
   --tti 2000 \
   --custom-ue-prg 0 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.2 \
+  --traffic-arrival-rate 0.8 \
+  --baseline-scheduler pfq \
   --topology-seed 42 \
   --replay-dump 1 \
   --compact-output 0 \
-  --tag replay_seed42_type0
+  --tag replay_seed42_3cell_pfq
 ```
 
 ## 7.3 离线 BC / offline PPO / 导出
 
 ```bash
 python3 training/gnnrl/bc_train.py \
-  --replay-dir output/stageB_main_experiment_replay_seed42_type0_*/RAYLEIGH/replay \
+  --replay-dir output/stageB_main_experiment_replay_seed42_3cell_pfq_*/RAYLEIGH/replay \
   --out-dir training/gnnrl/checkpoints/m1_bc_seed42
 ```
 
 ```bash
 python3 training/gnnrl/ppo_train.py \
-  --replay-dir output/stageB_main_experiment_replay_seed42_type0_*/RAYLEIGH/replay \
+  --replay-dir output/stageB_main_experiment_replay_seed42_3cell_pfq_*/RAYLEIGH/replay \
   --init-policy-checkpoint training/gnnrl/checkpoints/m1_bc_seed42/checkpoint_best.pt \
   --out-dir training/gnnrl/checkpoints/m2_ppo_seed42
 ```
@@ -357,10 +376,18 @@ build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedule
 ## 7.5 直接在线 PPO
 
 ```bash
-python3 training/gnnrl/ppo_online_train.py \
-  --sim-bin "build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedulerUeSelection" \
-  --sim-args "-d 1 -b 0 -x 0 -f 0 -g 100 -r 3000" \
-  --sim-env CUMAC_TRAFFIC_ARRIVAL_RATE=0.2 CUMAC_TOPOLOGY_SEED=42 CUMAC_EXEC_MODE=both \
+./cuMAC/scripts/run_stageB_online_train.sh \
+  --build-method cmake \
+  --fading-mode 0 \
+  --cdl-profiles NA \
+  --cdl-delay-spreads 0 \
+  --topology-scenario 3cell \
+  --tti 2000 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 0.8 \
+  --topology-seed 42 \
+  --baseline-scheduler pfq \
+  --action-mode prg_only_type0 \
   --init-policy-checkpoint training/gnnrl/checkpoints/m1_bc_seed42/checkpoint_best.pt \
   --online-persistent 1 \
   --rollout-steps 256 \
@@ -376,14 +403,15 @@ python3 training/gnnrl/ppo_online_train.py \
 
 这里要注意：
 
-- `ppo_online_train.py` 当前是“直接起 binary”
-- 不是“调用 run_stageB_main_experiment.sh”
-- 所以 `traffic_arrival_rate`、`topology_seed`、`exec_mode` 这类运行期参数需要通过 `--sim-env` 补齐
+- online bridge 训练必须用 `exec-mode=both`
+- 如果你当前对齐的是 `3cell + pfq + seed=42 + traffic_arrival_rate=0.8` 基线，就把这些参数原样带进 launcher
+- 若直接调用 `ppo_online_train.py`，需要自行保证 compile-time 参数与运行期环境变量完全一致
 
 ## 8. 当前限制与不应误解的点
 
 1. 当前 online PPO 虽然输出 UE 选择和 PRG bitmap 两部分动作，但 native Type-0 baseline 自身是“全部 active UE 固定进入 slot，再比较 PRG bitmap 分配”的语义。
-2. 因此现有 GNNRL 动作空间相对 baseline 是更大的超集；后续若要做严格同口径对比，需要先把“固定 slot / 只学 PRG bitmap”模式补齐。
+2. 现在已经有 `prg_only_type0` 模式可用于严格同口径对比。
+   该模式会固定 Type-0 的 all-active-UE slot 布局，只学习 PRG bitmap / slot assignment。
 3. `exec-mode=gpu` 现在只适合 baseline 或导出模型后的推理评估，不适合 online bridge 训练。
 4. 当前最佳 checkpoint 不能只看 `objective`，还需要回看：
    - `throughput`

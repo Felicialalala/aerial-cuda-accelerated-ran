@@ -1,4 +1,4 @@
-# 当前 Stage-B 生效配置与 RR/PF 基线说明
+# 当前 Stage-B 生效配置与 RR/PF/PFQ 基线说明
 
 ## 1. 文档定位
 
@@ -11,9 +11,9 @@
 
 ## 2. 一眼结论
 
-当前 Stage-B 基线已经固化为：
+当前 Stage-B 默认基线已经固化为：
 
-- `7` 个 coordinated cells，`0` 个 outer interferer cells
+- 默认 `7` 个 coordinated cells，`0` 个 outer interferer cells
 - `4T4R`
 - `30 kHz` SCS
 - `68` 个 PRG/RBG，每组 `4 PRB`，总计 `272 PRB`
@@ -21,11 +21,14 @@
 - `2.5 GHz`
 - `slotDurationConst = 0.5 ms`
 - 运行入口默认是 DL
+- UE 采用 serving-cell 覆盖区内均匀撒点
+- 默认全向发射，不做 sector design
+- 入口脚本现已支持 `--topology-scenario 7cell|3cell`；`3cell` 变体保持同样的全向 + 均匀撒点口径，默认也是每站 `8 UE`
 
 当前最重要的变化不是“又多了一个脚本”，而是：
 
 1. native PF 和极限 RR 都已经能在 `GPU + Type-0 bitmap` 下跑通。
-2. `run_stageB_rr_pf_compare.sh` 已经把 RR/PF 对比流程脚本化。
+2. `run_stageB_rr_pf_compare.sh` 已经把 RR/PF 或 RR/PFQ 对比流程脚本化。
 3. 当前 baseline 对比在 `Type-0` 下本质上是“PRG bitmap 分配策略对比”，不是旧语义下完整的 UE selection + scheduler 双模块对比。
 
 ## 3. 入口脚本与职责
@@ -48,7 +51,7 @@
   - `kpi_summary.txt`
   - `ue_kpi.csv`
 
-### 3.2 RR/PF 一键比较脚本
+### 3.2 RR/PF/PFQ 一键比较脚本
 
 入口：
 
@@ -59,7 +62,7 @@
 脚本职责：
 
 1. 调 `run_stageB_main_experiment.sh` 跑一次 native RR
-2. 再跑一次 native PF
+2. 再跑一次 native PF 或 PFQ
 3. 对公共场景目录调用 [`cuMAC/scripts/rr_vs_pf_compare.py`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/scripts/rr_vs_pf_compare.py)
 4. 输出统一的比较产物
 
@@ -74,8 +77,8 @@
 
 | 参数 | 当前值 |
 |---|---:|
-| `numCellConst` | `7` |
-| `numCoorCellConst` | `7` |
+| `numCellConst` | 默认 `7`，`--topology-scenario 3cell` 时为 `3` |
+| `numCoorCellConst` | 默认 `7`，`--topology-scenario 3cell` 时为 `3` |
 | `numUePerCellConst` | `8` |
 | `numActiveUePerCellConst` | `8` |
 | `nBsAntConst` | `4` |
@@ -97,6 +100,8 @@
 
 - `CUMAC_TOPOLOGY_SEED`
 - `CUMAC_UE_PLACEMENT_MODE`
+- `CUMAC_UE_VORONOI_CLIP`
+- `CUMAC_BS_TX_PATTERN`
 - `CUMAC_TRAFFIC_ARRIVAL_RATE`
 - `CUMAC_EXEC_MODE`
 - `CUMAC_CDL_PROFILE`
@@ -106,10 +111,13 @@
 
 ### 5.1 拓扑
 
-- 当前只建 `1+6` 六边形 `7-cell` 协调簇
+- 默认建 `1+6` 六边形 `7-cell` 协调簇
+- 也支持 `3-cell` 等边三角协同簇，可通过 `--topology-scenario 3cell` 切换
 - 没有外环干扰站点
 - `siteSpacing = 1000 m`
-- 非中心小区朝向簇中心
+- UE 默认在 serving-cell 覆盖区内做面积均匀撒点
+- Stage-B 默认开启 `Voronoi clip`，把 UE 约束在本小区覆盖区内
+- 默认 `bs_tx_pattern = omni`，不再设计扇区朝向或扇区水平增益
 
 对应代码：
 
@@ -139,7 +147,7 @@
 
 ### 5.3 KPI 解释重点
 
-RR/PF 胜负优先看：
+RR/PF/PFQ 胜负优先看：
 
 - `traffic.*`
 - `global_kpi.*`
@@ -168,6 +176,7 @@ RR/PF 胜负优先看：
 可选 baseline：
 
 - `--baseline-scheduler pf`
+- `--baseline-scheduler pfq`
 - `--baseline-scheduler rr`
 
 ### 6.2 Type-0 下 UE selection 的真实语义
@@ -224,7 +233,7 @@ RR 路径：
 
 - [`cuMAC/examples/multiCellSchedulerUeSelection/main.cpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/multiCellSchedulerUeSelection/main.cpp)
 
-## 8. RR/PF 比较脚本当前产物
+## 8. RR/PF/PFQ 比较脚本当前产物
 
 以用户当前命令为例：
 
@@ -248,24 +257,35 @@ RR 路径：
 
 - [`output/stageB_rr_pf_compare_rayleigh_seed42_gpu_20260327_074709`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rr_pf_compare_rayleigh_seed42_gpu_20260327_074709)
 
-核心产物：
+核心产物命名会跟第二个 baseline 联动。
+例如 `--pf-baseline pf` 时是 `rr_vs_pf_compare.*`，`--pf-baseline pfq` 时是 `rr_vs_pfq_compare.*`。
+
+通用产物：
 
 - `rr_wrapper_run.log`
-- `pf_wrapper_run.log`
+- `<baseline>_wrapper_run.log`
 - `compare_manifest.csv`
 - `compare_summary.txt`
-- `<SCENARIO>/rr_vs_pf_compare.json`
-- `<SCENARIO>/rr_vs_pf_compare.csv`
-- `<SCENARIO>/rr_vs_pf_compare.txt`
+- `<SCENARIO>/rr_vs_<baseline>_compare.json`
+- `<SCENARIO>/rr_vs_<baseline>_compare.csv`
+- `<SCENARIO>/rr_vs_<baseline>_compare.txt`
 
-其中 `rr_vs_pf_compare.*` 会给出：
+其中 `rr_vs_<baseline>_compare.*` 会给出：
 
 - 统一指标表
 - per-cell delta
 - Top-N UE throughput delta
 - Top-N UE queue-delay delta
 
-## 9. 当前参考结果（2026-03-27，Rayleigh，seed=42，gpu-only）
+注意：
+
+- 这些 `compare.csv/json/txt` 是最终 KPI 对比结果，不是 RL replay transition，不能直接拿去做 `bc_train.py` / `ppo_train.py`。
+- 若要做离线训练，必须重新跑 `run_stageB_main_experiment.sh --replay-dump 1` 生成 `rl_replay_meta.json`、`rl_replay_schema.json`、`rl_replay_records.bin`。
+
+## 9. 历史参考结果（2026-03-27，Rayleigh，seed=42，gpu-only）
+
+以下结果生成于旧版 Stage-B 拓扑口径下。
+在当前场景已切换为“覆盖区内均匀撒点 + 默认全向发射”后，这组数值不应再视为新的当前基线，需要按新配置重新跑一次。
 
 场景：
 
@@ -300,7 +320,7 @@ RR 路径：
 当前 baseline 已经不是旧的 Type-1 连续块版本，而是：
 
 - `Type-0 bitmap`
-- `7-cell`
+- 默认 `7-cell`
 - `4T4R`
 - native PF/RR 都可在 GPU 下运行
 
@@ -308,11 +328,11 @@ RR 路径：
 
 1. 先对齐同一场景、同一 traffic 模型、同一 KPI 口径
 2. 明确“当前 baseline 对比的是 bitmap 分配策略”这一点
-3. 先完成与 RR/PF 的同口径 compare automation，再做更复杂的联合动作空间扩展
+3. 先完成与 RR/PF/PFQ 的同口径 compare automation，再做更复杂的联合动作空间扩展
 
 ## 11. 当前已知限制
 
-- 纯 `7-cell` 模式下，`CDL` 仍不是当前主推荐回归模式，稳态对比建议继续优先用 `Rayleigh/TDL`
+- 纯 coordinated-cluster 模式下，`CDL` 仍不是当前主推荐回归模式，稳态对比建议继续优先用 `Rayleigh/TDL`
 - `Type-0 + RR + HARQ` 当前不支持
 - `gpu-only` 模式下不要把 `cpu_gpu_compare` 当成独立 baseline 校验
 - online bridge 与 custom UE+PRG 还没有跟 `gpu-only` 运行模式打通

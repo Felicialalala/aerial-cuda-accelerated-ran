@@ -61,6 +61,28 @@ int envInt(const char* name, int defaultValue)
     return static_cast<int>(parsed);
 }
 
+CustomUePrgScheduler::ActionMode parseActionMode(const char* value)
+{
+    if (value == nullptr || value[0] == '\0') {
+        return CustomUePrgScheduler::ActionMode::Joint;
+    }
+
+    std::string mode(value);
+    std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (mode == "joint") {
+        return CustomUePrgScheduler::ActionMode::Joint;
+    }
+    if (mode == "prg_only_type0") {
+        return CustomUePrgScheduler::ActionMode::PrgOnlyType0;
+    }
+    return CustomUePrgScheduler::ActionMode::Joint;
+}
+
+const char* actionModeToString(const CustomUePrgScheduler::ActionMode mode)
+{
+    return mode == CustomUePrgScheduler::ActionMode::PrgOnlyType0 ? "prg_only_type0" : "joint";
+}
+
 bool assocToCell(const cumacCellGrpPrms* cellGrpPrmsCpu, uint16_t cellId, uint16_t activeUeId)
 {
     if (cellGrpPrmsCpu->cellAssocActUe != nullptr) {
@@ -101,6 +123,7 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
             cfg.policyMode = PolicyMode::GnnRlHeuristic;
         }
     }
+    cfg.actionMode = parseActionMode(std::getenv("CUMAC_GNNRL_ACTION_MODE"));
 
     cfg.sinrWeight = envFloat("CUMAC_CUSTOM_SINR_WEIGHT", cfg.sinrWeight);
     cfg.pfWeight = envFloat("CUMAC_CUSTOM_PF_WEIGHT", cfg.pfWeight);
@@ -489,6 +512,7 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
             policyStr = "gnnrl_model";
         }
         std::cerr << "CustomUePrgScheduler config: policy=" << policyStr
+                  << " actionMode=" << actionModeToString(m_cfg.actionMode)
                   << " noTxThreshold=" << m_cfg.noTxThreshold
                   << " maxActiveCellsPerPrg=" << m_cfg.maxActiveCellsPerPrg
                   << " modelPath=" << (m_cfg.modelPath.empty() ? "<empty>" : m_cfg.modelPath)
@@ -509,6 +533,9 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 GnnRlPolicyRuntime::Config runtimeCfg;
                 runtimeCfg.modelPath = m_cfg.modelPath;
                 runtimeCfg.timeoutMs = m_cfg.policyTimeoutMs;
+                runtimeCfg.actionMode = (m_cfg.actionMode == ActionMode::PrgOnlyType0)
+                                            ? GnnRlPolicyRuntime::ActionMode::PrgOnlyType0
+                                            : GnnRlPolicyRuntime::ActionMode::Joint;
                 runtimeCfg.noUeBias = m_cfg.modelNoUeBias;
                 runtimeCfg.minSchedRatio = m_cfg.modelMinSchedRatio;
                 runtimeCfg.noPrgBias = m_cfg.modelNoPrgBias;
