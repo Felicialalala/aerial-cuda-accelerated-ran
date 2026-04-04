@@ -70,7 +70,7 @@ Outputs:
 - `checkpoint_last.pt`
 - `train_summary.json`
 
-To train with strict Type-0 baseline semantics (`all-active-UE slots`, learn PRG bitmap only), add:
+To train with bitmap-only Type-0 semantics (`all-active-UE slots`, learn PRG bitmap only), add:
 
 ```bash
   --action-mode prg_only_type0
@@ -115,10 +115,10 @@ Outputs:
 - `ppo_train_last.pt`
 - `ppo_summary.json`
 
-For strict baseline-aligned PPO on replay:
+For strict baseline-aligned PPO on replay, keep the default `joint` mode so each cell's associated UEs stay inside the UE candidate set:
 
 ```bash
-  --action-mode prg_only_type0
+  --action-mode joint
 ```
 
 Example export after M2:
@@ -155,9 +155,10 @@ Example:
   --packet-size-bytes 3000 \
   --traffic-arrival-rate 0.2 \
   --topology-seed 42 \
-  --action-mode prg_only_type0 \
+  --action-mode joint \
   --init-policy-checkpoint training/gnnrl/checkpoints/m1_bc_seed42/checkpoint_best.pt \
   --online-persistent 1 \
+  --curve-every-episodes 500 \
   --plot-after-train 1 \
   --plot-smooth-window 5 \
   --out-dir training/gnnrl/checkpoints/m3_online_ppo_seed42 \
@@ -166,14 +167,71 @@ Example:
   --iters 20
 ```
 
+Multi-seed merged online training:
+
+```bash
+./cuMAC/scripts/run_stageB_online_train.sh \
+  --build-method cmake \
+  --fading-mode 0 \
+  --cdl-profiles NA \
+  --cdl-delay-spreads 0 \
+  --topology-scenario 3cell \
+  --tti 2000 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 0.8 \
+  --topology-seed 42 \
+  --topology-seed-mode sequential \
+  --baseline-scheduler pfq \
+  --reward-mode goodput_only \
+  --action-mode joint \
+  --online-persistent 1 \
+  --episode-horizon 400 \
+  --curve-every-episodes 500 \
+  --plot-after-train 1 \
+  --out-dir training/gnnrl/checkpoints/m3_online_ppo_multi_seed
+```
+
 Notes:
 
 - `cuMAC/scripts/run_stageB_online_train.sh` is the recommended launcher so online PPO reuses Stage-B scenario parameters/build flow.
 - The launcher now supports `--topology-scenario 3cell|7cell`, so it can follow the same compile-time topology as your Stage-B baseline runs.
+- `--action-mode joint` is now the recommended baseline-aligned mode. Each Type-0 slot in a cell can choose from that cell's full associated-UE set, so variable association counts remain visible to the policy.
 - `--action-mode prg_only_type0` fixes all Type-0 slots to the native all-active-UE layout and only learns PRG assignment.
+- In `prg_only_type0`, each cell only exposes `n_sched_ue / n_cell` scheduler slots to the policy, so if a topology has more associated UEs than that in one cell, the extra UEs are outside the PRG action space for that step.
+- If you plan to export ONNX and compare against RR/PFQ under variable per-cell association counts, train in `joint` mode; a checkpoint trained in `prg_only_type0` should not be evaluated as `joint` because its UE head was never optimized.
 - `--online-persistent 1` (default): keep one simulator subprocess alive and stream continuous TTIs.
-- `--episode-horizon` only affects `--online-persistent 0`.
+- `--episode-horizon` is also honored by trainer-managed episode boundaries when `--curve-every-episodes > 0` or `--topology-seed-mode != fixed` under `--online-persistent 1`.
+- With `--topology-seed-mode fixed` plus trainer-managed boundaries, the trainer now uses soft episode rollover: hitting `--episode-horizon` only finalizes episode stats/GAE and keeps the same simulator process/socket alive until the simulator reaches its own natural ring horizon.
+- `--topology-seed-mode auto` is the default. It resolves to `sequential` when `--seed-list` is empty, so topology seeds run as `topology-seed`, `topology-seed+1`, `topology-seed+2`, ...
+- `--topology-seed-mode fixed` keeps one topology for all episodes.
+- `--topology-seed-mode list_cycle` plus `--seed-list` enables explicit list-cycle topology scheduling.
+- `--episode-boundary-mode auto` is the default; it automatically switches to trainer-managed episode cuts for multi-seed or periodic curve export in persistent online mode.
+- `--reward-mode goodput_only` is the default. It makes the PPO scalar reward depend only on per-TTI successful delivery (`goodput`) so persistent-online runs do not drift downward just because backlog keeps accumulating across TTIs.
+- `--reward-mode goodput_soft_queue` keeps the same `goodput` objective but adds a bounded `log1p(buffer)` penalty when you want some latency sensitivity without the old unbounded backlog drift.
+- `--reward-mode goodput_reliability` keeps `goodput` as the primary objective but adds light `BLER` / `expiry_drop_rate` shaping plus a small fairness tie-breaker. This is the recommended TTL-enabled mode when deployment gaps come mostly from retransmission waste and packet expiry rather than raw served throughput.
+- `--reward-mode legacy` restores the older `0.05 * served_throughput - 0.05 * backlog - 0.002 * queue_delay - 1.5 * bler + 0.5 * fairness` scalar reward.
+- The old `round-robin` wording here only referred to cycling through the seed list per episode; it is unrelated to the native RR scheduler baseline.
 - If you want to mirror an existing baseline run, keep `--topology-scenario`, `--fading-mode`, `--packet-size-bytes`, `--traffic-arrival-rate`, and `--topology-seed` identical.
-- Training outputs also include:
-- `online_ppo_metrics.csv` (per-iter metrics table)
-- `online_ppo_curves.png` (loss/kl/entropy/reward/clipfrac curves; requires matplotlib)
+- When latency freshness matters, you can also align `--packet-ttl-tti` or `--packet-ttl-ms`; TTL is off by default.
+- `ppo_actor_best.pt` is now selected directly by rollout `goodput` (`rollout_goodput_mbps_mean`).
+- The first tie-breaker is lower `rollout_expiry_drop_rate_mean`; the second tie-breaker is lower `rollout_tb_err_rate_mean`.
+- PPO `objective` remains diagnostic-only and no longer decides `ppo_actor_best.pt`.
+- Online outputs now report both `served throughput` and `goodput`; use `*_goodput_mbps_*` as the real application-level delivery KPI.
+- Online outputs also expose higher-level diagnostics for interference / efficiency analysis: `*_sched_wb_sinr_db_*`, `*_prg_utilization_ratio_*`, `*_goodput_spectral_efficiency_bpshz_*`, `*_prg_reuse_ratio_*`.
+- With TTL enabled, online outputs also export `*_expired_bytes_*`, `*_expired_packets_*`, and `*_expiry_drop_rate_*` so you can distinguish buffer growth from freshness-driven expiry.
+- The online observation now also includes TTL/interference-aware features on top of the older queue/rate/SINR terms:
+  `UE: HOL delay, TTL slack, recent scheduled ratio, recent goodput deficit`
+  `PRG: top-1 subband SINR, top-2 gap, previous per-cell PRG use, previous PRG reuse ratio`
+- The current `joint` model forward input set is:
+  `obs_cell_features[n_cell,5]`, `obs_ue_features[n_active_ue,12]`, `obs_prg_features[n_cell,n_prg,4]`, `obs_edge_index[n_edges,2]`, `obs_edge_attr[n_edges,2]`, `action_mask_ue[n_active_ue]`, `action_mask_cell_ue[n_cell,n_active_ue]`.
+- Dynamic Type-0 slot layout is now derived from `action_mask_ue & action_mask_cell_ue`, so cells only expose scheduler slots for currently live/schedulable UEs.
+- The PRG head now consumes those PRG features plus a live-masked slot-to-UE context inferred from the UE head, with a straight-through hard slot choice in the forward path so PRG decisions are closer to the eventual hard UE selection.
+- `joint` models exported with the updated pipeline require the new ONNX input set (`obs_prg_features`, `action_mask_ue`, `action_mask_cell_ue`) and should be re-trained / re-exported; older ONNX files are not forward-compatible with the updated runtime.
+- Offline replay v2 still does not persist `obs_prg_features`, so online `joint` observation richness is currently higher than replay-schema parity.
+- `gnnrl_model` decode no longer forces `min_prg_ratio=1` by default. With `CUMAC_GNNRL_MODEL_MIN_PRG_RATIO=0`, the policy can leave part of the PRG grid empty when that reduces interference.
+- `gnnrl_model` decode now auto-limits per-slot PRG concentration in `prg_only_type0` unless you explicitly set `CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE` or pass `--gnnrl-model-max-prg-share-per-ue` via the Stage-B run script.
+- `prg_only_type0` training/runtime now mask out empty Type-0 slots on the PRG head, so cells with fewer associated UEs than `slots_per_cell` no longer expose dead PRG classes.
+- Custom Type-0 KPI bookkeeping now only counts a UE/slot as scheduled when at least one PRG is actually assigned to that slot.
+- `global_kpi.served_buffer_ratio` now tracks `served_bytes_est / generated_bytes`; `global_kpi.non_residual_buffer_ratio` is the older `1 - residual_buffer_ratio` style backlog clearance indicator that still counts TTL expiry as “left the system”.
+- `online_ppo_curves.png` now keeps only the higher-signal training panels by default so reward/goodput/buffer trends are easier to inspect.
+- Training outputs also include `online_ppo_metrics.csv` (per-iter metrics table), `online_ppo_episode_metrics.csv` (per-episode reward / KPI table), `online_ppo_curves.png` (latest loss+reward curves; requires matplotlib), and `online_ppo_curves_ep000500.png`, `online_ppo_curves_ep001000.png`, ... when `--curve-every-episodes` is enabled.

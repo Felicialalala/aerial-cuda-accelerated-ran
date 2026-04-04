@@ -25,6 +25,7 @@ DL_UL="dl"
 FADING_MODE=0           # 0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG
 TOPOLOGY_SCENARIO="7cell"   # 7cell | 3cell
 UE_PER_CELL=8
+TOTAL_UE_COUNT=""
 TOPOLOGY_SEED=0
 UE_PLACEMENT="uniform"      # uniform | stratified
 UE_RADIUS_SPLITS="0.33,0.66"
@@ -34,9 +35,12 @@ BS_TX_PATTERN="omni"        # omni | sector
 TRAFFIC_PERCENT=100
 PACKET_SIZE_BYTES=5000
 TRAFFIC_ARRIVAL_RATE=0.2
+PACKET_TTL_TTI=0
+PACKET_TTL_MS=0
 CDL_PROFILES="C,D"
 CDL_DELAY_SPREADS_NS="300,1000"
 ALLOW_PROFILE_D=0
+PRBS_PER_GROUP=16
 RUN_TIMEOUT_SEC=0
 KILL_AFTER_SEC=30
 RUN_TAG=""
@@ -47,6 +51,13 @@ CUSTOM_POLICY="gnnrl"   # gnnrl | legacy (effective only when --custom-ue-prg=1)
 GNNRL_ACTION_MODE="joint" # joint | prg_only_type0
 MODEL_PATH=""          # used when --custom-policy gnnrl_model
 POLICY_TIMEOUT_MS=0    # policy timeout hint for model runtime (0=disable)
+GNNRL_MODEL_DECODE_MODE="sample"
+GNNRL_MODEL_SAMPLE_SEED="0"
+GNNRL_MODEL_NO_UE_BIAS=""
+GNNRL_MODEL_MIN_SCHED_RATIO=""
+GNNRL_MODEL_NO_PRG_BIAS=""
+GNNRL_MODEL_MIN_PRG_RATIO=""
+GNNRL_MODEL_MAX_PRG_SHARE_PER_UE=""
 COMPACT_TTI_LOG=1       # 1=compact per-TTI stage logs
 PROGRESS_TTI_INTERVAL=100
 KPI_TTI_LOG_INTERVAL=100
@@ -57,6 +68,7 @@ ONLINE_BRIDGE=0         # 1=enable online bridge mode in binary
 ONLINE_SOCKET="/tmp/cumac_stageb_online.sock"
 EXEC_MODE="both"       # both | gpu
 EFFECTIVE_LAYERS=0     # 0=auto, otherwise cap adaptive layer selection to <= this value
+UE_PER_CELL_EXPLICIT=0
 
 usage() {
     cat <<EOF
@@ -75,6 +87,7 @@ Options:
   --fading-mode <0|1|2|3|4>   0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG (default: ${FADING_MODE})
   --topology-scenario <m>     Coordinated-cluster topology: 7cell | 3cell (default: ${TOPOLOGY_SCENARIO})
   --ue-per-cell <n>           Active/scheduled UE per cell (default: ${UE_PER_CELL})
+  --total-ue-count <n>        Total active/scheduled UE count across coordinated cells; must divide cell count
   --topology-seed <n>         Fixed topology/random seed (default: ${TOPOLOGY_SEED})
   --ue-placement <m>          UE placement mode: uniform | stratified (default: ${UE_PLACEMENT})
   --ue-radius-splits <a,b>    Stratified center/mid upper radius ratios (default: ${UE_RADIUS_SPLITS})
@@ -85,6 +98,9 @@ Options:
   --packet-size-bytes <b>     Traffic packet size in bytes (default: ${PACKET_SIZE_BYTES})
   --traffic-rate <b>          Deprecated alias of --packet-size-bytes
   --traffic-arrival-rate <r>  Traffic arrival rate in pkt/TTI (default: ${TRAFFIC_ARRIVAL_RATE})
+  --packet-ttl-tti <n>        Packet TTL in TTI, 0 disables expiry (default: ${PACKET_TTL_TTI})
+  --packet-ttl-ms <v>         Packet TTL in ms, 0 disables expiry; ignored when ttl-tti > 0 (default: ${PACKET_TTL_MS})
+  --prbs-per-group <n>        Number of RBs in one PRG/RBG; PRG count is auto-derived for 272 total PRBs (default: ${PRBS_PER_GROUP})
   --cdl-profiles <list>       Comma list, e.g. C,D (default: ${CDL_PROFILES})
   --cdl-delay-spreads <list>  Comma list (ns), aligned with profiles (default: ${CDL_DELAY_SPREADS_NS})
   --allow-profile-d <0|1>     1 to attempt CDL-D. 0 will skip D with note (default: ${ALLOW_PROFILE_D})
@@ -97,6 +113,13 @@ Options:
   --gnnrl-action-mode <m>     joint | prg_only_type0 for gnnrl_model decode (default: ${GNNRL_ACTION_MODE})
   --model-path <path>         ONNX model path for gnnrl_model policy (default: empty)
   --policy-timeout-ms <n>     Model policy timeout hint in ms, 0=disable (default: ${POLICY_TIMEOUT_MS})
+  --gnnrl-model-decode-mode <m>        sample | argmax (default: ${GNNRL_MODEL_DECODE_MODE})
+  --gnnrl-model-sample-seed <n>        RNG seed for sample decode (default: ${GNNRL_MODEL_SAMPLE_SEED})
+  --gnnrl-model-no-ue-bias <v>          Override CUMAC_GNNRL_MODEL_NO_UE_BIAS
+  --gnnrl-model-min-sched-ratio <v>     Override CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO
+  --gnnrl-model-no-prg-bias <v>         Override CUMAC_GNNRL_MODEL_NO_PRG_BIAS
+  --gnnrl-model-min-prg-ratio <v>       Override CUMAC_GNNRL_MODEL_MIN_PRG_RATIO
+  --gnnrl-model-max-prg-share-per-ue <v> Override CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE
   --compact-tti-log <0|1>     1 compact per-TTI logs (default: ${COMPACT_TTI_LOG})
   --progress-tti <n>          Progress print interval in TTI (default: ${PROGRESS_TTI_INTERVAL})
   --kpi-tti-log <n>           Throughput print interval in TTI (default: ${KPI_TTI_LOG_INTERVAL})
@@ -131,7 +154,8 @@ while [[ $# -gt 0 ]]; do
         --mode) DL_UL="$2"; shift 2 ;;
         --fading-mode) FADING_MODE="$2"; shift 2 ;;
         --topology-scenario) TOPOLOGY_SCENARIO="$2"; shift 2 ;;
-        --ue-per-cell) UE_PER_CELL="$2"; shift 2 ;;
+        --ue-per-cell) UE_PER_CELL="$2"; UE_PER_CELL_EXPLICIT=1; shift 2 ;;
+        --total-ue-count|--ue-count) TOTAL_UE_COUNT="$2"; shift 2 ;;
         --topology-seed) TOPOLOGY_SEED="$2"; shift 2 ;;
         --ue-placement) UE_PLACEMENT="$2"; shift 2 ;;
         --ue-radius-splits) UE_RADIUS_SPLITS="$2"; shift 2 ;;
@@ -142,6 +166,9 @@ while [[ $# -gt 0 ]]; do
         --packet-size-bytes) PACKET_SIZE_BYTES="$2"; shift 2 ;;
         --traffic-rate) PACKET_SIZE_BYTES="$2"; shift 2 ;;
         --traffic-arrival-rate) TRAFFIC_ARRIVAL_RATE="$2"; shift 2 ;;
+        --packet-ttl-tti) PACKET_TTL_TTI="$2"; shift 2 ;;
+        --packet-ttl-ms) PACKET_TTL_MS="$2"; shift 2 ;;
+        --prbs-per-group) PRBS_PER_GROUP="$2"; shift 2 ;;
         --cdl-profiles) CDL_PROFILES="$2"; shift 2 ;;
         --cdl-delay-spreads) CDL_DELAY_SPREADS_NS="$2"; shift 2 ;;
         --allow-profile-d) ALLOW_PROFILE_D="$2"; shift 2 ;;
@@ -154,6 +181,13 @@ while [[ $# -gt 0 ]]; do
         --gnnrl-action-mode) GNNRL_ACTION_MODE="$2"; shift 2 ;;
         --model-path) MODEL_PATH="$2"; shift 2 ;;
         --policy-timeout-ms) POLICY_TIMEOUT_MS="$2"; shift 2 ;;
+        --gnnrl-model-decode-mode) GNNRL_MODEL_DECODE_MODE="$2"; shift 2 ;;
+        --gnnrl-model-sample-seed) GNNRL_MODEL_SAMPLE_SEED="$2"; shift 2 ;;
+        --gnnrl-model-no-ue-bias) GNNRL_MODEL_NO_UE_BIAS="$2"; shift 2 ;;
+        --gnnrl-model-min-sched-ratio) GNNRL_MODEL_MIN_SCHED_RATIO="$2"; shift 2 ;;
+        --gnnrl-model-no-prg-bias) GNNRL_MODEL_NO_PRG_BIAS="$2"; shift 2 ;;
+        --gnnrl-model-min-prg-ratio) GNNRL_MODEL_MIN_PRG_RATIO="$2"; shift 2 ;;
+        --gnnrl-model-max-prg-share-per-ue) GNNRL_MODEL_MAX_PRG_SHARE_PER_UE="$2"; shift 2 ;;
         --compact-tti-log) COMPACT_TTI_LOG="$2"; shift 2 ;;
         --progress-tti) PROGRESS_TTI_INTERVAL="$2"; shift 2 ;;
         --kpi-tti-log) KPI_TTI_LOG_INTERVAL="$2"; shift 2 ;;
@@ -188,6 +222,15 @@ if [[ "${BUILD_METHOD}" != "phase4" && "${BUILD_METHOD}" != "cmake" && "${BUILD_
     echo "--build-method must be one of: phase4, cmake, skip" >&2
     exit 1
 fi
+if ! [[ "${PRBS_PER_GROUP}" =~ ^[0-9]+$ ]] || [[ "${PRBS_PER_GROUP}" -lt 1 ]]; then
+    echo "--prbs-per-group must be a positive integer" >&2
+    exit 1
+fi
+if (( 272 % PRBS_PER_GROUP != 0 )); then
+    echo "--prbs-per-group must divide 272 total PRBs for the current Stage-B carrier configuration" >&2
+    exit 1
+fi
+PRG_COUNT=$((272 / PRBS_PER_GROUP))
 if ! [[ "${BUILD_ONLY}" =~ ^[01]$ ]]; then
     echo "--build-only must be 0 or 1" >&2
     exit 1
@@ -213,6 +256,23 @@ if ! [[ "${UE_PER_CELL}" =~ ^[0-9]+$ ]] || [[ "${UE_PER_CELL}" -lt 1 ]]; then
     echo "--ue-per-cell must be a positive integer" >&2
     exit 1
 fi
+if [[ -n "${TOTAL_UE_COUNT}" ]]; then
+    if ! [[ "${TOTAL_UE_COUNT}" =~ ^[0-9]+$ ]] || [[ "${TOTAL_UE_COUNT}" -lt 1 ]]; then
+        echo "--total-ue-count must be a positive integer" >&2
+        exit 1
+    fi
+    if (( TOTAL_UE_COUNT % TOPOLOGY_NUM_CELLS != 0 )); then
+        echo "--total-ue-count must be divisible by the coordinated cell count (${TOPOLOGY_NUM_CELLS})" >&2
+        exit 1
+    fi
+    DERIVED_UE_PER_CELL=$((TOTAL_UE_COUNT / TOPOLOGY_NUM_CELLS))
+    if [[ "${UE_PER_CELL_EXPLICIT}" == "1" && "${UE_PER_CELL}" -ne "${DERIVED_UE_PER_CELL}" ]]; then
+        echo "--ue-per-cell (${UE_PER_CELL}) conflicts with --total-ue-count (${TOTAL_UE_COUNT}) for topology ${TOPOLOGY_SCENARIO}" >&2
+        exit 1
+    fi
+    UE_PER_CELL="${DERIVED_UE_PER_CELL}"
+fi
+TOTAL_UE_COUNT=$((UE_PER_CELL * TOPOLOGY_NUM_CELLS))
 if ! [[ "${TOPOLOGY_SEED}" =~ ^[0-9]+$ ]]; then
     echo "--topology-seed must be a non-negative integer" >&2
     exit 1
@@ -293,6 +353,28 @@ if ! [[ "${POLICY_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
     echo "--policy-timeout-ms must be a non-negative integer" >&2
     exit 1
 fi
+GNNRL_MODEL_DECODE_MODE="$(echo "${GNNRL_MODEL_DECODE_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${GNNRL_MODEL_DECODE_MODE}" != "sample" && "${GNNRL_MODEL_DECODE_MODE}" != "argmax" ]]; then
+    echo "--gnnrl-model-decode-mode must be sample or argmax" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_MODEL_SAMPLE_SEED}" =~ ^[0-9]+$ ]]; then
+    echo "--gnnrl-model-sample-seed must be a non-negative integer" >&2
+    exit 1
+fi
+for kv in \
+    "--gnnrl-model-no-ue-bias:${GNNRL_MODEL_NO_UE_BIAS}" \
+    "--gnnrl-model-min-sched-ratio:${GNNRL_MODEL_MIN_SCHED_RATIO}" \
+    "--gnnrl-model-no-prg-bias:${GNNRL_MODEL_NO_PRG_BIAS}" \
+    "--gnnrl-model-min-prg-ratio:${GNNRL_MODEL_MIN_PRG_RATIO}" \
+    "--gnnrl-model-max-prg-share-per-ue:${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE}"; do
+    name="${kv%%:*}"
+    value="${kv#*:}"
+    if [[ -n "${value}" ]] && ! [[ "${value}" =~ ^-?[0-9]+([.][0-9]+)?$ ]]; then
+        echo "${name} must be a number" >&2
+        exit 1
+    fi
+done
 if [[ -n "${MODEL_PATH}" && "${MODEL_PATH}" != /* ]]; then
     MODEL_PATH="${ROOT_DIR}/${MODEL_PATH}"
 fi
@@ -359,6 +441,14 @@ if ! [[ "${PACKET_SIZE_BYTES}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
 fi
 if ! [[ "${TRAFFIC_ARRIVAL_RATE}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
     echo "--traffic-arrival-rate must be a non-negative number" >&2
+    exit 1
+fi
+if ! [[ "${PACKET_TTL_TTI}" =~ ^[0-9]+$ ]]; then
+    echo "--packet-ttl-tti must be a non-negative integer" >&2
+    exit 1
+fi
+if ! [[ "${PACKET_TTL_MS}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--packet-ttl-ms must be a non-negative number" >&2
     exit 1
 fi
 
@@ -647,6 +737,7 @@ compact_pass_outputs() {
 }
 
 echo "[Stage-B] Apply main experiment parameters (${TOPOLOGY_DESC}, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation)..."
+echo "[Stage-B] Scenario UE config: ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
 set_param gpuDeviceIdx "${GPU_ID}"
 set_param numSimChnRlz "${TTI_COUNT}"
 set_param seedConst "${TOPOLOGY_SEED}"
@@ -662,8 +753,8 @@ set_param totNumUesConst "numCoorCellConst*numUePerCellConst"
 set_param totNumActiveUesConst "numCoorCellConst*numActiveUePerCellConst"
 set_param nBsAntConst "4"
 set_param nUeAntConst "4"
-set_param nPrbsPerGrpConst "4"
-set_param nPrbGrpsConst "68"
+set_param nPrbsPerGrpConst "${PRBS_PER_GROUP}"
+set_param nPrbGrpsConst "${PRG_COUNT}"
 set_param gpuAllocTypeConst "0"
 set_param cpuAllocTypeConst "0"
 print_effective_compile_params
@@ -754,7 +845,7 @@ fi
 if [[ "${BUILD_ONLY}" == "1" ]]; then
     echo "[Stage-B] Build-only mode ready."
     echo "[Stage-B] Binary: ${BIN}"
-    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} exec_mode=${EXEC_MODE} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE}"
+    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE}"
     exit 0
 fi
 
@@ -847,10 +938,12 @@ for i in "${!PROFILE_ARR[@]}"; do
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  note=baseline scheduler selection is ignored by custom UE+PRG mode"
     fi
-    echo "  topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL}"
+    echo "  topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
     echo "  ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN}"
     echo "  traffic_packet_bytes=${PACKET_SIZE_BYTES}"
     echo "  traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE}"
+    echo "  packet_ttl_tti=${PACKET_TTL_TTI}"
+    echo "  packet_ttl_ms=${PACKET_TTL_MS}"
     echo "  cmd=${BIN} -d ${DL_IND} -b ${BASELINE_IND} -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${PACKET_SIZE_BYTES}"
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  custom_policy=${CUSTOM_POLICY}"
@@ -858,6 +951,8 @@ for i in "${!PROFILE_ARR[@]}"; do
             echo "  gnnrl_action_mode=${GNNRL_ACTION_MODE}"
             echo "  model_path=${MODEL_PATH}"
             echo "  policy_timeout_ms=${POLICY_TIMEOUT_MS}"
+            echo "  gnnrl_model_decode_mode=${GNNRL_MODEL_DECODE_MODE}"
+            echo "  gnnrl_model_sample_seed=${GNNRL_MODEL_SAMPLE_SEED}"
         fi
     fi
     if [[ "${REPLAY_DUMP}" == "1" ]]; then
@@ -868,6 +963,9 @@ for i in "${!PROFILE_ARR[@]}"; do
     fi
     echo "  exec_mode=${EXEC_MODE}"
     echo "  effective_layers=${EFFECTIVE_LAYERS}"
+    if [[ -n "${GNNRL_MODEL_NO_UE_BIAS}" || -n "${GNNRL_MODEL_MIN_SCHED_RATIO}" || -n "${GNNRL_MODEL_NO_PRG_BIAS}" || -n "${GNNRL_MODEL_MIN_PRG_RATIO}" || -n "${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE}" ]]; then
+        echo "  gnnrl_model_decode_overrides: no_ue_bias=${GNNRL_MODEL_NO_UE_BIAS:-auto} min_sched_ratio=${GNNRL_MODEL_MIN_SCHED_RATIO:-auto} no_prg_bias=${GNNRL_MODEL_NO_PRG_BIAS:-auto} min_prg_ratio=${GNNRL_MODEL_MIN_PRG_RATIO:-auto} max_prg_share_per_ue=${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE:-auto}"
+    fi
     if [[ "${RUN_TIMEOUT_SEC}" -gt 0 ]]; then
         echo "  timeout=${RUN_TIMEOUT_SEC}s"
     fi
@@ -892,10 +990,19 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_TTI_KPI_LOG_INTERVAL="${KPI_TTI_LOG_INTERVAL}"
         export CUMAC_COMPARE_TTI_INTERVAL="${COMPARE_TTI_INTERVAL}"
         export CUMAC_TRAFFIC_ARRIVAL_RATE="${TRAFFIC_ARRIVAL_RATE}"
+        export CUMAC_PACKET_TTL_TTI="${PACKET_TTL_TTI}"
+        export CUMAC_PACKET_TTL_MS="${PACKET_TTL_MS}"
         export CUMAC_CUSTOM_POLICY="${CUSTOM_POLICY}"
         export CUMAC_GNNRL_ACTION_MODE="${GNNRL_ACTION_MODE}"
         export CUMAC_GNNRL_MODEL_PATH="${MODEL_PATH}"
         export CUMAC_POLICY_TIMEOUT_MS="${POLICY_TIMEOUT_MS}"
+        export CUMAC_GNNRL_MODEL_DECODE_MODE="${GNNRL_MODEL_DECODE_MODE}"
+        export CUMAC_GNNRL_MODEL_SAMPLE_SEED="${GNNRL_MODEL_SAMPLE_SEED}"
+        if [[ -n "${GNNRL_MODEL_NO_UE_BIAS}" ]]; then export CUMAC_GNNRL_MODEL_NO_UE_BIAS="${GNNRL_MODEL_NO_UE_BIAS}"; else unset CUMAC_GNNRL_MODEL_NO_UE_BIAS; fi
+        if [[ -n "${GNNRL_MODEL_MIN_SCHED_RATIO}" ]]; then export CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO="${GNNRL_MODEL_MIN_SCHED_RATIO}"; else unset CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO; fi
+        if [[ -n "${GNNRL_MODEL_NO_PRG_BIAS}" ]]; then export CUMAC_GNNRL_MODEL_NO_PRG_BIAS="${GNNRL_MODEL_NO_PRG_BIAS}"; else unset CUMAC_GNNRL_MODEL_NO_PRG_BIAS; fi
+        if [[ -n "${GNNRL_MODEL_MIN_PRG_RATIO}" ]]; then export CUMAC_GNNRL_MODEL_MIN_PRG_RATIO="${GNNRL_MODEL_MIN_PRG_RATIO}"; else unset CUMAC_GNNRL_MODEL_MIN_PRG_RATIO; fi
+        if [[ -n "${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE}" ]]; then export CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE="${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE}"; else unset CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE; fi
         export CUMAC_RL_REPLAY_DUMP="${REPLAY_DUMP}"
         export CUMAC_RL_REPLAY_DIR="${SCENARIO_REPLAY_DIR}"
         export CUMAC_RL_REPLAY_SCENARIO="${SCENARIO}"
@@ -929,7 +1036,9 @@ for i in "${!PROFILE_ARR[@]}"; do
                     --slot-duration-ms 0.5 \
                     --traffic-percent "${TRAFFIC_PERCENT}" \
                     --packet-size-bytes "${PACKET_SIZE_BYTES}" \
-                    --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}"
+                    --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}" \
+                    --prbs-per-group "${PRBS_PER_GROUP}" \
+                    --prg-count "${PRG_COUNT}"
             fi
             if [[ "${COMPACT_OUTPUT}" == "1" ]]; then
                 compact_pass_outputs "${OUT_DIR}"
@@ -950,7 +1059,9 @@ for i in "${!PROFILE_ARR[@]}"; do
             --slot-duration-ms 0.5 \
             --traffic-percent "${TRAFFIC_PERCENT}" \
             --packet-size-bytes "${PACKET_SIZE_BYTES}" \
-            --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}"
+            --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}" \
+            --prbs-per-group "${PRBS_PER_GROUP}" \
+            --prg-count "${PRG_COUNT}"
     fi
 
     if [[ "${COMPACT_OUTPUT}" == "1" ]]; then

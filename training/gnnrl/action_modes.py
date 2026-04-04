@@ -7,6 +7,8 @@ from typing import Iterable
 
 import torch
 
+from training.gnnrl.slot_layout import build_schedulable_cell_ue_mask, build_type0_slot_layout
+
 
 ACTION_MODE_JOINT = "joint"
 ACTION_MODE_PRG_ONLY_TYPE0 = "prg_only_type0"
@@ -31,15 +33,17 @@ def is_prg_only_type0(action_mode: str | None) -> bool:
 def build_type0_all_ue_action(
     action_mask_cell_ue: torch.Tensor,
     n_sched_ue: int,
+    action_mask_ue: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """
-    Build deterministic Type-0 slot fill that mirrors the native baseline:
-    each cell's scheduler slots are filled by its associated active UEs in
+    Build deterministic Type-0 slot fill over currently schedulable UEs:
+    each cell's live scheduler slots are filled by its associated/live UEs in
     ascending UE index order, with remaining slots kept as -1.
 
     Args:
         action_mask_cell_ue: [B, C, U] or [C, U] association mask.
         n_sched_ue: total scheduler slots.
+        action_mask_ue: optional [B, U] or [U] live/schedulable UE mask.
     Returns:
         [B, S] tensor of UE ids, with -1 for empty slots.
     """
@@ -54,20 +58,22 @@ def build_type0_all_ue_action(
     bsz, n_cell, _n_active_ue = action_mask_cell_ue.shape
     if n_cell <= 0:
         raise ValueError("n_cell must be positive")
-    if n_sched_ue % n_cell != 0:
-        raise ValueError(f"n_sched_ue={n_sched_ue} must be divisible by n_cell={n_cell}")
 
-    slots_per_cell = n_sched_ue // n_cell
+    layout = build_type0_slot_layout(
+        action_mask_cell_ue,
+        n_sched_ue=n_sched_ue,
+        action_mask_ue=action_mask_ue,
+    )
     out = torch.full((bsz, n_sched_ue), -1, dtype=torch.long, device=action_mask_cell_ue.device)
-    assoc = action_mask_cell_ue.to(dtype=torch.bool)
+    sched_mask = build_schedulable_cell_ue_mask(action_mask_cell_ue, action_mask_ue=action_mask_ue)
 
     for b_idx in range(bsz):
         for c_idx in range(n_cell):
-            ue_ids = torch.nonzero(assoc[b_idx, c_idx], as_tuple=False).flatten()
-            take = min(slots_per_cell, int(ue_ids.numel()))
+            ue_ids = torch.nonzero(sched_mask[b_idx, c_idx], as_tuple=False).flatten()
+            take = min(int(layout.slot_counts[b_idx, c_idx].item()), int(ue_ids.numel()))
             if take <= 0:
                 continue
-            start = c_idx * slots_per_cell
+            start = int(layout.cell_slot_start[b_idx, c_idx].item())
             out[b_idx, start : start + take] = ue_ids[:take]
     return out
 

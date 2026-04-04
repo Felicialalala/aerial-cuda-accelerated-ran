@@ -68,12 +68,22 @@
 
 ### 4.1 Actor 真正接收的观测
 
-当前策略网络输入只有 4 个张量：
+当前 `joint` 策略网络前向一共接收 6 个输入张量：
 
 - `obs_cell_features: float32[n_cell, 5]`
-- `obs_ue_features: float32[n_active_ue, 8]`
+- `obs_ue_features: float32[n_active_ue, 12]`
+- `obs_prg_features: float32[n_cell, n_prg, 4]`
 - `obs_edge_index: int16[n_edges, 2]`
 - `obs_edge_attr: float32[n_edges, 2]`
+- `action_mask_cell_ue: bool[n_cell, n_active_ue]`
+
+其中：
+
+- `obs_*_features` 是数值特征
+- `obs_edge_index` 是固定的小区图连边拓扑，不是可学习的数值特征
+- `action_mask_cell_ue` 是“cell-UE 合法关联”结构输入，用于：
+  - 在 UE 塔里把小区上下文聚合到 UE
+  - 在 UE head 上屏蔽非法 `cell -> UE` 类别
 
 语义如下。
 
@@ -85,7 +95,7 @@
 4. `mean_avg_rate_mbps`
 5. `tb_err_rate`
 
-`obs_ue_features[..., 8]`
+`obs_ue_features[..., 12]`
 
 1. `buffer_bytes`
 2. `avg_rate_mbps`
@@ -95,25 +105,71 @@
 6. `tbErrLastActUe`
 7. `newDataActUe`
 8. `staleSlots`
+9. `hol_delay_ms`
+10. `ttl_slack_ms`
+11. `recent_scheduled_ratio`
+12. `recent_goodput_deficit_norm`
+
+其中后 4 维来自 [`OnlineObservationExtrasBuilder.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineObservationExtrasBuilder.h)：
+
+- `hol_delay_ms`
+  - 当前 HOL packet 的年龄，单位毫秒
+  - 来自 traffic queue tracker 的 `hol_age_tti * slotDurationMs`
+- `ttl_slack_ms`
+  - 当前 HOL packet 离 TTL 过期还剩多少毫秒
+  - 当 TTL 关闭或不可用时记为 `-1`
+- `recent_scheduled_ratio`
+  - 该 UE 近期是否被调度的 EMA
+  - 当前实现 `alpha = 0.05`
+- `recent_goodput_deficit_norm`
+  - 相对本小区近期平均 goodput 的欠账程度
+  - 口径是 `max(0, cell_mean_recent_goodput - ue_recent_goodput) / cell_mean_recent_goodput`
+
+`obs_prg_features[..., 4]`
+
+1. `top1_sinr_db`
+2. `top2_gap_db`
+3. `prev_prg_assigned`
+4. `prev_prg_reuse_ratio`
+
+其中：
+
+- `top1_sinr_db`
+  - 该 `cell × PRG` 上，本小区所有关联 UE 中最好的 subband SINR
+- `top2_gap_db`
+  - 第 1 名和第 2 名 subband SINR 的差值
+- `prev_prg_assigned`
+  - 上一个 TTI 该 `cell × PRG` 是否实际被分配
+- `prev_prg_reuse_ratio`
+  - 上一个 TTI 同一 `PRG` 在多少个小区同时被使用，按 `reuse_count / n_cell` 归一化
 
 `obs_edge_attr[..., 2]`
 
 1. `src_load_ratio`
 2. `load_diff_ratio`
 
+`obs_edge_index[..., 2]`
+
+- 当前是小区之间的完全有向图，不含 self-loop
+- 边数 `n_edges = n_cell * (n_cell - 1)`
+
 ### 4.2 训练和在线交互额外使用的字段
 
-这些字段不是 actor 输入层，但当前 offline/online 训练都依赖它们：
+这些字段不是前向里的“数值特征”，但当前训练/在线交互仍然依赖它们：
 
 - `action_mask_ue: bool[n_active_ue]`
-- `action_mask_cell_ue: bool[n_cell, n_active_ue]`
 - `action_mask_prg_cell: bool[n_cell, n_prg]`
 - `reward_scalar`
-- `reward_terms`
+- `reward_terms[12]`
 - `done`
+
+另外，离线 replay 仍会持久化：
+
 - `next_cell_features`
 - `next_ue_features`
 - `next_edge_attr`
+
+但当前 replay v2 还没有持久化 `obs_prg_features / next_prg_features`，因此它和当前 online bridge 主线观测并不是完全等价的。
 
 ### 4.3 动作语义
 
@@ -133,12 +189,69 @@
 - 不是 logits 本身
 - 也不是 Python 侧原始分类标签本身
 
-### 4.4 奖励
+### 4.4 奖励与在线诊断指标
 
-当前统一奖励是：
+当前 online bridge 协议已经升级到 `version=5`，`reward_terms` 扩展为 12 个标量：
 
-- `reward_terms = [throughput_mbps, total_buffer_mb, tb_err_rate, fairness_jain]`
-- `reward_scalar = throughput_mbps - 0.05 * total_buffer_mb - 2.0 * tb_err_rate + 0.5 * fairness_jain`
+1. `served_throughput_mbps`
+2. `total_pending_buffer_mb`
+3. `tb_err_rate`
+4. `fairness_jain`
+5. `goodput_mbps`
+6. `sched_wb_sinr_db`
+7. `prg_utilization_ratio`
+8. `goodput_spectral_efficiency_bpshz`
+9. `prg_reuse_ratio`
+10. `expired_bytes`
+11. `expired_packets`
+12. `expiry_drop_rate`
+
+口径说明：
+
+- `served_throughput_mbps` 来自当前 TTI 的 `servedBytesThisTti`
+- `goodput_mbps` 只统计当前 TTI 成功传输的 bytes，即 `tbErr == 0` 的有效交付
+- `total_pending_buffer_mb = (mac_buffer_bytes + flow_queued_bytes) / 1e6`
+- `fairness_jain` 基于当前 TTI 的 per-UE `goodputBytesThisTti` 计算
+- `sched_wb_sinr_db` 是“本 TTI 实际被调度 UE”的平均 wideband SINR
+- `prg_utilization_ratio` 是 `allocated PRG / total PRG capacity`
+- `goodput_spectral_efficiency_bpshz` 是 `goodput bitrate / (n_prg * W)`
+- `prg_reuse_ratio` 描述同一个 PRG 被多 cell 同时使用的强度，可作为同频复用/同频干扰代理量
+- `expired_bytes / expired_packets / expiry_drop_rate` 描述 TTL 过期导致的 freshness 损失
+
+当前 reward 支持 4 种模式：
+
+- `goodput_only`
+  - 默认模式
+  - `reward_scalar = 0.05 * goodput_mbps`
+- `goodput_soft_queue`
+  - 在 `goodput` 目标上叠加有界 backlog 惩罚
+  - `reward_scalar = 0.05 * goodput_mbps - 0.5 * log1p(total_pending_buffer_mb)`
+- `goodput_reliability`
+  - 保持 `goodput` 为主目标，只做轻量可靠性 shaping
+  - `reward_scalar = 0.05 * goodput_mbps - 2.0 * tb_err_rate - 4.0 * expiry_drop_rate + 0.25 * fairness_jain`
+- `legacy`
+  - 恢复旧版 `throughput - backlog - queue_delay - bler + fairness` 奖励
+  - `reward_scalar = 0.05 * served_throughput_mbps - 0.05 * total_pending_buffer_mb - 0.002 * queue_delay_est_ms - 1.5 * tb_err_rate + 0.5 * fairness_jain`
+
+保留 `legacy` 的原因只是做回溯对比；当前推荐在线训练统一使用 `goodput_only`、`goodput_soft_queue` 或 TTL 场景下的 `goodput_reliability`。
+
+原因：
+
+- persistent online 模式下，backlog 会跨 TTI 持续积累
+- 旧 reward 容易被 backlog 项主导，出现“吞吐没变差，但 reward 一路下坠”的假不稳定
+- `goodput_only` 能把 PPO 主目标重新对齐到真实成功交付
+- backlog / 干扰 / 频谱效率等量更适合作为单独 KPI 观测，而不是默认直接混进标量 reward
+
+从 `v6` 开始，观测也补进了更直接的 TTL / 干扰相关状态：
+
+- UE 侧新增 4 维：`HOL delay`、`TTL slack`、`recent scheduled ratio`、`recent goodput deficit`
+- PRG 侧新增 4 维：`top-1 subband SINR`、`top-2 gap`、`previous per-cell PRG use`、`previous PRG reuse ratio`
+- `joint` 模型的 PRG head 不再只看 `cell context + PRG position`，而是还融合了由 UE head 推断得到的 soft slot-to-UE context
+
+这样做的目的不是“堆更多维度”，而是解决此前两个根本盲点：
+
+- 模型不知道哪些 packet 已经接近 TTL 截止
+- 模型也看不到真正随 PRG 变化的子带质量 / 同频复用状态
 
 ### 4.5 C++ 部署后的真正执行输出
 
@@ -159,6 +272,15 @@ ONNX / TensorRT 推理侧输出的是两个 logits 张量，但 C++ 端还会 de
 - `CUMAC_GNNRL_MODEL_MIN_PRG_RATIO`
 - `CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE`
 
+当前默认值里最重要的变化是：
+
+- `CUMAC_GNNRL_MODEL_MIN_PRG_RATIO` 默认已经从 `1.0` 改为 `0.0`
+- 也就是 decode 不再强制“每个 cell 的合法 PRG 都必须分出去”
+- 模型现在可以显式选择 `NO_PRG`，从而让部分 PRG 空置来换取更低的同频干扰
+- `CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE` 如果不显式设置，`prg_only_type0` 下会启用 runtime auto guardrail，避免 greedy argmax decode 把一个 cell 的大部分 PRG 长期压到单个 slot 上
+- Python 训练侧现在也会把 `prg_only_type0` 的空 slot 从 PRG 动作空间里屏蔽掉，避免“训练时合法、C++ 执行时被丢弃”的 dead-slot mismatch
+- `prg_only_type0` 仍然保留一个结构性限制：每个 cell 在单个 step 里只暴露 `n_sched_ue / n_cell` 个 slot，若某 cell 的关联 UE 数超过这个上限，超出的 UE 在该 step 不会进入 PRG 动作空间
+
 ### 4.6 `ue_kpi.csv` / `kpi_summary.json` 当前最值得看的字段
 
 当前做策略比较时，建议优先看：
@@ -167,6 +289,8 @@ ONNX / TensorRT 推理侧输出的是两个 logits 张量，但 C++ 端还会 de
 - `global_kpi.ue_throughput_jain`
 - `global_kpi.ue_throughput_p5_mbps`
 - `global_kpi.residual_buffer_ratio`
+- `global_kpi.served_buffer_ratio`
+- `global_kpi.non_residual_buffer_ratio`
 - `global_kpi.packet_delay_p95_ms`
 - `global_kpi.queue_delay_p95_ms`
 - `global_kpi.scheduled_ratio_p5`
@@ -209,6 +333,9 @@ ONNX / TensorRT 推理侧输出的是两个 logits 张量，但 C++ 端还会 de
 
 - 旧版曾缺少 `action_mask_cell_ue`
 - 现在 `dataset.py` 仍兼容旧数据，但那只是回退逻辑，不再是主线推荐
+- replay v2 仍未持久化 `obs_prg_features`
+  - offline loader 会把 PRG 分支视为可选输入
+  - 这意味着当前 online `joint` 主线观测比 replay v2 更丰富
 
 快速检查：
 
@@ -229,7 +356,7 @@ python3 cuMAC/scripts/inspect_rl_replay.py --replay-dir <replay_dir>
 ```c
 struct MsgHeader {
   uint32_t magic;       // 0x524C4E4F ("ONLR")
-  uint16_t version;     // 1
+  uint16_t version;     // 5
   uint16_t type;        // MsgType
   uint32_t payloadBytes;
 };
@@ -267,10 +394,11 @@ struct StepReqHeader {
 - `tti`
 - `done`
 - `rewardScalar`
-- `rewardTerms[4]`
+- `rewardTerms[12]`
 - `EnvDims`
 - `obs_cell_features`
 - `obs_ue_features`
+- `obs_prg_features`
 - `obs_edge_index`
 - `obs_edge_attr`
 - `action_mask_ue`
@@ -386,10 +514,13 @@ build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedule
   --packet-size-bytes 3000 \
   --traffic-arrival-rate 0.8 \
   --topology-seed 42 \
+  --topology-seed-mode sequential \
   --baseline-scheduler pfq \
-  --action-mode prg_only_type0 \
+  --reward-mode goodput_only \
+  --action-mode joint \
   --init-policy-checkpoint training/gnnrl/checkpoints/m1_bc_seed42/checkpoint_best.pt \
   --online-persistent 1 \
+  --curve-every-episodes 500 \
   --rollout-steps 256 \
   --iters 40 \
   --ppo-epochs 6 \
@@ -406,20 +537,128 @@ build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedule
 - online bridge 训练必须用 `exec-mode=both`
 - 如果你当前对齐的是 `3cell + pfq + seed=42 + traffic_arrival_rate=0.8` 基线，就把这些参数原样带进 launcher
 - 若直接调用 `ppo_online_train.py`，需要自行保证 compile-time 参数与运行期环境变量完全一致
+- `--topology-seed-mode sequential` 现在可以做顺序多 seed 在线训练；trainer 会在每个 episode 重启 simulator，并把 `topology-seed + episode_idx - 1` 写到 `CUMAC_TOPOLOGY_SEED`
+- `--seed-list 42,43,44,...` 配合 `--topology-seed-mode list_cycle` 仍可做显式列表循环
+- `--curve-every-episodes 500` 会每 500 个完成 episode 刷新最新曲线并额外保存一次快照
+- 当 `--online-persistent 1` 且启用 `--topology-seed-mode != fixed` 或 `--curve-every-episodes` 时，trainer 会按 `--episode-horizon` 主动切 episode，不需要改 online bridge 协议
+- 对 `fixed` topology seed，trainer 现在支持 soft episode rollover：到 `episode_horizon` 只切 episode 统计和 GAE bootstrap，不会因为 horizon 直接重启 simulator；只有 simulator 自己跑到 ring horizon / env done 时才会重连
+- 这里的 `list_cycle` 只是“按列表循环切 seed”，和 native RR baseline 调度器不是一回事
+
+## 7.6 2026-04-02 训练记录与优化结论
+
+### Fixed seed 稳定性复盘
+
+实验目录：
+
+- [`training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v3`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v3)
+
+核心配置：
+
+- `topology-scenario=3cell`
+- `baseline-scheduler=pfq`
+- `topology-seed-mode=fixed`
+- `topology-seed=42`
+- `reward-mode=goodput_only`
+- `action-mode=prg_only_type0`
+- `online-persistent=1`
+- `episode-horizon=1000`
+- `rollout-steps=512`
+- `iters=300`
+
+结果摘要：
+
+- `completed_episodes = 153`
+- `best checkpoint iter = 280`
+- `best rollout_reward_raw_mean = 37.4561`
+- `best rollout_goodput_mbps_mean = 749.1227 Mbps`
+- 最后一轮 `episode_goodput_mbps_mean = 707.90 Mbps`
+- 最后一轮 `episode_total_buffer_mb_mean = 1397.36 MB`
+
+结论：
+
+- 这轮已经不是旧版 reward 下那种“reward 持续塌陷”的训练失稳
+- `goodput` 和 `raw reward` 在后半程是平台期震荡，不是单边恶化
+- `approx_kl` 长期低于 `target_kl`
+- 当前更大的问题不是 PPO 崩掉，而是 backlog 在 persistent traffic 下持续抬升
+- 因此继续盲目拉长训练通常收益有限，优先级更高的是补齐队列/时延语义和观测指标
+
+### Sequential seed 试验说明
+
+参考目录：
+
+- [`training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_seqseed`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_seqseed)
+
+说明：
+
+- 该目录对应较早的 sequential-seed 探索 run
+- summary 仍是旧格式，没有 `best_checkpoint_score` / `goodput` 等新字段
+- `best objective` 出现在 `iter=30`，但它只是 PPO 优化目标，不是业务 KPI
+- 这个 run 仍可作为“多 seed 在线训练更难”的参考，但不应与 `fixedseed42_v3` 的 `goodput_only` 结果直接同口径比较
+
+### 本轮代码优化记录
+
+本轮围绕 online PPO 做了 4 类调整：
+
+1. reward 重构
+   - 默认 reward 从 backlog 主导改为 `goodput_only`
+   - 保留 `goodput_soft_queue` 与 `legacy` 作为对照
+2. 指标观测增强
+   - 新增 `goodput`
+   - 新增 `sched_wb_sinr_db`
+   - 新增 `prg_utilization_ratio`
+   - 新增 `goodput_spectral_efficiency_bpshz`
+   - 新增 `prg_reuse_ratio`
+3. checkpoint 选优逻辑调整
+   - `ppo_actor_best.pt` 改为直接按 rollout `goodput` 选优
+   - 第一 tie-break 使用更低的 `rollout_expiry_drop_rate_mean`
+   - 第二 tie-break 使用更低的 `rollout_tb_err_rate_mean`
+   - `objective` 只保留做 PPO 训练诊断
+4. 曲线图精简
+   - 去掉高度重合或几乎恒定的图
+   - 当前默认保留 `rollout_reward_raw_mean / rollout_goodput_mbps_mean / rollout_total_buffer_mb_mean / rollout_expiry_drop_rate_mean / rollout_tb_err_rate_mean`
+   - 同时保留 `objective / value_loss / approx_kl / entropy` 作为优化过程诊断
+   - episode 侧保留 `reward_raw_mean / goodput / buffer`
+   - 当新字段存在时，再附加 `sched_wb_sinr_db / prg_utilization_ratio / goodput_spectral_efficiency / prg_reuse_ratio`
 
 ## 8. 当前限制与不应误解的点
 
 1. 当前 online PPO 虽然输出 UE 选择和 PRG bitmap 两部分动作，但 native Type-0 baseline 自身是“全部 active UE 固定进入 slot，再比较 PRG bitmap 分配”的语义。
-2. 现在已经有 `prg_only_type0` 模式可用于严格同口径对比。
-   该模式会固定 Type-0 的 all-active-UE slot 布局，只学习 PRG bitmap / slot assignment。
-3. `exec-mode=gpu` 现在只适合 baseline 或导出模型后的推理评估，不适合 online bridge 训练。
-4. 当前最佳 checkpoint 不能只看 `objective`，还需要回看：
-   - `throughput`
-   - `residual_buffer_ratio`
-   - `packet_delay`
-   - `scheduled_ratio`
+2. 若要严格对齐 baseline 的“每个基站关联 UE 都是候选 UE”动作空间，应优先使用 `joint` 模式。
+   该模式会让每个 cell 的 scheduler slot 从本 cell 全部关联 UE 中选择，不再把候选集截断到固定前 `n_sched_ue / n_cell` 个 UE。
+3. `prg_only_type0` 更适合作为 bitmap-only 对照实验。
+   它会固定 Type-0 的 all-active-UE slot 布局，只学习 PRG bitmap / slot assignment，因此在某 cell 关联 UE 数超过 slot 数时会天然丢掉一部分 UE 候选。
+4. `exec-mode=gpu` 现在只适合 baseline 或导出模型后的推理评估，不适合 online bridge 训练。
+5. 当前最佳 checkpoint 已改为按 rollout `goodput` 选优，并依次用更低的 `expiry_drop_rate` 与 `tb_err_rate` 做 tie-break；`objective` 继续保留用于 PPO 优化诊断，但不再直接决定 `ppo_actor_best.pt`。
+6. 当前 traffic model 已支持“超过最大驻留时间自动过期”的 packet TTL 机制，默认关闭，可通过 `--packet-ttl-tti` 或 `--packet-ttl-ms` 显式开启。
+7. 开启 TTL 后，run log / `kpi_summary.json` / online PPO episode curves 会同步输出 `expired_bytes / expired_packets / expiry_drop_rate`；`served_bytes_est` 也会显式扣除 expired bytes，避免把 timeout packet 误记成 served throughput。
+8. `packet_delay_*` 统计仍然只覆盖“被完整送达”的 packet；TTL 过期 packet 不进入 packet-delay 成功样本，而是进入 expiry 统计。
 
-## 9. 当前推荐门禁
+## 9. 关于是否需要 packet 失效时间
+
+当前实现现状：
+
+- [`cuMAC/examples/trafficModel/trafficFlows.hpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/trafficModel/trafficFlows.hpp) 里只在队列容量超过 `MAX_BYTES` 时丢弃新到达流量
+- [`cuMAC/examples/trafficModel/trafficGenerator.hpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/trafficModel/trafficGenerator.hpp) 里会记录 packet 的 `arrival_tti`
+- packet 被服务完成时统计 `packet_delay_*`
+- packet 若超过配置 TTL，则会在 traffic model 中直接过期并累计到 `expired_packets / expired_bytes`
+
+当前 TTL 设计：
+
+- TTL 默认关闭，通过 `--packet-ttl-tti` 或 `--packet-ttl-ms` 开启
+- 当两者同时设置时，以 `ttl_tti` 为准
+- `expired_bytes / expired_packets / expiry_drop_rate` 会进入：
+  - run log 的 `TRAFFIC_EXPIRY`
+  - `kpi_summary.json` 的 `traffic` 与 `global_kpi`
+  - online PPO 的 `online_ppo_metrics.csv`、`online_ppo_episode_metrics.csv` 与训练曲线
+- `served_bytes_est` 口径调整为 `accepted - flow_queued - mac_buffer - expired`
+
+推荐做法：
+
+1. 如果当前目标只是“最大化长期成功交付”，可以先保持 TTL 关闭，只看 `goodput`
+2. 如果目标包含 latency budget、业务鲜活性，建议开启 TTL，并同时观察 `expiry_drop_rate + packet_delay_p95_ms`
+3. 若以后做多业务混合流量，TTL 最好按 traffic class 配置，而不是所有 flow 共用一个全局阈值
+
+## 10. 当前推荐门禁
 
 对于导出后的 `gnnrl_model`，至少建议检查：
 

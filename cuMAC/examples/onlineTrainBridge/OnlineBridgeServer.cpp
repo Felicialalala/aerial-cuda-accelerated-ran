@@ -198,6 +198,7 @@ std::vector<uint8_t> OnlineBridgeServer::buildStatePayload(const StepState& stat
         sizeof(StepStateHeader) +
         sizeof(float) * state.obsCellFeatures.size() +
         sizeof(float) * state.obsUeFeatures.size() +
+        sizeof(float) * state.obsPrgFeatures.size() +
         sizeof(int16_t) * state.obsEdgeIndex.size() +
         sizeof(float) * state.obsEdgeAttr.size() +
         sizeof(uint8_t) * state.actionMaskUe.size() +
@@ -217,6 +218,9 @@ std::vector<uint8_t> OnlineBridgeServer::buildStatePayload(const StepState& stat
     }
     if (!state.obsUeFeatures.empty()) {
         appendRaw(state.obsUeFeatures.data(), sizeof(float) * state.obsUeFeatures.size());
+    }
+    if (!state.obsPrgFeatures.empty()) {
+        appendRaw(state.obsPrgFeatures.data(), sizeof(float) * state.obsPrgFeatures.size());
     }
     if (!state.obsEdgeIndex.empty()) {
         appendRaw(state.obsEdgeIndex.data(), sizeof(int16_t) * state.obsEdgeIndex.size());

@@ -6,9 +6,11 @@
 #include "OnlineFeatureCodec.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <string>
 #include <vector>
 
 namespace cumac::online {
@@ -19,7 +21,49 @@ float clampNonNeg(float value)
     return std::max(0.0F, value);
 }
 
+std::string toLowerCopy(const std::string& value)
+{
+    std::string out = value;
+    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return out;
+}
+
 } // namespace
+
+OnlineFeatureCodec::RewardMode OnlineFeatureCodec::parseRewardMode(const std::string& value)
+{
+    const std::string lower = toLowerCopy(value);
+    if (lower.empty() || lower == "goodput_only") {
+        return RewardMode::GoodputOnly;
+    }
+    if (lower == "legacy" || lower == "legacy_throughput_backlog") {
+        return RewardMode::LegacyThroughputBacklog;
+    }
+    if (lower == "goodput_soft_queue") {
+        return RewardMode::GoodputSoftQueue;
+    }
+    if (lower == "goodput_reliability" || lower == "goodput_ttl_bler") {
+        return RewardMode::GoodputReliability;
+    }
+    return RewardMode::GoodputOnly;
+}
+
+const char* OnlineFeatureCodec::rewardModeToString(const RewardMode mode)
+{
+    switch (mode) {
+        case RewardMode::LegacyThroughputBacklog:
+            return "legacy";
+        case RewardMode::GoodputSoftQueue:
+            return "goodput_soft_queue";
+        case RewardMode::GoodputReliability:
+            return "goodput_reliability";
+        case RewardMode::GoodputOnly:
+        default:
+            return "goodput_only";
+    }
+}
 
 bool OnlineFeatureCodec::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
 {
@@ -70,12 +114,15 @@ bool OnlineFeatureCodec::assocToCell(const cumacCellGrpPrms* cellGrpPrmsCpu, uin
 
 void OnlineFeatureCodec::buildObservation(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                                           const cumacCellGrpPrms* cellGrpPrmsCpu,
+                                          const ObservationExtras* extras,
                                           std::vector<float>& cellFeatures,
                                           std::vector<float>& ueFeatures,
+                                          std::vector<float>& prgFeatures,
                                           std::vector<float>& edgeAttr) const
 {
     cellFeatures.assign(static_cast<size_t>(m_nCell) * kCellFeatDim, 0.0F);
     ueFeatures.assign(static_cast<size_t>(m_nActiveUe) * kUeFeatDim, 0.0F);
+    prgFeatures.assign(static_cast<size_t>(m_nCell) * static_cast<size_t>(m_nPrbGrp) * kPrgFeatDim, 0.0F);
     edgeAttr.assign(static_cast<size_t>(m_nEdges) * kEdgeFeatDim, 0.0F);
 
     std::vector<int32_t> ueServingCell(m_nActiveUe, -1);
@@ -150,6 +197,13 @@ void OnlineFeatureCodec::buildObservation(const cumacCellGrpUeStatus* cellGrpUeS
         ueFeatures[base + 5] = tbErrAct;
         ueFeatures[base + 6] = newData;
         ueFeatures[base + 7] = staleSlots;
+        if (extras != nullptr && extras->hasUeExtra(m_nActiveUe)) {
+            const size_t extraBase = static_cast<size_t>(ueIdx) * ObservationFeatureLayout::kUeExtraFeatDim;
+            ueFeatures[base + 8] = extras->ueExtraFeatures[extraBase + 0U];
+            ueFeatures[base + 9] = extras->ueExtraFeatures[extraBase + 1U];
+            ueFeatures[base + 10] = extras->ueExtraFeatures[extraBase + 2U];
+            ueFeatures[base + 11] = extras->ueExtraFeatures[extraBase + 3U];
+        }
 
         if (cellId >= 0 && static_cast<uint32_t>(cellId) < m_nCell) {
             const uint32_t cIdx = static_cast<uint32_t>(cellId);
@@ -197,6 +251,10 @@ void OnlineFeatureCodec::buildObservation(const cumacCellGrpUeStatus* cellGrpUeS
             edgePos += 1U;
         }
     }
+
+    if (extras != nullptr && extras->hasPrgFeatures(m_nCell, m_nPrbGrp)) {
+        prgFeatures = extras->prgFeatures;
+    }
 }
 
 void OnlineFeatureCodec::buildActionMask(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
@@ -238,45 +296,87 @@ void OnlineFeatureCodec::buildActionMask(const cumacCellGrpUeStatus* cellGrpUeSt
     }
 }
 
-OnlineFeatureCodec::RewardTerms OnlineFeatureCodec::buildReward(const cumacCellGrpUeStatus* cellGrpUeStatusCpu) const
+OnlineFeatureCodec::RewardTerms OnlineFeatureCodec::buildReward(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
+                                                                const std::vector<unsigned long long>& servedBytesThisTti,
+                                                                const std::vector<unsigned long long>& goodputBytesThisTti,
+                                                                unsigned long long flowQueuedBytes,
+                                                                unsigned long long expiredBytesThisTti,
+                                                                unsigned long long expiredPacketsThisTti,
+                                                                float slotDurationSec,
+                                                                float tbErrRate,
+                                                                float schedWbSinrDb,
+                                                                float prgUtilizationRatio,
+                                                                float goodputSpectralEfficiencyBpsHz,
+                                                                float prgReuseRatio,
+                                                                float expiryDropRate) const
 {
     RewardTerms terms;
     if (cellGrpUeStatusCpu == nullptr) {
         return terms;
     }
 
-    double sumRate = 0.0;
-    double sumRateSq = 0.0;
     double sumBufferBytes = 0.0;
-    uint32_t tbValid = 0U;
-    uint32_t tbErr = 0U;
+    double sumServedBytes = 0.0;
+    double sumGoodputBytes = 0.0;
+    double sumGoodputBytesSq = 0.0;
     for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
-        const float rate = (cellGrpUeStatusCpu->avgRatesActUe != nullptr)
-                               ? clampNonNeg(cellGrpUeStatusCpu->avgRatesActUe[ueIdx])
-                               : 0.0F;
-        sumRate += static_cast<double>(rate);
-        sumRateSq += static_cast<double>(rate) * static_cast<double>(rate);
         if (cellGrpUeStatusCpu->bufferSize != nullptr) {
             sumBufferBytes += static_cast<double>(cellGrpUeStatusCpu->bufferSize[ueIdx]);
         }
-        if (cellGrpUeStatusCpu->tbErrLastActUe != nullptr) {
-            const int8_t v = cellGrpUeStatusCpu->tbErrLastActUe[ueIdx];
-            if (v == 0 || v == 1) {
-                tbValid += 1U;
-                if (v == 1) {
-                    tbErr += 1U;
-                }
-            }
+        if (ueIdx < servedBytesThisTti.size()) {
+            sumServedBytes += static_cast<double>(servedBytesThisTti[ueIdx]);
+        }
+        if (ueIdx < goodputBytesThisTti.size()) {
+            const double goodputBytes = static_cast<double>(goodputBytesThisTti[ueIdx]);
+            sumGoodputBytes += goodputBytes;
+            sumGoodputBytesSq += goodputBytes * goodputBytes;
         }
     }
 
-    terms.throughputMbps = static_cast<float>(sumRate / 1.0e6);
-    terms.totalBufferMb = static_cast<float>(sumBufferBytes / 1.0e6);
-    terms.tbErrRate = (tbValid > 0U) ? static_cast<float>(tbErr) / static_cast<float>(tbValid) : 0.0F;
-    terms.fairnessJain = (sumRateSq > 0.0)
-                             ? static_cast<float>((sumRate * sumRate) / (static_cast<double>(m_nActiveUe) * sumRateSq))
+    const double totalPendingBytes = sumBufferBytes + static_cast<double>(flowQueuedBytes);
+    const double slotDuration = std::max(1.0e-6, static_cast<double>(slotDurationSec));
+    terms.throughputMbps = static_cast<float>((sumServedBytes * 8.0) / slotDuration / 1.0e6);
+    terms.goodputMbps = static_cast<float>((sumGoodputBytes * 8.0) / slotDuration / 1.0e6);
+    terms.totalBufferMb = static_cast<float>(totalPendingBytes / 1.0e6);
+    terms.tbErrRate = std::max(0.0F, std::min(1.0F, tbErrRate));
+    terms.schedWbSinrDb = schedWbSinrDb;
+    terms.prgUtilizationRatio = std::max(0.0F, std::min(1.0F, prgUtilizationRatio));
+    terms.goodputSpectralEfficiencyBpsHz = std::max(0.0F, goodputSpectralEfficiencyBpsHz);
+    terms.prgReuseRatio = std::max(0.0F, std::min(1.0F, prgReuseRatio));
+    terms.expiredBytes = clampNonNeg(static_cast<float>(expiredBytesThisTti));
+    terms.expiredPackets = clampNonNeg(static_cast<float>(expiredPacketsThisTti));
+    terms.expiryDropRate = std::max(0.0F, std::min(1.0F, expiryDropRate));
+    terms.fairnessJain = (sumGoodputBytesSq > 0.0)
+                             ? static_cast<float>(
+                                   (sumGoodputBytes * sumGoodputBytes) /
+                                   (static_cast<double>(std::max<uint32_t>(1U, m_nActiveUe)) * sumGoodputBytesSq))
                              : 0.0F;
-    terms.scalar = terms.throughputMbps - 0.05F * terms.totalBufferMb - 2.0F * terms.tbErrRate + 0.5F * terms.fairnessJain;
+
+    switch (m_rewardMode) {
+        case RewardMode::LegacyThroughputBacklog:
+            if (terms.throughputMbps > 1.0e-6F) {
+                terms.queueDelayMs = static_cast<float>(
+                    (totalPendingBytes * 8.0) / (static_cast<double>(terms.throughputMbps) * 1.0e6) * 1.0e3);
+            } else if (totalPendingBytes > 0.0) {
+                terms.queueDelayMs = 5000.0F;
+            } else {
+                terms.queueDelayMs = 0.0F;
+            }
+            terms.scalar = 0.05F * terms.throughputMbps - 0.05F * terms.totalBufferMb - 0.002F * terms.queueDelayMs
+                           - 1.5F * terms.tbErrRate + 0.5F * terms.fairnessJain;
+            break;
+        case RewardMode::GoodputSoftQueue:
+            terms.scalar = 0.05F * terms.goodputMbps - 0.5F * std::log1p(std::max(0.0F, terms.totalBufferMb));
+            break;
+        case RewardMode::GoodputReliability:
+            terms.scalar = 0.05F * terms.goodputMbps - 2.0F * terms.tbErrRate - 4.0F * terms.expiryDropRate
+                           + 0.25F * terms.fairnessJain;
+            break;
+        case RewardMode::GoodputOnly:
+        default:
+            terms.scalar = 0.05F * terms.goodputMbps;
+            break;
+    }
     return terms;
 }
 

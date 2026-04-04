@@ -38,9 +38,14 @@ Wrapper-specific options:
   -h, --help                  Show this help
 
 All other options are forwarded to ${RUN_SCRIPT##*/}.
+Common forwarded options include:
+  --ue-per-cell <n>           Active/scheduled UE count per cell
+  --total-ue-count <n>        Total active/scheduled UE count across coordinated cells
+
 Typical example:
   $(basename "$0") \\
     --build-method cmake \\
+    --total-ue-count 36 \\
     --fading-mode 0 \\
     --cdl-profiles NA \\
     --cdl-delay-spreads 0 \\

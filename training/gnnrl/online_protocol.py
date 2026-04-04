@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from typing import Tuple
 
 MAGIC = 0x524C4E4F  # "ONLR"
-VERSION = 1
+VERSION = 5
+REWARD_TERM_COUNT = 12
 
 MSG_RESET_REQ = 1
 MSG_RESET_RSP = 2
@@ -21,7 +22,7 @@ MSG_ERROR_RSP = 7
 HEADER_STRUCT = struct.Struct("<IHHI")
 RESET_REQ_STRUCT = struct.Struct("<iiI")
 STEP_REQ_HEAD_STRUCT = struct.Struct("<iII")
-STATE_HEAD_STRUCT = struct.Struct("<iB3xfffffIIIIIIII")
+STATE_HEAD_STRUCT = struct.Struct("<iB3x" + ("f" * (1 + REWARD_TERM_COUNT)) + "IIIIIIIIIIII")
 ERROR_HEAD_STRUCT = struct.Struct("<iI")
 
 
@@ -35,6 +36,10 @@ class EnvDims:
     n_edges: int
     alloc_type: int
     action_alloc_len: int
+    cell_feat_dim: int
+    ue_feat_dim: int
+    edge_feat_dim: int
+    prg_feat_dim: int
 
 
 @dataclass(frozen=True)
@@ -42,7 +47,7 @@ class StateHeader:
     tti: int
     done: bool
     reward_scalar: float
-    reward_terms: Tuple[float, float, float, float]
+    reward_terms: Tuple[float, ...]
     dims: EnvDims
 
 
@@ -71,14 +76,11 @@ def unpack_state_header(payload: bytes) -> Tuple[StateHeader, int]:
     if len(payload) < STATE_HEAD_STRUCT.size:
         raise ValueError("state payload too small")
     vals = STATE_HEAD_STRUCT.unpack_from(payload, 0)
+    tti = int(vals[0])
+    done_u8 = int(vals[1])
+    reward_scalar = float(vals[2])
+    reward_terms = tuple(float(v) for v in vals[3 : 3 + REWARD_TERM_COUNT])
     (
-        tti,
-        done_u8,
-        reward_scalar,
-        r0,
-        r1,
-        r2,
-        r3,
         n_cell,
         n_active_ue,
         n_sched_ue,
@@ -87,7 +89,11 @@ def unpack_state_header(payload: bytes) -> Tuple[StateHeader, int]:
         n_edges,
         alloc_type,
         action_alloc_len,
-    ) = vals
+        cell_feat_dim,
+        ue_feat_dim,
+        edge_feat_dim,
+        prg_feat_dim,
+    ) = vals[3 + REWARD_TERM_COUNT :]
     dims = EnvDims(
         n_cell=int(n_cell),
         n_active_ue=int(n_active_ue),
@@ -97,12 +103,16 @@ def unpack_state_header(payload: bytes) -> Tuple[StateHeader, int]:
         n_edges=int(n_edges),
         alloc_type=int(alloc_type),
         action_alloc_len=int(action_alloc_len),
+        cell_feat_dim=int(cell_feat_dim),
+        ue_feat_dim=int(ue_feat_dim),
+        edge_feat_dim=int(edge_feat_dim),
+        prg_feat_dim=int(prg_feat_dim),
     )
     h = StateHeader(
-        tti=int(tti),
+        tti=tti,
         done=bool(done_u8),
-        reward_scalar=float(reward_scalar),
-        reward_terms=(float(r0), float(r1), float(r2), float(r3)),
+        reward_scalar=reward_scalar,
+        reward_terms=reward_terms,
         dims=dims,
     )
     return h, STATE_HEAD_STRUCT.size

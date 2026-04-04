@@ -106,6 +106,27 @@ def build_metric_rows(rr, pf, compare_baseline):
             "pf": safe_get(pf, "traffic", "goodput_mbps"),
         },
         {
+            "name": "traffic.expired_bytes",
+            "unit": "bytes",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "traffic", "expired_bytes"),
+            "pf": safe_get(pf, "traffic", "expired_bytes"),
+        },
+        {
+            "name": "traffic.expired_packets",
+            "unit": None,
+            "direction": "lower_better",
+            "rr": safe_get(rr, "traffic", "expired_packets"),
+            "pf": safe_get(pf, "traffic", "expired_packets"),
+        },
+        {
+            "name": "traffic.expiry_drop_rate",
+            "unit": "%",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "traffic", "expiry_drop_rate"),
+            "pf": safe_get(pf, "traffic", "expiry_drop_rate"),
+        },
+        {
             "name": "global_kpi.cluster_sum_throughput_mbps",
             "unit": "Mbps",
             "direction": "higher_better",
@@ -209,6 +230,13 @@ def build_metric_rows(rr, pf, compare_baseline):
             "direction": "lower_better",
             "rr": safe_get(rr, "global_kpi", "residual_buffer_ratio"),
             "pf": safe_get(pf, "global_kpi", "residual_buffer_ratio"),
+        },
+        {
+            "name": "global_kpi.non_residual_buffer_ratio",
+            "unit": "%",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "non_residual_buffer_ratio"),
+            "pf": safe_get(pf, "global_kpi", "non_residual_buffer_ratio"),
         },
         {
             "name": "global_kpi.served_buffer_ratio",
@@ -473,7 +501,8 @@ def build_summary(rr, pf, top_n, compare_baseline):
         "pf_ue_count": pf.get("ue_count"),
         "metric_source_note": (
             f"RR vs {display_name} should be judged mainly by traffic/global_kpi. "
-            "CPU/GPU compare fields are per-run consistency checks, not baseline winners."
+            "CPU/GPU compare fields are per-run consistency checks, not baseline winners. "
+            "served_buffer_ratio should be interpreted as served_bytes_est / generated_bytes on summaries produced by the current summarizer."
         ),
         "metric_definitions": rr.get("metric_definitions") or pf.get("metric_definitions") or {},
         "rr_vs_pf_metrics": metric_rows,

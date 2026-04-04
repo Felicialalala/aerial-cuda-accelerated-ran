@@ -91,6 +91,31 @@ inline std::pair<float, float> axialToCartesian(const HexCoord& coord, float sit
     return {x, y};
 }
 
+inline int resolveSchedSlotToActiveUe(const uint16_t* schedToActiveMap, int schedSlot, int nSchedUe, int nActiveUe)
+{
+    if (schedSlot < 0) {
+        return -1;
+    }
+    if (schedToActiveMap != nullptr && schedSlot < nSchedUe) {
+        const uint16_t activeUeId = schedToActiveMap[schedSlot];
+        if (activeUeId != 0xFFFF && activeUeId < static_cast<uint16_t>(nActiveUe)) {
+            return static_cast<int>(activeUeId);
+        }
+    }
+    if (schedSlot < nActiveUe) {
+        return schedSlot;
+    }
+    return -1;
+}
+
+inline int resolveType0AllocToActiveUe(int16_t allocEntry, const uint16_t* schedToActiveMap, int nSchedUe, int nActiveUe)
+{
+    if (allocEntry < 0) {
+        return -1;
+    }
+    return resolveSchedSlotToActiveUe(schedToActiveMap, static_cast<int>(allocEntry), nSchedUe, nActiveUe);
+}
+
 enum class UePlacementMode {
     Uniform,
     Stratified,
@@ -231,6 +256,18 @@ static int getTtiKpiLogInterval()
         return v >= 0 ? v : 100;
     }();
     return interval;
+}
+
+static int getSchedulerThroughputTraceEnabled()
+{
+    static int enabled = []() {
+        const char* env = std::getenv("CUMAC_TTI_SUM_THR_LOG");
+        if (env == nullptr || env[0] == '\0') {
+            return 0;
+        }
+        return std::atoi(env) != 0 ? 1 : 0;
+    }();
+    return enabled;
 }
 
 static int getPhyTraceEnabled()
@@ -1529,27 +1566,31 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
         delete[] assocCellIdx;
         delete[] allocSol_rbg2Ue;
     } else {
-        // determine cell associate 
-        int* assocCellIdx = new int[nUe];
-        for (int ueIdx = 0; ueIdx<nUe; ueIdx++) {
+        // determine cell associate for active-UE ids
+        int* assocCellIdx = new int[nActiveUe];
+        for (int ueIdx = 0; ueIdx < nActiveUe; ueIdx++) {
             assocCellIdx[ueIdx] = -1;
-            for (int cIdx = 0; cIdx < nCell; cIdx++) { 
-                if (cellAssoc[cIdx*nUe + ueIdx] == 1) {
-                    assocCellIdx[ueIdx] =cIdx;
+            for (int cIdx = 0; cIdx < nCell; cIdx++) {
+                if (cellAssocActUe.get() != nullptr && cellAssocActUe[cIdx * nActiveUe + ueIdx] == 1) {
+                    assocCellIdx[ueIdx] = cIdx;
                     break;
                 }
             }
         }
 
         // determine CRC and update average data rate
-        for (int ueIdx = 0; ueIdx<nUe; ueIdx++) {
+        for (int ueIdx = 0; ueIdx < nUe; ueIdx++) {
+            const int activeUeId =
+                resolveSchedSlotToActiveUe(schdSolCpu->setSchdUePerCellTTI, ueIdx, nUe, nActiveUe);
             int nrAllocRbg = 0;
 
-            if (assocCellIdx[ueIdx] == -1) {
+            if (activeUeId < 0 || assocCellIdx[activeUeId] == -1) {
                 nrAllocRbg = 0;
             } else {
                 for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) {
-                    if (allocSol[prgIdx*totNumCell + assocCellIdx[ueIdx]] == ueIdx) {
+                    const int allocUeId = resolveType0AllocToActiveUe(
+                        allocSol[prgIdx * totNumCell + assocCellIdx[activeUeId]], schdSolCpu->setSchdUePerCellTTI, nUe, nActiveUe);
+                    if (allocUeId == activeUeId) {
                         nrAllocRbg++;
                     }
                 }
@@ -1567,12 +1608,15 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 float avgSinr = 0;
 
                 for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
-                    if (allocSol[rbgIdx*totNumCell + assocCellIdx[ueIdx]] != ueIdx) {
+                    const int allocUeId = resolveType0AllocToActiveUe(
+                        allocSol[rbgIdx * totNumCell + assocCellIdx[activeUeId]], schdSolCpu->setSchdUePerCellTTI, nUe, nActiveUe);
+                    if (allocUeId != activeUeId) {
                         continue;
                     }
 
                     if (DL == 1) { // DL
-                        uint32_t hTemp = rbgIdx*nUe*totNumCell*nBsAnt*nUeAnt+ ueIdx*totNumCell*nBsAnt*nUeAnt;
+                        uint32_t hTemp =
+                            rbgIdx * nUe * totNumCell * nBsAnt * nUeAnt + activeUeId * totNumCell * nBsAnt * nUeAnt;
                         for (int rowIdx = 0; rowIdx < nUeAnt; rowIdx++) {
                             for (int colIdx = 0; colIdx < nUeAnt; colIdx++) {
                                 if (rowIdx == colIdx) {
@@ -1586,25 +1630,26 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                         }
 
                         for (int l = 0; l < totNumCell; l++) {
-                            if (l == assocCellIdx[ueIdx]) 
+                            if (l == assocCellIdx[activeUeId])
                                 continue;
 
-                            int uePrimeIdx = allocSol[rbgIdx*totNumCell+l];
+                            int uePrimeIdx = resolveType0AllocToActiveUe(
+                                allocSol[rbgIdx * totNumCell + l], schdSolCpu->setSchdUePerCellTTI, nUe, nActiveUe);
                             if (uePrimeIdx < 0)
                                 continue;
 
-                            uint32_t hInterfMatStart = hTemp+ l*nBsAnt*nUeAnt;
+                            uint32_t hInterfMatStart = hTemp + l * nBsAnt * nUeAnt;
                             matAlg->matMultiplication_aaHplusb(&estH_fr[hInterfMatStart], nUeAnt, nBsAnt, CMat);
                         }
                         matAlg->matInverseEigen(CMat, nUeAnt, CInvMat);
 
-                        uint32_t hMatStart = hTemp + assocCellIdx[ueIdx]*nBsAnt*nUeAnt;
+                        uint32_t hMatStart = hTemp + assocCellIdx[activeUeId] * nBsAnt * nUeAnt;
 
                         if (precodingScheme == 0) { // no precoding
                             matAlg->matMultiplication_aHb(&estH_fr[hMatStart], nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                             matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, &estH_fr[hMatStart], nBsAnt, EMat);
                         } else { 
-                            uint32_t vMatStart = (ueIdx*nPrbGrp + rbgIdx)*nBsAnt*nBsAnt;
+                            uint32_t vMatStart = (activeUeId * nPrbGrp + rbgIdx) * nBsAnt * nBsAnt;
                             matAlg->matMultiplication_ab(&estH_fr[hMatStart], nUeAnt, nBsAnt, prdMat.get()+vMatStart, nBsAnt, BMat);
                             matAlg->matMultiplication_aHb(BMat, nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                             matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, BMat, nBsAnt, EMat);
@@ -1619,7 +1664,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             avgSinr += 1.0/EInvMat[layerIdx*nBsAnt+layerIdx].x - 1.0;
                         }
                     } else { // UL
-                        uint32_t hTemp = rbgIdx*nUe*totNumCell*nBsAnt*nUeAnt+ assocCellIdx[ueIdx]*nBsAnt*nUeAnt;
+                        uint32_t hTemp =
+                            rbgIdx * nUe * totNumCell * nBsAnt * nUeAnt + assocCellIdx[activeUeId] * nBsAnt * nUeAnt;
 
                         for (int rowIdx = 0; rowIdx < nBsAnt; rowIdx++) {
                             for (int colIdx = 0; colIdx < nBsAnt; colIdx++) {
@@ -1634,25 +1680,26 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                         }  
                             
                         for (int l = 0; l < totNumCell; l++) {
-                            if (l == assocCellIdx[ueIdx]) 
+                            if (l == assocCellIdx[activeUeId])
                                 continue;
         
-                            int uePrimeIdx = allocSol[rbgIdx*totNumCell+l];
+                            int uePrimeIdx = resolveType0AllocToActiveUe(
+                                allocSol[rbgIdx * totNumCell + l], schdSolCpu->setSchdUePerCellTTI, nUe, nActiveUe);
                             if (uePrimeIdx < 0)
                                 continue;
         
-                            uint32_t hInterfMatStart = hTemp+ uePrimeIdx*totNumCell*nBsAnt*nUeAnt;
+                            uint32_t hInterfMatStart = hTemp + uePrimeIdx * totNumCell * nBsAnt * nUeAnt;
                             matAlg->matMultiplication_aaHplusb(&estH_fr[hInterfMatStart], nBsAnt, nUeAnt, CMat);
                         }
                         matAlg->matInverseEigen(CMat, nBsAnt, CInvMat);
 
-                        uint32_t hMatStart = hTemp + ueIdx*totNumCell*nBsAnt*nUeAnt;
+                        uint32_t hMatStart = hTemp + activeUeId * totNumCell * nBsAnt * nUeAnt;
         
                         if (precodingScheme == 0) { // no precoding
                             printf("Error: Currently only support SVD precoding for UL");
                             return;
                         } else { 
-                            uint32_t vMatStart = (ueIdx*nPrbGrp + rbgIdx)*nUeAnt*nUeAnt;
+                            uint32_t vMatStart = (activeUeId * nPrbGrp + rbgIdx) * nUeAnt * nUeAnt;
                             matAlg->matMultiplication_ab(&estH_fr[hMatStart], nBsAnt, nUeAnt, prdMat.get()+vMatStart, nUeAnt, BMat);
     
                             matAlg->matMultiplication_aHb(BMat, nBsAnt, nUeAnt, CInvMat, nBsAnt, DMat);
@@ -1697,7 +1744,7 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                     }
                 }
 
-                float rndNum = floatRandomArr[ueIdx];
+                float rndNum = floatRandomArr[activeUeId];
                 int tbErr = 0;
                 if (rndNum < blerCurr) {
                     tbErr = 1;
@@ -1710,7 +1757,7 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
                 // CPU and GPU buffer sizes hold the same values (data managed on CPU side)
                 if(0 != cellGrpUeStatusCpu->bufferSize){
-                    auto sched_bytes = std::min({TBS,cellGrpUeStatusCpu->bufferSize[ueIdx]});
+                    auto sched_bytes = std::min({TBS,cellGrpUeStatusCpu->bufferSize[activeUeId]});
                     insRate = static_cast<float>(sched_bytes)*(1-tbErr)/slotDuration;
                 }
                 avgRates[ueIdx] = (1.0-pfAvgRateUpd)*avgRates[ueIdx] + pfAvgRateUpd*insRate;
@@ -1979,27 +2026,34 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
         delete[] assocCellIdx;
         delete[] allocSol_rbg2Ue;
     } else {
-        // determine cell associate 
-        int* assocCellIdx = new int[nUe];
-        for (int ueIdx = 0; ueIdx<nUe; ueIdx++) {
+        // determine cell associate for active-UE ids
+        int* assocCellIdx = new int[nActiveUe];
+        for (int ueIdx = 0; ueIdx < nActiveUe; ueIdx++) {
             assocCellIdx[ueIdx] = -1;
-            for (int cIdx = 0; cIdx < totNumCell; cIdx++) { 
-                if (cellAssoc[cIdx*nUe + ueIdx]) {
-                    assocCellIdx[ueIdx] =cIdx;
+            for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
+                if (cellGrpPrmsCpu->cellAssocActUe != nullptr && cellGrpPrmsCpu->cellAssocActUe[cIdx * nActiveUe + ueIdx]) {
+                    assocCellIdx[ueIdx] = cIdx;
                     break;
                 }
             }
         }
 
         // determine CRC and update average data rate
-        for (int ueIdx = 0; ueIdx<nUe; ueIdx++) {
+        for (int ueIdx = 0; ueIdx < nUe; ueIdx++) {
+            const int activeUeId =
+                resolveSchedSlotToActiveUe(schdSolCpu->setSchdUePerCellTTI, ueIdx, nUe, nActiveUe);
             int nrAllocRbg = 0;
 
-            if (assocCellIdx[ueIdx] == -1) {
+            if (activeUeId < 0 || assocCellIdx[activeUeId] == -1) {
                 nrAllocRbg = 0;
             } else {
                 for (int prgIdx = 0; prgIdx < nPrbGrp; prgIdx++) {
-                    if (schdSolCpu->allocSol[prgIdx*totNumCell + assocCellIdx[ueIdx]] == ueIdx) {
+                    const int allocUeId = resolveType0AllocToActiveUe(
+                        schdSolCpu->allocSol[prgIdx * totNumCell + assocCellIdx[activeUeId]],
+                        schdSolCpu->setSchdUePerCellTTI,
+                        nUe,
+                        nActiveUe);
+                    if (allocUeId == activeUeId) {
                         nrAllocRbg++;
                     }
                 }
@@ -2018,12 +2072,18 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 float avgSinr = 0;
                 
                 for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
-                        if (schdSolCpu->allocSol[rbgIdx*totNumCell + assocCellIdx[ueIdx]] != ueIdx) {
+                        const int allocUeId = resolveType0AllocToActiveUe(
+                            schdSolCpu->allocSol[rbgIdx * totNumCell + assocCellIdx[activeUeId]],
+                            schdSolCpu->setSchdUePerCellTTI,
+                            nUe,
+                            nActiveUe);
+                        if (allocUeId != activeUeId) {
                             continue;
                         }
 
                         if (DL == 1) { // DL
-                            uint32_t hTemp = rbgIdx*nUe*totNumCell*nBsAnt*nUeAnt+ ueIdx*totNumCell*nBsAnt*nUeAnt;
+                            uint32_t hTemp =
+                                rbgIdx * nUe * totNumCell * nBsAnt * nUeAnt + activeUeId * totNumCell * nBsAnt * nUeAnt;
 
                             for (int rowIdx = 0; rowIdx < nUeAnt; rowIdx++) {
                                 for (int colIdx = 0; colIdx < nUeAnt; colIdx++) {
@@ -2038,25 +2098,26 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             }
         
                             for (int l = 0; l < totNumCell; l++) {
-                                if (l == assocCellIdx[ueIdx]) 
+                                if (l == assocCellIdx[activeUeId])
                                     continue;
         
-                                int uePrimeIdx = schdSolCpu->allocSol[rbgIdx*totNumCell+l];
+                                int uePrimeIdx = resolveType0AllocToActiveUe(
+                                    schdSolCpu->allocSol[rbgIdx * totNumCell + l], schdSolCpu->setSchdUePerCellTTI, nUe, nActiveUe);
                                 if (uePrimeIdx < 0)
                                     continue;
         
-                                uint32_t hInterfMatStart = hTemp+ l*nBsAnt*nUeAnt;
+                                uint32_t hInterfMatStart = hTemp + l * nBsAnt * nUeAnt;
                                 matAlg->matMultiplication_aaHplusb(&cellGrpPrmsCpu->estH_fr[hInterfMatStart], nUeAnt, nBsAnt, CMat);
                             }
                             matAlg->matInverseEigen(CMat, nUeAnt, CInvMat);
         
-                            uint32_t hMatStart = hTemp + assocCellIdx[ueIdx]*nBsAnt*nUeAnt;
+                            uint32_t hMatStart = hTemp + assocCellIdx[activeUeId] * nBsAnt * nUeAnt;
         
                             if (precodingScheme == 0) { // no precoding
                                 matAlg->matMultiplication_aHb(&cellGrpPrmsCpu->estH_fr[hMatStart], nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                                 matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, &cellGrpPrmsCpu->estH_fr[hMatStart], nBsAnt, EMat);
                             } else { 
-                                uint32_t vMatStart = (ueIdx*nPrbGrp + rbgIdx)*nBsAnt*nBsAnt;
+                                uint32_t vMatStart = (activeUeId * nPrbGrp + rbgIdx) * nBsAnt * nBsAnt;
                                 matAlg->matMultiplication_ab(&cellGrpPrmsCpu->estH_fr[hMatStart], nUeAnt, nBsAnt, &cellGrpPrmsCpu->prdMat[vMatStart], nBsAnt, BMat);
     
                                 matAlg->matMultiplication_aHb(BMat, nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
@@ -2072,7 +2133,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 avgSinr += 1.0/EInvMat[layerIdx*nBsAnt+layerIdx].x - 1.0;
                             }
                         } else { // UL
-                            uint32_t hTemp = rbgIdx*nUe*totNumCell*nBsAnt*nUeAnt+ assocCellIdx[ueIdx]*nBsAnt*nUeAnt;
+                            uint32_t hTemp =
+                                rbgIdx * nUe * totNumCell * nBsAnt * nUeAnt + assocCellIdx[activeUeId] * nBsAnt * nUeAnt;
 
                             for (int rowIdx = 0; rowIdx < nBsAnt; rowIdx++) {
                                 for (int colIdx = 0; colIdx < nBsAnt; colIdx++) {
@@ -2087,25 +2149,26 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             }  
                             
                             for (int l = 0; l < totNumCell; l++) {
-                                if (l == assocCellIdx[ueIdx]) 
+                                if (l == assocCellIdx[activeUeId])
                                     continue;
         
-                                int uePrimeIdx = schdSolCpu->allocSol[rbgIdx*totNumCell+l];
+                                int uePrimeIdx = resolveType0AllocToActiveUe(
+                                    schdSolCpu->allocSol[rbgIdx * totNumCell + l], schdSolCpu->setSchdUePerCellTTI, nUe, nActiveUe);
                                 if (uePrimeIdx < 0)
                                     continue;
         
-                                uint32_t hInterfMatStart = hTemp+ uePrimeIdx*totNumCell*nBsAnt*nUeAnt;
+                                uint32_t hInterfMatStart = hTemp + uePrimeIdx * totNumCell * nBsAnt * nUeAnt;
                                 matAlg->matMultiplication_aaHplusb(&cellGrpPrmsCpu->estH_fr[hInterfMatStart], nBsAnt, nUeAnt, CMat);
                             }
                             matAlg->matInverseEigen(CMat, nBsAnt, CInvMat);
 
-                            uint32_t hMatStart = hTemp + ueIdx*totNumCell*nBsAnt*nUeAnt;
+                            uint32_t hMatStart = hTemp + activeUeId * totNumCell * nBsAnt * nUeAnt;
         
                             if (precodingScheme == 0) { // no precoding
                                 printf("Error: Currently only support SVD precoding for UL");
                                 return;
                             } else { 
-                                uint32_t vMatStart = (ueIdx*nPrbGrp + rbgIdx)*nUeAnt*nUeAnt;
+                                uint32_t vMatStart = (activeUeId * nPrbGrp + rbgIdx) * nUeAnt * nUeAnt;
                                 matAlg->matMultiplication_ab(&cellGrpPrmsCpu->estH_fr[hMatStart], nBsAnt, nUeAnt, &cellGrpPrmsCpu->prdMat[vMatStart], nUeAnt, BMat);
     
                                 matAlg->matMultiplication_aHb(BMat, nBsAnt, nUeAnt, CInvMat, nBsAnt, DMat);
@@ -2149,7 +2212,7 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                     }
                 }
 
-                float rndNum = floatRandomArr[ueIdx];
+                float rndNum = floatRandomArr[activeUeId];
                 int tbErr = 0;
                 if (rndNum < blerCurr) {
                     tbErr = 1;
@@ -2162,8 +2225,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 uint32_t TBS = determineTbsPdsch(nrAllocPrb, pdschNrOfDataSymb, layerCount, mcsTable_codeRate[mcsSel]/1024.0, mcsTable_qamOrder[mcsSel]);
                 float insRate = static_cast<float>(TBS)*(1-tbErr)/slotDuration;
                 if(0 != cellGrpUeStatusCpu->bufferSize){
-                    auto sched_bytes = std::min({TBS,cellGrpUeStatusCpu->bufferSize[ueIdx]});
-                    cellGrpUeStatusCpu->bufferSize[ueIdx] -= sched_bytes;
+                    auto sched_bytes = std::min({TBS,cellGrpUeStatusCpu->bufferSize[activeUeId]});
+                    cellGrpUeStatusCpu->bufferSize[activeUeId] -= sched_bytes;
                     insRate = static_cast<float>(sched_bytes)*(1-tbErr)/slotDuration;
                 }
                 cellGrpUeStatusCpu->avgRates[ueIdx] = (1.0-pfAvgRateUpd)*cellGrpUeStatusCpu->avgRates[ueIdx] + pfAvgRateUpd*insRate;
@@ -4465,7 +4528,9 @@ void network::updateDataRateAllActiveUeGpu(const int slotIdx)
     //printf("\n");
 
     const int logInterval = getTtiKpiLogInterval();
-    if (logInterval > 0 && ((slotIdx % logInterval) == 0 || slotIdx == (numSimChnRlz - 1))) {
+    if (getSchedulerThroughputTraceEnabled() != 0 &&
+        logInterval > 0 &&
+        ((slotIdx % logInterval) == 0 || slotIdx == (numSimChnRlz - 1))) {
         printf("GPU scheduler sum cell throughput: %4.3e\n", sumCellThrRecordsGpu[slotIdx]);
     }
 }
@@ -4495,7 +4560,9 @@ void network::updateDataRateAllActiveUeCpu(const int slotIdx)
     }
 
     const int logInterval = getTtiKpiLogInterval();
-    if (logInterval > 0 && ((slotIdx % logInterval) == 0 || slotIdx == (numSimChnRlz - 1))) {
+    if (getSchedulerThroughputTraceEnabled() != 0 &&
+        logInterval > 0 &&
+        ((slotIdx % logInterval) == 0 || slotIdx == (numSimChnRlz - 1))) {
         printf("CPU scheduler sum cell throughput: %4.3e\n", sumCellThrRecordsCpu[slotIdx]);
     }
 }

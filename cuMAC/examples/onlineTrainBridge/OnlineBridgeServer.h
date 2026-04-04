@@ -24,6 +24,7 @@ struct StepState {
     StepStateHeader header;
     std::vector<float> obsCellFeatures;
     std::vector<float> obsUeFeatures;
+    std::vector<float> obsPrgFeatures;
     std::vector<int16_t> obsEdgeIndex;
     std::vector<float> obsEdgeAttr;
     std::vector<uint8_t> actionMaskUe;

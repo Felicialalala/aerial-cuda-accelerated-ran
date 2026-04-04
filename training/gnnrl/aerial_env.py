@@ -113,10 +113,11 @@ class AerialEnvClient:
             off += nbytes
             return arr
 
-        obs_cell = take(_F32, dims.n_cell * 5, (dims.n_cell, 5))
-        obs_ue = take(_F32, dims.n_active_ue * 8, (dims.n_active_ue, 8))
+        obs_cell = take(_F32, dims.n_cell * dims.cell_feat_dim, (dims.n_cell, dims.cell_feat_dim))
+        obs_ue = take(_F32, dims.n_active_ue * dims.ue_feat_dim, (dims.n_active_ue, dims.ue_feat_dim))
+        obs_prg = take(_F32, dims.n_cell * dims.n_prg * dims.prg_feat_dim, (dims.n_cell, dims.n_prg, dims.prg_feat_dim))
         obs_edge_index = take(_I16, dims.n_edges * 2, (dims.n_edges, 2))
-        obs_edge_attr = take(_F32, dims.n_edges * 2, (dims.n_edges, 2))
+        obs_edge_attr = take(_F32, dims.n_edges * dims.edge_feat_dim, (dims.n_edges, dims.edge_feat_dim))
         action_mask_ue = take(_U8, dims.n_active_ue, (dims.n_active_ue,))
         action_mask_cell_ue = take(_U8, dims.n_cell * dims.n_active_ue, (dims.n_cell, dims.n_active_ue))
         action_mask_prg_cell = take(_U8, dims.n_cell * dims.n_prg, (dims.n_cell, dims.n_prg))
@@ -128,6 +129,7 @@ class AerialEnvClient:
         obs = {
             "obs_cell_features": obs_cell,
             "obs_ue_features": obs_ue,
+            "obs_prg_features": obs_prg,
             "obs_edge_index": obs_edge_index.astype(np.int64, copy=False),
             "obs_edge_attr": obs_edge_attr,
             "action_mask_ue": action_mask_ue.astype(np.bool_, copy=False),
@@ -143,6 +145,10 @@ class AerialEnvClient:
             "n_tot_cell": dims.n_tot_cell,
             "n_prg": dims.n_prg,
             "alloc_type": dims.alloc_type,
+            "cell_feat_dim": dims.cell_feat_dim,
+            "ue_feat_dim": dims.ue_feat_dim,
+            "edge_feat_dim": dims.edge_feat_dim,
+            "prg_feat_dim": dims.prg_feat_dim,
         }
         return obs, h.reward_scalar, h.done, info
 

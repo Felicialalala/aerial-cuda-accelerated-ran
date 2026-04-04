@@ -23,6 +23,7 @@
 #include <vector>
 #include "api.h"
 #include "GnnRlPolicyRuntime.h"
+#include "../onlineTrainBridge/OnlineObservationTypes.h"
 
 namespace cumac {
 class CustomUePrgScheduler {
@@ -54,12 +55,17 @@ public:
         uint16_t maxActiveCellsPerPrg = 0; // 0 means no limit
         std::string modelPath;
         int policyTimeoutMs = 0;
+        GnnRlPolicyRuntime::DecodeMode modelDecodeMode = GnnRlPolicyRuntime::DecodeMode::Sample;
+        uint64_t modelSampleSeed = 0U;
         // gnnrl_model decode stabilization knobs.
         float modelNoUeBias = 0.0f;
         float modelMinSchedRatio = 1.0f;
         float modelNoPrgBias = 0.0f;
-        float modelMinPrgRatio = 1.0f;
-        float modelMaxPrgSharePerUe = 1.0f;
+        // Default to no forced fill so the model can leave PRGs idle when
+        // that is preferable for interference control.
+        float modelMinPrgRatio = 0.0f;
+        // Non-positive lets runtime choose a conservative default for prg_only_type0.
+        float modelMaxPrgSharePerUe = -1.0f;
     };
 
     CustomUePrgScheduler();
@@ -71,6 +77,7 @@ public:
              cumacCellGrpPrms* cellGrpPrmsCpu,
              cumacSchdSol* schdSolGpu,
              cudaStream_t stream) const;
+    void setObservationExtras(const cumac::online::ObservationExtras& extras) { m_observationExtras = extras; }
 
 private:
     struct SelectedUe {
@@ -83,6 +90,7 @@ private:
     mutable bool m_modelInitTried = false;
     mutable bool m_modelReady = false;
     mutable std::unique_ptr<GnnRlPolicyRuntime> m_modelRuntime = nullptr;
+    mutable cumac::online::ObservationExtras m_observationExtras;
 
     static Config loadConfigFromEnv();
 

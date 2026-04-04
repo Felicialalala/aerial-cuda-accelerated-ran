@@ -25,6 +25,8 @@ from training.gnnrl.dataset import IGNORE_INDEX, ReplayBinaryDataset
 from training.gnnrl.masks import (
     apply_prg_action_mask,
     apply_ue_action_mask,
+    build_slot_selection_mask,
+    build_type0_slot_valid_mask,
     classification_accuracy,
     predicted_legal_ratio,
     sanitize_targets,
@@ -87,12 +89,34 @@ def _epoch_loop(
             obs_ue_features=batch["obs_ue_features"],
             obs_edge_index=batch["obs_edge_index"],
             obs_edge_attr=batch["obs_edge_attr"],
+            obs_prg_features=batch.get("obs_prg_features"),
+            action_mask_ue=batch.get("action_mask_ue"),
+            action_mask_cell_ue=batch.get("action_mask_cell_ue"),
         )
         ue_logits_raw = out["ue_logits"]
         prg_logits_raw = out["prg_logits"]
 
+        selected_slot_mask = None
+        if is_prg_only_type0(action_mode):
+            selected_slot_mask = build_type0_slot_valid_mask(
+                batch["action_mask_cell_ue"],
+                n_sched_ue=n_sched_ue,
+                action_mask_ue=batch["action_mask_ue"],
+            )
+        else:
+            selected_slot_mask = build_slot_selection_mask(
+                batch["target_ue_class"],
+                batch["action_mask_ue"],
+                n_cell=n_cell,
+                action_mask_cell_ue=batch["action_mask_cell_ue"],
+            )
         prg_logits, prg_valid = apply_prg_action_mask(
-            prg_logits_raw, batch["action_mask_prg_cell"], n_cell=n_cell
+            prg_logits_raw,
+            batch["action_mask_prg_cell"],
+            n_cell=n_cell,
+            action_mask_cell_ue=batch["action_mask_cell_ue"],
+            action_mask_ue=batch["action_mask_ue"],
+            selected_slot_mask=selected_slot_mask,
         )
         # replay allocSol layout is [prg, cell] (index = prgIdx * nCell + cIdx)
         prg_target = batch["target_prg_class"].view(bsz, n_prg, n_cell).transpose(1, 2).contiguous()
@@ -238,6 +262,7 @@ def main() -> int:
         hidden_dim=args.hidden_dim,
         num_cell_msg_layers=args.num_cell_msg_layers,
         action_mode=args.action_mode,
+        max_slot_local_pos=dims.n_sched_ue,
     )
     model = StageBGnnPolicy(model_cfg).to(device)
 

@@ -21,7 +21,13 @@ if __package__ is None or __package__ == "":
 
 from training.gnnrl.action_modes import ACTION_MODE_JOINT, is_prg_only_type0, normalize_action_mode
 from training.gnnrl.dataset import IGNORE_INDEX, ReplayBinaryDataset
-from training.gnnrl.masks import apply_prg_action_mask, apply_ue_action_mask, sanitize_targets
+from training.gnnrl.masks import (
+    apply_prg_action_mask,
+    apply_ue_action_mask,
+    build_slot_selection_mask,
+    build_type0_slot_valid_mask,
+    sanitize_targets,
+)
 from training.gnnrl.model import ModelConfig, StageBGnnPolicy, build_model_from_config
 
 
@@ -193,7 +199,28 @@ def _action_logp_entropy(
     n_prg: int,
     action_mode: str,
 ) -> Dict[str, torch.Tensor]:
-    prg_logits, prg_valid = apply_prg_action_mask(actor_out["prg_logits"], batch["action_mask_prg_cell"], n_cell=n_cell)
+    selected_slot_mask = None
+    if is_prg_only_type0(action_mode):
+        selected_slot_mask = build_type0_slot_valid_mask(
+            batch["action_mask_cell_ue"],
+            n_sched_ue=actor_out["prg_logits"].shape[-1] - 1,
+            action_mask_ue=batch["action_mask_ue"],
+        )
+    else:
+        selected_slot_mask = build_slot_selection_mask(
+            batch["target_ue_class"],
+            batch["action_mask_ue"],
+            n_cell=n_cell,
+            action_mask_cell_ue=batch["action_mask_cell_ue"],
+        )
+    prg_logits, prg_valid = apply_prg_action_mask(
+        actor_out["prg_logits"],
+        batch["action_mask_prg_cell"],
+        n_cell=n_cell,
+        action_mask_cell_ue=batch["action_mask_cell_ue"],
+        action_mask_ue=batch["action_mask_ue"],
+        selected_slot_mask=selected_slot_mask,
+    )
 
     prg_target = (
         batch["target_prg_class"]
@@ -304,6 +331,9 @@ def _collect_rollout(
                 obs_ue_features=batch["obs_ue_features"],
                 obs_edge_index=batch["obs_edge_index"],
                 obs_edge_attr=batch["obs_edge_attr"],
+                obs_prg_features=batch.get("obs_prg_features"),
+                action_mask_ue=batch.get("action_mask_ue"),
+                action_mask_cell_ue=batch.get("action_mask_cell_ue"),
             )
             act_stat = _action_logp_entropy(
                 actor_out,
@@ -468,6 +498,7 @@ def main() -> int:
             hidden_dim=args.hidden_dim,
             num_cell_msg_layers=args.num_cell_msg_layers,
             action_mode=args.action_mode,
+            max_slot_local_pos=dims.n_sched_ue,
         )
         actor = StageBGnnPolicy(cfg)
         cfg_dict = actor.model_config_dict()
@@ -545,6 +576,9 @@ def main() -> int:
                     obs_ue_features=mb["obs_ue_features"],
                     obs_edge_index=mb["obs_edge_index"],
                     obs_edge_attr=mb["obs_edge_attr"],
+                    obs_prg_features=mb.get("obs_prg_features"),
+                    action_mask_ue=mb.get("action_mask_ue"),
+                    action_mask_cell_ue=mb.get("action_mask_cell_ue"),
                 )
                 act_stat = _action_logp_entropy(
                     out,

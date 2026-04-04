@@ -49,6 +49,14 @@ struct PacketDelaySummary
     double max_delay_ms = 0.0;
 };
 
+struct PacketHeadSummary
+{
+    unsigned long long pending_bytes = 0;
+    unsigned long long hol_bytes = 0;
+    int hol_age_tti = 0;
+    int ttl_slack_tti = -1;
+};
+
 class TrafficType
 {
 private:
@@ -163,6 +171,9 @@ public:
             NVLOGD_FMT(NVLOG_TRAFFIC, "Flow ID {} euqueued with {} bytes",flow_data.flow_id,flow_data.num_bytes);
         }
     }
+    virtual void AdvanceToTti(int current_tti){
+        (void)current_tti;
+    }
     unsigned long long GetTotalAcceptedBytes() const {
         unsigned long long total = 0;
         for (const auto& flow : traffic_flows) {
@@ -215,6 +226,13 @@ protected:
     std::vector<std::deque<MacPacketRecord>> mac_packet_queues;
     std::vector<std::vector<double>> served_packet_delay_ms;
     double slot_duration_ms = 0.5;
+    int max_packet_age_tti = 0;
+    unsigned long long total_expired_bytes = 0;
+    unsigned long long total_expired_packets = 0;
+    unsigned long long last_expired_bytes = 0;
+    unsigned long long last_expired_packets = 0;
+    std::vector<unsigned long long> expired_bytes_per_flow;
+    std::vector<unsigned long long> expired_packets_per_flow;
 
     static double percentile_ms(const std::vector<double>& values, double p)
     {
@@ -251,12 +269,89 @@ public:
         TrafficObserver::Configure(config);
         mac_packet_queues.assign(config.size(), {});
         served_packet_delay_ms.assign(config.size(), {});
+        expired_bytes_per_flow.assign(config.size(), 0ULL);
+        expired_packets_per_flow.assign(config.size(), 0ULL);
+        total_expired_bytes = 0ULL;
+        total_expired_packets = 0ULL;
+        last_expired_bytes = 0ULL;
+        last_expired_packets = 0ULL;
     }
     void SetSlotDurationMs(double value_ms)
     {
         if (value_ms > 0.0) {
             slot_duration_ms = value_ms;
         }
+    }
+    void SetPacketTtlTti(int value_tti)
+    {
+        max_packet_age_tti = std::max(0, value_tti);
+    }
+    int GetPacketTtlTti() const
+    {
+        return max_packet_age_tti;
+    }
+    void AdvanceToTti(int current_tti) override
+    {
+        last_expired_bytes = 0ULL;
+        last_expired_packets = 0ULL;
+        if (max_packet_age_tti <= 0 || current_tti <= 0) {
+            return;
+        }
+
+        bool any_buffer_change = false;
+        for (size_t i = 0; i < mac_packet_queues.size(); ++i) {
+            auto& queue = mac_packet_queues[i];
+            while (!queue.empty()) {
+                const auto& pkt = queue.front();
+                const int packet_age_tti = std::max(1, current_tti - pkt.arrival_tti + 1);
+                if (packet_age_tti <= max_packet_age_tti) {
+                    break;
+                }
+
+                const unsigned long long expired_bytes = static_cast<unsigned long long>(pkt.remaining_bytes);
+                total_expired_packets += 1ULL;
+                last_expired_packets += 1ULL;
+                expired_packets_per_flow[i] += 1ULL;
+                if (expired_bytes > 0ULL) {
+                    total_expired_bytes += expired_bytes;
+                    last_expired_bytes += expired_bytes;
+                    expired_bytes_per_flow[i] += expired_bytes;
+                    if (api_ue_status != nullptr && api_ue_status->bufferSize != nullptr) {
+                        const unsigned long long buffer_bytes =
+                            static_cast<unsigned long long>(api_ue_status->bufferSize[i]);
+                        api_ue_status->bufferSize[i] = static_cast<uint32_t>(
+                            buffer_bytes > expired_bytes ? (buffer_bytes - expired_bytes) : 0ULL);
+                        any_buffer_change = true;
+                    }
+                }
+                queue.pop_front();
+            }
+        }
+        if (any_buffer_change) {
+            SyncGpuBuffer();
+        }
+    }
+    unsigned long long GetTotalExpiredBytes() const
+    {
+        return total_expired_bytes;
+    }
+    unsigned long long GetTotalExpiredPackets() const
+    {
+        return total_expired_packets;
+    }
+    unsigned long long GetLastExpiredBytes() const
+    {
+        return last_expired_bytes;
+    }
+    unsigned long long GetLastExpiredPackets() const
+    {
+        return last_expired_packets;
+    }
+    void GetPerFlowExpiryStats(std::vector<unsigned long long>& expired_bytes,
+                               std::vector<unsigned long long>& expired_packets) const
+    {
+        expired_bytes = expired_bytes_per_flow;
+        expired_packets = expired_packets_per_flow;
     }
     virtual void Enqueue(std::vector<FlowData>& data){
         TrafficObserver::Enqueue(data);
@@ -337,6 +432,29 @@ public:
             total.p90_delay_ms = percentile_ms(all_delays, 90.0);
             total.p95_delay_ms = percentile_ms(all_delays, 95.0);
             total.max_delay_ms = percentile_ms(all_delays, 100.0);
+        }
+    }
+    void GetPacketHeadStats(std::vector<PacketHeadSummary>& per_flow, int current_tti) const
+    {
+        per_flow.assign(mac_packet_queues.size(), {});
+        for (size_t i = 0; i < mac_packet_queues.size(); ++i) {
+            PacketHeadSummary summary {};
+            const auto& queue = mac_packet_queues[i];
+            for (const auto& pkt : queue) {
+                summary.pending_bytes += static_cast<unsigned long long>(pkt.remaining_bytes);
+            }
+            if (!queue.empty()) {
+                const auto& pkt = queue.front();
+                summary.hol_bytes = static_cast<unsigned long long>(pkt.remaining_bytes);
+                if (current_tti > 0) {
+                    summary.hol_age_tti = std::max(1, current_tti - pkt.arrival_tti + 1);
+                }
+                if (max_packet_age_tti > 0 && current_tti > 0) {
+                    summary.ttl_slack_tti =
+                        std::max(0, max_packet_age_tti - std::max(1, current_tti - pkt.arrival_tti + 1));
+                }
+            }
+            per_flow[i] = summary;
         }
     }
 };
@@ -479,4 +597,5 @@ public:
     }
     unsigned long long GetTotalGeneratedBytes() const { return total_generated_bytes; }
     unsigned long long GetTotalGeneratedPkts() const { return total_generated_pkts; }
+    int GetLastTti() const { return last_tti; }
 };

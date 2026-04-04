@@ -13,6 +13,8 @@ from typing import Dict, List, Sequence, Tuple
 import torch
 from torch.utils.data import Dataset
 
+from training.gnnrl.slot_layout import build_type0_slot_layout
+
 
 IGNORE_INDEX = -100
 
@@ -217,13 +219,21 @@ class ReplayBinaryDataset(Dataset):
         n_sched_ue: int,
         n_active_ue: int,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        slots_per_cell = max(1, n_sched_ue // max(1, n_cell))
+        layout = build_type0_slot_layout(
+            action_mask_cell_ue,
+            n_sched_ue=n_sched_ue,
+            action_mask_ue=action_mask_ue,
+        )
+        slot_to_cell = layout.slot_to_cell.squeeze(0)
+        slot_valid_mask = layout.slot_valid_mask.squeeze(0)
         for slot_idx in range(n_sched_ue):
+            if not bool(slot_valid_mask[slot_idx].item()):
+                continue
             ue_idx = int(action_ue_select[slot_idx].item())
             if ue_idx < 0 or ue_idx >= n_active_ue:
                 continue
             action_mask_ue[ue_idx] = 1
-            c_idx = min(slot_idx // slots_per_cell, n_cell - 1)
+            c_idx = int(slot_to_cell[slot_idx].item())
             action_mask_cell_ue[c_idx, ue_idx] = 1
 
         return action_mask_ue, action_mask_cell_ue

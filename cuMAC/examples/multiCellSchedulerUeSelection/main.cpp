@@ -27,6 +27,8 @@
 #include "../customScheduler/CustomUePrgScheduler.h"
 #include "../onlineTrainBridge/OnlineBridgeServer.h"
 #include "../onlineTrainBridge/OnlineFeatureCodec.h"
+#include "../onlineTrainBridge/OnlineObservationExtrasBuilder.h"
+#include "../customScheduler/Type0SlotLayout.h"
 #include "../rlReplay/ReplayWriter.h"
 #include "trafficModel/trafficService.hpp"
 #include <algorithm>
@@ -161,6 +163,91 @@ unsigned long long countAllocatedPrgs(const cumacSchdSol* schdSol, const cumacCe
     return allocatedPrgs;
 }
 
+struct PrgUsageStats {
+    unsigned long long allocatedPrgCount = 0ULL;
+    unsigned long long usedPrgCount = 0ULL;
+    double reuseRatio = 0.0;
+};
+
+std::vector<uint32_t> countAssignedPrgsPerSchedSlot(const cumacSchdSol* schdSol, const cumacCellGrpPrms* cellGrpPrms)
+{
+    std::vector<uint32_t> slotPrgCount;
+    if (schdSol == nullptr || cellGrpPrms == nullptr || schdSol->allocSol == nullptr) {
+        return slotPrgCount;
+    }
+
+    slotPrgCount.assign(cellGrpPrms->nUe, 0U);
+    if (cellGrpPrms->allocType == 1U) {
+        const int maxPrg = static_cast<int>(cellGrpPrms->nPrbGrp);
+        for (uint32_t slotIdx = 0; slotIdx < cellGrpPrms->nUe; ++slotIdx) {
+            if (schdSol->setSchdUePerCellTTI != nullptr && schdSol->setSchdUePerCellTTI[slotIdx] == 0xFFFF) {
+                continue;
+            }
+            const int startPrg = static_cast<int>(schdSol->allocSol[2U * slotIdx]);
+            const int endPrg = static_cast<int>(schdSol->allocSol[2U * slotIdx + 1U]);
+            if (startPrg < 0 || endPrg <= startPrg) {
+                continue;
+            }
+            const int clippedStart = std::max(startPrg, 0);
+            const int clippedEnd = std::min(endPrg, maxPrg);
+            if (clippedEnd > clippedStart) {
+                slotPrgCount[slotIdx] = static_cast<uint32_t>(clippedEnd - clippedStart);
+            }
+        }
+        return slotPrgCount;
+    }
+
+    const uint32_t totalCells = cellGrpPrms->totNumCell;
+    const uint32_t prgCount = cellGrpPrms->nPrbGrp;
+    for (uint32_t prgIdx = 0; prgIdx < prgCount; ++prgIdx) {
+        for (uint32_t cellIdx = 0; cellIdx < totalCells; ++cellIdx) {
+            const size_t allocIdx = static_cast<size_t>(prgIdx) * totalCells + cellIdx;
+            const int16_t schedSlot = schdSol->allocSol[allocIdx];
+            if (schedSlot < 0 || static_cast<uint32_t>(schedSlot) >= cellGrpPrms->nUe) {
+                continue;
+            }
+            slotPrgCount[static_cast<size_t>(schedSlot)] += 1U;
+        }
+    }
+    return slotPrgCount;
+}
+
+PrgUsageStats computePrgUsageStats(const cumacSchdSol* schdSol, const cumacCellGrpPrms* cellGrpPrms)
+{
+    PrgUsageStats stats;
+    if (schdSol == nullptr || cellGrpPrms == nullptr || schdSol->allocSol == nullptr) {
+        return stats;
+    }
+
+    if (cellGrpPrms->allocType != 0U) {
+        stats.allocatedPrgCount = countAllocatedPrgs(schdSol, cellGrpPrms);
+        return stats;
+    }
+
+    const uint32_t totalCells = cellGrpPrms->totNumCell;
+    const uint32_t prgCount = cellGrpPrms->nPrbGrp;
+    double reuseExcess = 0.0;
+    for (uint32_t prgIdx = 0; prgIdx < prgCount; ++prgIdx) {
+        uint32_t activeCells = 0U;
+        for (uint32_t cellIdx = 0; cellIdx < totalCells; ++cellIdx) {
+            const size_t allocIdx = static_cast<size_t>(prgIdx) * totalCells + cellIdx;
+            if (schdSol->allocSol[allocIdx] >= 0) {
+                activeCells += 1U;
+            }
+        }
+        stats.allocatedPrgCount += static_cast<unsigned long long>(activeCells);
+        if (activeCells > 0U) {
+            stats.usedPrgCount += 1ULL;
+            reuseExcess += static_cast<double>(activeCells - 1U);
+        }
+    }
+
+    if (stats.usedPrgCount > 0ULL && totalCells > 1U) {
+        stats.reuseRatio = reuseExcess / (static_cast<double>(totalCells - 1U) * static_cast<double>(stats.usedPrgCount));
+    }
+    return stats;
+}
+
 void copyGpuUeSelectionToCpu(cumacSchdSol* schdSolCpu,
                              cumacSchdSol* schdSolGpu,
                              const cumacCellGrpPrms* cellGrpPrmsCpu,
@@ -185,21 +272,54 @@ void populateType0AllUeSelection(cumacSchdSol* schdSolCpu,
         return;
     }
     const uint32_t nSchedSlots = cellGrpPrmsCpu->nUe;
+    const uint32_t nCell = cellGrpPrmsCpu->nCell;
     const uint32_t nActiveUe = cellGrpPrmsCpu->nActiveUe;
     const bool hasMacBufferState =
         cellGrpUeStatusCpu != nullptr && cellGrpUeStatusCpu->bufferSize != nullptr;
-    for (uint32_t uIdx = 0; uIdx < nSchedSlots; ++uIdx) {
-        if (uIdx >= nActiveUe) {
-            schdSolCpu->setSchdUePerCellTTI[uIdx] = 0xFFFF;
+    const auto assocToCell = [&](uint32_t cIdx, uint32_t activeUeId) -> bool {
+        if (cellGrpPrmsCpu->cellAssocActUe != nullptr) {
+            return cellGrpPrmsCpu->cellAssocActUe[cIdx * nActiveUe + activeUeId] != 0;
+        }
+        if (nCell > 0 && (nActiveUe % nCell) == 0) {
+            const uint32_t uePerCell = nActiveUe / nCell;
+            return (activeUeId / uePerCell) == cIdx;
+        }
+        return false;
+    };
+    const auto slotLayout = cumac::buildType0SlotLayout(
+        nCell,
+        nActiveUe,
+        nSchedSlots,
+        [&](uint32_t cIdx, uint32_t activeUeId) -> bool {
+            return assocToCell(cIdx, activeUeId) &&
+                   (!hasMacBufferState || cellGrpUeStatusCpu->bufferSize[activeUeId] > 0U);
+        });
+
+    std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + nSchedSlots, 0xFFFF);
+    for (uint32_t cIdx = 0; cIdx < nCell; ++cIdx) {
+        uint32_t localSlot = 0U;
+        const uint32_t numCellSched = slotLayout.slotCountPerCell[cIdx];
+        const uint32_t slotStart = slotLayout.cellSlotStart[cIdx];
+        if (numCellSched == 0U) {
             continue;
         }
-
-        if (hasMacBufferState && cellGrpUeStatusCpu->bufferSize[uIdx] == 0) {
-            schdSolCpu->setSchdUePerCellTTI[uIdx] = 0xFFFF;
-            continue;
+        for (uint32_t ueIdx = 0; ueIdx < nActiveUe; ++ueIdx) {
+            if (!assocToCell(cIdx, ueIdx)) {
+                continue;
+            }
+            if (hasMacBufferState && cellGrpUeStatusCpu->bufferSize[ueIdx] == 0) {
+                continue;
+            }
+            if (localSlot >= numCellSched) {
+                break;
+            }
+            const uint32_t schedSlot = slotStart + localSlot;
+            if (schedSlot >= nSchedSlots) {
+                break;
+            }
+            schdSolCpu->setSchdUePerCellTTI[schedSlot] = static_cast<uint16_t>(ueIdx);
+            localSlot += 1U;
         }
-
-        schdSolCpu->setSchdUePerCellTTI[uIdx] = static_cast<uint16_t>(uIdx);
     }
     const size_t ueSelBytes = static_cast<size_t>(nSchedSlots) * sizeof(uint16_t);
     CUDA_CHECK_ERR(cudaMemcpyAsync(
@@ -243,6 +363,7 @@ bool assocToCellOnline(const cumacCellGrpPrms* cellGrpPrmsCpu, uint32_t cellId, 
 }
 
 void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
+                                 const std::vector<uint8_t>& maskUe,
                                  cumacSchdSol* schdSolCpu,
                                  cumacSchdSol* schdSolGpu,
                                  cumacCellGrpPrms* cellGrpPrmsCpu,
@@ -253,7 +374,14 @@ void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
     const uint32_t nActiveUe = cellGrpPrmsCpu->nActiveUe;
     const uint32_t nPrg = cellGrpPrmsCpu->nPrbGrp;
     const uint32_t nTotCell = cellGrpPrmsCpu->totNumCell;
-    const uint32_t slotsPerCell = std::max<uint32_t>(1U, nSchedUe / std::max<uint32_t>(1U, nCell));
+    const Type0SlotLayout slotLayout = cumac::buildType0SlotLayout(
+        nCell,
+        nActiveUe,
+        nSchedUe,
+        [&](uint32_t cIdx, uint32_t ueIdx) -> bool {
+            const bool live = ueIdx < maskUe.size() && maskUe[ueIdx] != 0U;
+            return live && assocToCellOnline(cellGrpPrmsCpu, cIdx, ueIdx);
+        });
 
     std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + nSchedUe, 0xFFFF);
     std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (nTotCell * nPrg), static_cast<int16_t>(-1));
@@ -261,11 +389,17 @@ void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
     std::vector<uint8_t> usedUe(nActiveUe, 0U);
     const uint32_t ueLen = std::min<uint32_t>(nSchedUe, static_cast<uint32_t>(action.ueAction.size()));
     for (uint32_t slot = 0; slot < ueLen; ++slot) {
+        if (!slotLayout.validSlot(slot)) {
+            continue;
+        }
         const int32_t ue = action.ueAction[slot];
         if (ue < 0 || static_cast<uint32_t>(ue) >= nActiveUe) {
             continue;
         }
-        const uint32_t cIdx = std::min<uint32_t>(slot / slotsPerCell, nCell - 1U);
+        if (static_cast<uint32_t>(ue) >= maskUe.size() || maskUe[static_cast<uint32_t>(ue)] == 0U) {
+            continue;
+        }
+        const uint32_t cIdx = slotLayout.slotToCell[slot];
         if (!assocToCellOnline(cellGrpPrmsCpu, cIdx, static_cast<uint32_t>(ue))) {
             continue;
         }
@@ -294,7 +428,7 @@ void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
         if (slot >= nSchedUe) {
             continue;
         }
-        if ((slot / slotsPerCell) != cIdx) {
+        if (!slotLayout.slotBelongsToCell(slot, cIdx)) {
             continue;
         }
         if (schdSolCpu->setSchdUePerCellTTI[slot] == 0xFFFF) {
@@ -317,6 +451,7 @@ cumac::online::StepState buildOnlineState(int tti,
                                           const cumac::online::OnlineFeatureCodec& codec,
                                           const std::vector<float>& obsCell,
                                           const std::vector<float>& obsUe,
+                                          const std::vector<float>& obsPrg,
                                           const std::vector<float>& obsEdgeAttr,
                                           const std::vector<uint8_t>& maskUe,
                                           const std::vector<uint8_t>& maskCellUe,
@@ -331,6 +466,14 @@ cumac::online::StepState buildOnlineState(int tti,
     state.header.rewardTerms[1] = reward.totalBufferMb;
     state.header.rewardTerms[2] = reward.tbErrRate;
     state.header.rewardTerms[3] = reward.fairnessJain;
+    state.header.rewardTerms[4] = reward.goodputMbps;
+    state.header.rewardTerms[5] = reward.schedWbSinrDb;
+    state.header.rewardTerms[6] = reward.prgUtilizationRatio;
+    state.header.rewardTerms[7] = reward.goodputSpectralEfficiencyBpsHz;
+    state.header.rewardTerms[8] = reward.prgReuseRatio;
+    state.header.rewardTerms[9] = reward.expiredBytes;
+    state.header.rewardTerms[10] = reward.expiredPackets;
+    state.header.rewardTerms[11] = reward.expiryDropRate;
     state.header.dims.nCell = codec.nCell();
     state.header.dims.nActiveUe = codec.nActiveUe();
     state.header.dims.nSchedUe = codec.nSchedUe();
@@ -339,9 +482,14 @@ cumac::online::StepState buildOnlineState(int tti,
     state.header.dims.nEdges = codec.nEdges();
     state.header.dims.allocType = codec.allocType();
     state.header.dims.actionAllocLen = codec.actionAllocLen();
+    state.header.dims.cellFeatDim = codec.cellFeatDim();
+    state.header.dims.ueFeatDim = codec.ueFeatDim();
+    state.header.dims.edgeFeatDim = codec.edgeFeatDim();
+    state.header.dims.prgFeatDim = codec.prgFeatDim();
 
     state.obsCellFeatures = obsCell;
     state.obsUeFeatures = obsUe;
+    state.obsPrgFeatures = obsPrg;
     state.obsEdgeIndex = codec.edgeIndex();
     state.obsEdgeAttr = obsEdgeAttr;
     state.actionMaskUe = maskUe;
@@ -585,9 +733,11 @@ int main(int argc, char* argv[])
   };
 
   const bool compactTtiLog = getEnvInt("CUMAC_COMPACT_TTI_LOG", 1) != 0;
-  const int progressTtiInterval = std::max(1, getEnvInt("CUMAC_PROGRESS_TTI_INTERVAL", 100));
+  int progressTtiInterval = getEnvInt("CUMAC_PROGRESS_TTI_INTERVAL", 100);
   int compareTtiInterval = getEnvInt("CUMAC_COMPARE_TTI_INTERVAL", useCustomUePrg ? 0 : 1);
   const float trafficArrivalRate = getEnvFloat("CUMAC_TRAFFIC_ARRIVAL_RATE", 1.0f);
+  const int packetTtlTtiEnv = getEnvInt("CUMAC_PACKET_TTL_TTI", 0);
+  const float packetTtlMsEnv = getEnvFloat("CUMAC_PACKET_TTL_MS", 0.0f);
   const bool replayDumpEnabled = getEnvInt("CUMAC_RL_REPLAY_DUMP", 0) != 0;
   const std::string replayDir = getEnvString("CUMAC_RL_REPLAY_DIR", "./replay");
   const std::string replayScenario = getEnvString("CUMAC_RL_REPLAY_SCENARIO", "default");
@@ -598,6 +748,9 @@ int main(int argc, char* argv[])
   const bool onlineBridgeEnabled = getEnvInt("CUMAC_ONLINE_BRIDGE", 0) != 0;
   const std::string onlineSocketPath = getEnvString("CUMAC_ONLINE_SOCKET", "/tmp/cumac_stageb_online.sock");
   const bool onlinePersistentMode = onlineBridgeEnabled && (getEnvInt("CUMAC_ONLINE_PERSISTENT", 1) != 0);
+  const std::string onlineRewardModeStr = getEnvString("CUMAC_ONLINE_REWARD_MODE", "goodput_only");
+  const cumac::online::OnlineFeatureCodec::RewardMode onlineRewardMode =
+      cumac::online::OnlineFeatureCodec::parseRewardMode(onlineRewardModeStr);
   const float pfQueueBufferCoeff =
       queueAwarePfBaseline ? getEnvFloat("CUMAC_PFQ_BUFFER_COEFF", 0.25f) : 0.0f;
   const float pfQueueBufferScaleBytes = std::max(
@@ -605,10 +758,15 @@ int main(int argc, char* argv[])
   if (compareTtiInterval < 0) {
       compareTtiInterval = 0;
   }
+  if (progressTtiInterval < 0) {
+      progressTtiInterval = 0;
+  }
   if (onlineBridgeEnabled) {
       compareTtiInterval = 0;
       printf("cuMAC scheduler pipeline test: online bridge enabled, socket=%s\n", onlineSocketPath.c_str());
       printf("cuMAC scheduler pipeline test: online persistent mode=%s\n", onlinePersistentMode ? "on" : "off");
+      printf("cuMAC scheduler pipeline test: online reward mode=%s\n",
+             cumac::online::OnlineFeatureCodec::rewardModeToString(onlineRewardMode));
   }
   if (!runCpuReferencePath && useCustomUePrg == 1) {
       fprintf(stderr, "ERROR: CUMAC_EXEC_MODE=gpu is not supported with custom UE+PRG mode.\n");
@@ -624,7 +782,11 @@ int main(int argc, char* argv[])
   printf("cuMAC scheduler pipeline test: execution mode=%s\n", execModeToString(execMode));
   if (!runCpuReferencePath) {
       printf("cuMAC scheduler pipeline test: CPU reference scheduler path disabled; CPU KPI bookkeeping reuses GPU decisions\n");
-      printf("cuMAC scheduler pipeline test: per-TTI throughput prints disabled in gpu-only mode; progress bar remains enabled\n");
+      if (progressTtiInterval > 0) {
+          printf("cuMAC scheduler pipeline test: per-TTI throughput prints disabled in gpu-only mode; progress bar enabled\n");
+      } else {
+          printf("cuMAC scheduler pipeline test: per-TTI throughput prints disabled in gpu-only mode; progress output disabled\n");
+      }
   }
 
   std::ofstream nullStdout;
@@ -685,6 +847,24 @@ int main(int argc, char* argv[])
   //traf_cfg.AddFlows(low_traffic,totNumUesConst/2);
   std::unique_ptr<TrafficService> trafSvc = std::make_unique<TrafficService>(traf_cfg,net->cellGrpUeStatusCpu.get(),net->cellGrpUeStatusGpu.get());
   trafSvc->SetSlotDurationMs(slotDurationConst * 1.0e3);
+  if (packetTtlTtiEnv > 0) {
+    if (packetTtlMsEnv > 0.0f) {
+      printf("Traffic packet TTL: both ttl_tti=%d and ttl_ms=%.3f configured, using ttl_tti\n",
+             packetTtlTtiEnv,
+             packetTtlMsEnv);
+    }
+    trafSvc->SetPacketTtlTti(packetTtlTtiEnv);
+  } else if (packetTtlMsEnv > 0.0f) {
+    trafSvc->SetPacketTtlMs(packetTtlMsEnv);
+  }
+  const int effectivePacketTtlTti = trafSvc->GetPacketTtlTti();
+  if (effectivePacketTtlTti > 0) {
+    printf("Traffic packet TTL: enabled ttl_tti=%d ttl_ms=%.3f\n",
+           effectivePacketTtlTti,
+           static_cast<double>(effectivePacketTtlTti) * slotDurationConst * 1.0e3);
+  } else {
+    printf("Traffic packet TTL: disabled\n");
+  }
 
   // determine the number of interfering cells
   uint16_t nInterfCell = net->simParam.get()->totNumCell - net->cellGrpPrmsGpu.get()->nCell;
@@ -698,7 +878,9 @@ int main(int argc, char* argv[])
   cumac::mcRRUeSelHndl_t rrUeSelGpu = nullptr;
   cumac::mcSchdHndl_t mcSchGpu = nullptr;
   cumac::mcRRSchdHndl_t rrSchGpu = nullptr;
-  if (rrBaseline) {
+  if (onlineBridgeEnabled) {
+    printf("Online bridge enabled: skipping native GPU RR/PFQ UE/scheduler handle creation\n");
+  } else if (rrBaseline) {
     printf("Using GPU RR UE selection\n");
     rrUeSelGpu = new cumac::multiCellRRUeSel(net->cellGrpPrmsGpu.get());
 
@@ -734,13 +916,21 @@ int main(int argc, char* argv[])
 
   std::unique_ptr<cumac::online::OnlineBridgeServer> onlineBridge;
   cumac::online::OnlineFeatureCodec onlineCodec;
+  cumac::online::ObservationExtrasBuilder onlineObsExtrasBuilder;
   cumac::online::ResetReqPayload resetReq {};
   int onlineEpisodeHorizon = numSimChnRlz;
+  if (!onlineObsExtrasBuilder.initialize(net->cellGrpPrmsCpu.get())) {
+    fprintf(stderr, "ERROR: Failed to initialize online observation extras builder.\n");
+    return 1;
+  }
+  onlineObsExtrasBuilder.setSlotDurationMs(static_cast<float>(slotDurationConst * 1.0e3));
+  onlineObsExtrasBuilder.setPacketTtlTti(effectivePacketTtlTti);
   if (onlineBridgeEnabled) {
     if (!onlineCodec.initialize(net->cellGrpPrmsCpu.get())) {
       fprintf(stderr, "ERROR: Failed to initialize online feature codec.\n");
       return 1;
     }
+    onlineCodec.setRewardMode(onlineRewardMode);
     if (onlineCodec.allocType() != 0U || onlineCodec.nTotCell() != onlineCodec.nCell()) {
       fprintf(stderr, "ERROR: Online bridge currently requires allocType=0 and nTotCell==nCell.\n");
       return 1;
@@ -769,6 +959,9 @@ int main(int argc, char* argv[])
     }
   }
 
+    std::vector<uint32_t> prgCountPerSchedSlot;
+    PrgUsageStats ttiPrgUsage {};
+
 #ifdef PDSCH_
   // GPU layer selection
   cumac::mcLayerSelHndl_t mcLayerSelGpu = new cumac::multiCellLayerSel(net->cellGrpPrmsGpu.get());
@@ -795,7 +988,9 @@ int main(int argc, char* argv[])
   mcUeSelCpuHndl_t  mcUeSelCpu  = nullptr;
   mcSchdCpuHndl_t   mcSchCpu    = nullptr;
   if (runCpuReferencePath) {
-    if (rrBaseline) { // RR baseline
+    if (onlineBridgeEnabled) {
+      printf("Online bridge enabled: skipping native CPU RR/PFQ UE/scheduler handle creation\n");
+    } else if (rrBaseline) { // RR baseline
       printf("Using CPU RR UE selection\n");
       rrUeSelCpu = new roundRobinUeSelCpu(net->cellGrpPrmsCpu.get());
 
@@ -840,11 +1035,13 @@ int main(int argc, char* argv[])
   std::vector<uint32_t> ueWbSinrCntSched(nActiveUe, 0U);
   std::vector<unsigned long long> macBufferBeforeSched(nActiveUe, 0ULL);
   std::vector<unsigned long long> servedBytesThisTti(nActiveUe, 0ULL);
+  std::vector<unsigned long long> goodputBytesThisTti(nActiveUe, 0ULL);
   unsigned long long totalAllocatedPrgCount = 0ULL;
   unsigned long long totalPrgCapacity = 0ULL;
   int executedTtiCount = 0;
   bool onlineResetSent = false;
   bool onlineCloseRequested = false;
+  bool inlineTtiProgressPrinted = false;
   const bool stageTraceEnabled = getEnvInt("CUMAC_TTI_STAGE_TRACE", 0) != 0;
   auto stageTrace = [&](int tti, const char* stage) {
     if (stageTraceEnabled) {
@@ -854,7 +1051,22 @@ int main(int argc, char* argv[])
   };
   auto printTtiProgress = [&](int currentTti) {
     if (onlineBridgeEnabled && onlinePersistentMode) {
-      printf("TTI_PROGRESS %d\n", currentTti);
+      constexpr int barWidth = 24;
+      const int totalTti = std::max(1, numSimChnRlz);
+      const int finalTti = totalTti - 1;
+      const int cycleTti = totalTti > 0 ? (currentTti % totalTti) : 0;
+      const double ratio = finalTti > 0 ? static_cast<double>(cycleTti) / static_cast<double>(finalTti) : 1.0;
+      const int filled = std::max(0, std::min(barWidth, static_cast<int>(std::lround(ratio * barWidth))));
+      const std::string bar(static_cast<size_t>(filled), '#');
+      const std::string gap(static_cast<size_t>(barWidth - filled), '.');
+      printf("\rTTI_PROGRESS [%s%s] t=%d cycle=%d/%d",
+             bar.c_str(),
+             gap.c_str(),
+             currentTti,
+             cycleTti,
+             finalTti);
+      fflush(stdout);
+      inlineTtiProgressPrinted = true;
       return;
     }
     const int totalTti = std::max(1, numSimChnRlz);
@@ -884,7 +1096,8 @@ int main(int argc, char* argv[])
     }
     const int slotIdx = (onlineBridgeEnabled && onlinePersistentMode) ? (t % numSimChnRlz) : t;
     if (compactTtiLog) {
-      if ((t % progressTtiInterval) == 0 || (!onlineBridgeEnabled && t == (numSimChnRlz - 1))) {
+      if (progressTtiInterval > 0 &&
+          ((t % progressTtiInterval) == 0 || (!onlineBridgeEnabled && t == (numSimChnRlz - 1)))) {
         printTtiProgress(t);
       }
     } else {
@@ -987,14 +1200,26 @@ int main(int argc, char* argv[])
 
     std::vector<float> onlineObsCell;
     std::vector<float> onlineObsUe;
+    std::vector<float> onlineObsPrg;
     std::vector<float> onlineObsEdgeAttr;
     std::vector<uint8_t> onlineMaskUe;
     std::vector<uint8_t> onlineMaskCellUe;
     std::vector<uint8_t> onlineMaskPrg;
+    const cumac::online::ObservationExtras& onlineObsExtras =
+        onlineObsExtrasBuilder.buildSnapshot(net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), trafSvc.get());
+    if (customUePrgScheduler) {
+      customUePrgScheduler->setObservationExtras(onlineObsExtras);
+    }
 
     if (onlineBridgeEnabled) {
       onlineCodec.buildObservation(
-          net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), onlineObsCell, onlineObsUe, onlineObsEdgeAttr);
+          net->cellGrpUeStatusCpu.get(),
+          net->cellGrpPrmsCpu.get(),
+          &onlineObsExtras,
+          onlineObsCell,
+          onlineObsUe,
+          onlineObsPrg,
+          onlineObsEdgeAttr);
       onlineCodec.buildActionMask(
           net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), onlineMaskUe, onlineMaskCellUe, onlineMaskPrg);
 
@@ -1006,6 +1231,7 @@ int main(int argc, char* argv[])
             onlineCodec,
             onlineObsCell,
             onlineObsUe,
+            onlineObsPrg,
             onlineObsEdgeAttr,
             onlineMaskUe,
             onlineMaskCellUe,
@@ -1035,7 +1261,7 @@ int main(int argc, char* argv[])
         break;
       }
       applyOnlineActionToSchedule(
-          actionReq, net->schdSolCpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsCpu.get(), cuStrmMain);
+          actionReq, onlineMaskUe, net->schdSolCpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsCpu.get(), cuStrmMain);
       std::cout << "Online action applied" << std::endl;
     } else if (useCustomUePrg == 1) {
       std::cout << "GPU PF UE selection setup completed [custom]" << std::endl;
@@ -1238,7 +1464,9 @@ int main(int argc, char* argv[])
       copyGpuSchedulingSolutionToCpu(net->schdSolCpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsCpu.get(), cuStrmMain);
     }
 
-    totalAllocatedPrgCount += countAllocatedPrgs(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+    ttiPrgUsage = computePrgUsageStats(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+    totalAllocatedPrgCount += ttiPrgUsage.allocatedPrgCount;
+    prgCountPerSchedSlot = countAssignedPrgsPerSchedSlot(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
     totalPrgCapacity += static_cast<unsigned long long>(net->cellGrpPrmsCpu.get()->totNumCell) *
                         static_cast<unsigned long long>(net->cellGrpPrmsCpu.get()->nPrbGrp);
 
@@ -1246,7 +1474,9 @@ int main(int argc, char* argv[])
     for (int schdUidx = 0; schdUidx < nUeSched; ++schdUidx) {
       const uint16_t activeUeId = net->schdSolCpu.get()->setSchdUePerCellTTI[schdUidx];
       const int16_t mcs = net->schdSolCpu.get()->mcsSelSol[schdUidx];
-      if (activeUeId != 0xFFFF && activeUeId < static_cast<uint16_t>(nActiveUe) && mcs >= 0) {
+      const bool slotHasTx = prgCountPerSchedSlot.empty() ||
+                             (static_cast<size_t>(schdUidx) < prgCountPerSchedSlot.size() && prgCountPerSchedSlot[schdUidx] > 0U);
+      if (slotHasTx && activeUeId != 0xFFFF && activeUeId < static_cast<uint16_t>(nActiveUe) && mcs >= 0) {
         const int layerCount = (net->schdSolCpu.get()->layerSelSol[schdUidx] >= 1 &&
                                 net->schdSolCpu.get()->layerSelSol[schdUidx] <= nUeAnt)
                                    ? static_cast<int>(net->schdSolCpu.get()->layerSelSol[schdUidx])
@@ -1322,8 +1552,18 @@ int main(int argc, char* argv[])
           net->schdSolCpu.get());
     }
 
+    uint32_t onlineTxValid = 0U;
+    uint32_t onlineTbErr = 0U;
+    double onlineSchedWbSinrLinSum = 0.0;
+    uint32_t onlineSchedWbSinrCount = 0U;
+    std::fill(goodputBytesThisTti.begin(), goodputBytesThisTti.end(), 0ULL);
     for (int schdUidx = 0; schdUidx < nUeSched; ++schdUidx) {
       const uint16_t activeUeId = net->schdSolCpu.get()->setSchdUePerCellTTI[schdUidx];
+      const bool slotHasTx = prgCountPerSchedSlot.empty() ||
+                             (static_cast<size_t>(schdUidx) < prgCountPerSchedSlot.size() && prgCountPerSchedSlot[schdUidx] > 0U);
+      if (!slotHasTx) {
+        continue;
+      }
       if (activeUeId == 0xFFFF || activeUeId >= static_cast<uint16_t>(nActiveUe)) {
         continue;
       }
@@ -1335,9 +1575,16 @@ int main(int argc, char* argv[])
       const int8_t tbErr = net->cellGrpUeStatusCpu.get()->tbErrLast != nullptr
                                ? net->cellGrpUeStatusCpu.get()->tbErrLast[schdUidx]
                                : -1;
+      if (tbErr == 0 || tbErr == 1) {
+        onlineTxValid += 1U;
+        if (tbErr == 1) {
+          onlineTbErr += 1U;
+        }
+      }
       if (tbErr == 0) {
         ueTbSuccPkts[activeUeId] += 1ULL;
         if (static_cast<size_t>(activeUeId) < servedBytesThisTti.size()) {
+          goodputBytesThisTti[activeUeId] += servedBytesThisTti[activeUeId];
           ueGoodputBytes[activeUeId] += servedBytesThisTti[activeUeId];
         }
       }
@@ -1356,6 +1603,8 @@ int main(int argc, char* argv[])
           sinrLin += std::max(antSinr, 1.0e-9);
         }
         sinrLin /= std::max(1, nUeAnt);
+        onlineSchedWbSinrLinSum += sinrLin;
+        onlineSchedWbSinrCount += 1U;
         ueWbSinrLinSumSched[activeUeId] += sinrLin;
         ueWbSinrCntSched[activeUeId] += 1U;
       }
@@ -1363,24 +1612,86 @@ int main(int argc, char* argv[])
 
     executedTtiCount = t + 1;
 
+    onlineObsExtrasBuilder.observeTtiResult(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get(), goodputBytesThisTti);
+
     if (onlineBridgeEnabled) {
       std::vector<float> nextObsCell;
       std::vector<float> nextObsUe;
+      std::vector<float> nextObsPrg;
       std::vector<float> nextObsEdgeAttr;
       std::vector<uint8_t> nextMaskUe;
       std::vector<uint8_t> nextMaskCellUe;
       std::vector<uint8_t> nextMaskPrg;
+      const cumac::online::ObservationExtras& nextObsExtras =
+          onlineObsExtrasBuilder.buildSnapshot(net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), trafSvc.get());
       onlineCodec.buildObservation(
-          net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), nextObsCell, nextObsUe, nextObsEdgeAttr);
+          net->cellGrpUeStatusCpu.get(),
+          net->cellGrpPrmsCpu.get(),
+          &nextObsExtras,
+          nextObsCell,
+          nextObsUe,
+          nextObsPrg,
+          nextObsEdgeAttr);
       onlineCodec.buildActionMask(
           net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), nextMaskUe, nextMaskCellUe, nextMaskPrg);
-      const cumac::online::OnlineFeatureCodec::RewardTerms reward = onlineCodec.buildReward(net->cellGrpUeStatusCpu.get());
+      const unsigned long long flowQueuedBytes = trafSvc->GetTotalFlowQueuedBytes();
+      const unsigned long long expiredBytesThisTti = trafSvc->GetLastExpiredBytes();
+      const unsigned long long expiredPacketsThisTti = trafSvc->GetLastExpiredPackets();
+      const unsigned long long totalExpiredBytes = trafSvc->GetTotalExpiredBytes();
+      const unsigned long long totalGeneratedBytes = trafSvc->GetTotalGeneratedBytes();
+      const float onlineTbErrRate =
+          onlineTxValid > 0U ? static_cast<float>(onlineTbErr) / static_cast<float>(onlineTxValid) : 0.0f;
+      const float onlineSchedWbSinrDb = onlineSchedWbSinrCount > 0U
+                                            ? static_cast<float>(10.0 * std::log10(std::max(
+                                                  1.0e-9,
+                                                  onlineSchedWbSinrLinSum / static_cast<double>(onlineSchedWbSinrCount))))
+                                            : 0.0f;
+      const unsigned long long ttiPrgCapacity =
+          static_cast<unsigned long long>(net->cellGrpPrmsCpu.get()->totNumCell) *
+          static_cast<unsigned long long>(net->cellGrpPrmsCpu.get()->nPrbGrp);
+      const float onlinePrgUtilizationRatio = ttiPrgCapacity > 0ULL
+                                                  ? static_cast<float>(
+                                                        static_cast<double>(ttiPrgUsage.allocatedPrgCount) /
+                                                        static_cast<double>(ttiPrgCapacity))
+                                                  : 0.0f;
+      unsigned long long totalGoodputBytesThisTti = 0ULL;
+      for (const auto& goodputBytes : goodputBytesThisTti) {
+        totalGoodputBytesThisTti += goodputBytes;
+      }
+      float onlineGoodputSpectralEfficiencyBpsHz = 0.0f;
+      const double systemBandwidthHz =
+          static_cast<double>(net->cellGrpPrmsCpu.get()->nPrbGrp) * static_cast<double>(net->cellGrpPrmsCpu.get()->W);
+      if (slotDurationConst > 0.0 && systemBandwidthHz > 0.0) {
+        onlineGoodputSpectralEfficiencyBpsHz = static_cast<float>(
+            (static_cast<double>(totalGoodputBytesThisTti) * 8.0 / static_cast<double>(slotDurationConst)) / systemBandwidthHz);
+      }
+      const float onlinePrgReuseRatio = static_cast<float>(std::max(0.0, std::min(1.0, ttiPrgUsage.reuseRatio)));
+      const float onlineExpiryDropRate =
+          totalGeneratedBytes > 0ULL
+              ? static_cast<float>(
+                    std::max(0.0, std::min(1.0, static_cast<double>(totalExpiredBytes) / static_cast<double>(totalGeneratedBytes))))
+              : 0.0f;
+      const cumac::online::OnlineFeatureCodec::RewardTerms reward = onlineCodec.buildReward(
+          net->cellGrpUeStatusCpu.get(),
+          servedBytesThisTti,
+          goodputBytesThisTti,
+          flowQueuedBytes,
+          expiredBytesThisTti,
+          expiredPacketsThisTti,
+          static_cast<float>(slotDurationConst),
+          onlineTbErrRate,
+          onlineSchedWbSinrDb,
+          onlinePrgUtilizationRatio,
+          onlineGoodputSpectralEfficiencyBpsHz,
+          onlinePrgReuseRatio,
+          onlineExpiryDropRate);
       const cumac::online::StepState stepState = buildOnlineState(
           t + 1,
           onlineDone,
           onlineCodec,
           nextObsCell,
           nextObsUe,
+          nextObsPrg,
           nextObsEdgeAttr,
           nextMaskUe,
           nextMaskCellUe,
@@ -1394,6 +1705,11 @@ int main(int argc, char* argv[])
         break;
       }
     }
+  }
+
+  if (inlineTtiProgressPrinted) {
+    printf("\n");
+    fflush(stdout);
   }
 
   const double prgUtilizationRatio =
@@ -1456,6 +1772,8 @@ int main(int argc, char* argv[])
     unsigned long long accepted_bytes = trafSvc->GetTotalAcceptedBytes();
     unsigned long long dropped_bytes = trafSvc->GetTotalDroppedBytes();
     unsigned long long flow_queued_bytes = trafSvc->GetTotalFlowQueuedBytes();
+    unsigned long long expired_bytes = trafSvc->GetTotalExpiredBytes();
+    unsigned long long expired_packets = trafSvc->GetTotalExpiredPackets();
     PacketDelaySummary trafficPacketDelay;
     std::vector<PacketDelaySummary> perFlowPacketDelay;
     trafSvc->GetPacketDelayStats(trafficPacketDelay, perFlowPacketDelay);
@@ -1470,8 +1788,9 @@ int main(int argc, char* argv[])
     }
 
     unsigned long long served_bytes_est = 0;
-    if (accepted_bytes > (flow_queued_bytes + mac_buffer_bytes)) {
-      served_bytes_est = accepted_bytes - flow_queued_bytes - mac_buffer_bytes;
+    const unsigned long long residual_or_expired_bytes = flow_queued_bytes + mac_buffer_bytes + expired_bytes;
+    if (accepted_bytes > residual_or_expired_bytes) {
+      served_bytes_est = accepted_bytes - residual_or_expired_bytes;
     }
 
     const int kpiTtiCount = std::max(1, executedTtiCount);
@@ -1480,6 +1799,7 @@ int main(int argc, char* argv[])
     double served_mbps_est = total_time_s > 0.0 ? (served_bytes_est * 8.0) / total_time_s / 1e6 : 0.0;
     double goodput_mbps = total_time_s > 0.0 ? (goodput_bytes * 8.0) / total_time_s / 1e6 : 0.0;
     double drop_rate = generated_bytes > 0 ? static_cast<double>(dropped_bytes) / static_cast<double>(generated_bytes) : 0.0;
+    double expiry_drop_rate = generated_bytes > 0 ? static_cast<double>(expired_bytes) / static_cast<double>(generated_bytes) : 0.0;
     double queue_delay_est_ms = served_mbps_est > 0.0 ? (mac_buffer_bytes * 8.0) / (served_mbps_est * 1e6) * 1e3 : 0.0;
 
     printf("TRAFFIC_KPI flows=%d generated_pkts=%llu generated_bytes=%llu accepted_bytes=%llu dropped_bytes=%llu flow_queued_bytes=%llu mac_buffer_bytes=%llu served_bytes_est=%llu\n",
@@ -1487,6 +1807,8 @@ int main(int argc, char* argv[])
     printf("TRAFFIC_KPI offered_mbps=%.6f served_mbps_est=%.6f drop_rate=%.6f queue_delay_est_ms=%.6f\n",
            offered_mbps, served_mbps_est, drop_rate, queue_delay_est_ms);
     printf("TRAFFIC_GOODPUT goodput_bytes=%llu goodput_mbps=%.6f\n", goodput_bytes, goodput_mbps);
+    printf("TRAFFIC_EXPIRY expired_bytes=%llu expired_packets=%llu expiry_drop_rate=%.6f\n",
+           expired_bytes, expired_packets, expiry_drop_rate);
     printf("TRAFFIC_PKT_DELAY served_pkt_count=%llu pending_pkt_count=%llu mean_ms=%.6f p50_ms=%.6f p90_ms=%.6f p95_ms=%.6f max_ms=%.6f\n",
            trafficPacketDelay.served_packets,
            trafficPacketDelay.pending_packets,
@@ -1499,6 +1821,7 @@ int main(int argc, char* argv[])
     printf("TRAFFIC_KPI flows=0 generated_pkts=0 generated_bytes=0 accepted_bytes=0 dropped_bytes=0 flow_queued_bytes=0 mac_buffer_bytes=0 served_bytes_est=0\n");
     printf("TRAFFIC_KPI offered_mbps=0.000000 served_mbps_est=0.000000 drop_rate=0.000000 queue_delay_est_ms=0.000000\n");
     printf("TRAFFIC_GOODPUT goodput_bytes=0 goodput_mbps=0.000000\n");
+    printf("TRAFFIC_EXPIRY expired_bytes=0 expired_packets=0 expiry_drop_rate=0.000000\n");
     printf("TRAFFIC_PKT_DELAY served_pkt_count=0 pending_pkt_count=0 mean_ms=0.000000 p50_ms=0.000000 p90_ms=0.000000 p95_ms=0.000000 max_ms=0.000000\n");
   }
 
@@ -1506,9 +1829,12 @@ int main(int argc, char* argv[])
   std::vector<unsigned long long> ueAcceptedBytes;
   std::vector<unsigned long long> ueDroppedBytes;
   std::vector<unsigned long long> ueFlowQueuedBytes;
+  std::vector<unsigned long long> ueExpiredBytes;
+  std::vector<unsigned long long> ueExpiredPackets;
   PacketDelaySummary trafficPacketDelaySummary;
   std::vector<PacketDelaySummary> uePacketDelay;
   trafSvc->GetPerFlowStats(ueGeneratedBytes, ueAcceptedBytes, ueDroppedBytes, ueFlowQueuedBytes);
+  trafSvc->GetPerFlowExpiryStats(ueExpiredBytes, ueExpiredPackets);
   trafSvc->GetPacketDelayStats(trafficPacketDelaySummary, uePacketDelay);
 
   std::vector<int> ueCellId(nActiveUe, -1);
@@ -1553,6 +1879,7 @@ int main(int argc, char* argv[])
     const unsigned long long accepted = (ueId < static_cast<int>(ueAcceptedBytes.size())) ? ueAcceptedBytes[ueId] : 0ULL;
     const unsigned long long dropped = (ueId < static_cast<int>(ueDroppedBytes.size())) ? ueDroppedBytes[ueId] : 0ULL;
     const unsigned long long flowQueued = (ueId < static_cast<int>(ueFlowQueuedBytes.size())) ? ueFlowQueuedBytes[ueId] : 0ULL;
+    const unsigned long long expired = (ueId < static_cast<int>(ueExpiredBytes.size())) ? ueExpiredBytes[ueId] : 0ULL;
     const unsigned long long macBuffer = net->cellGrpUeStatusCpu.get()->bufferSize != nullptr
                                              ? static_cast<unsigned long long>(net->cellGrpUeStatusCpu.get()->bufferSize[ueId])
                                              : 0ULL;
@@ -1561,7 +1888,7 @@ int main(int argc, char* argv[])
     const unsigned long long tbErrCount = ueTbErrCount[ueId];
     const unsigned long long goodputBytes = ueGoodputBytes[ueId];
     const unsigned long long servedBytesEst =
-        accepted > (flowQueued + macBuffer) ? (accepted - flowQueued - macBuffer) : 0ULL;
+        accepted > (flowQueued + macBuffer + expired) ? (accepted - flowQueued - macBuffer - expired) : 0ULL;
     const double avgThrBps = totalTimeS > 0.0 ? (static_cast<double>(servedBytesEst) * 8.0) / totalTimeS : 0.0;
     const double avgThrMbps = avgThrBps / 1.0e6;
     const double goodputMbps = totalTimeS > 0.0 ? (static_cast<double>(goodputBytes) * 8.0) / totalTimeS / 1.0e6 : 0.0;

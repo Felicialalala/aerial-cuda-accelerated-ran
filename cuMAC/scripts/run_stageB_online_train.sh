@@ -18,6 +18,7 @@ DL_UL="dl"
 FADING_MODE=0
 TOPOLOGY_SCENARIO="7cell"
 UE_PER_CELL=8
+TOTAL_UE_COUNT=""
 TOPOLOGY_SEED=0
 UE_PLACEMENT="uniform"
 UE_RADIUS_SPLITS="0.33,0.66"
@@ -27,13 +28,16 @@ BS_TX_PATTERN="omni"
 TRAFFIC_PERCENT=100
 PACKET_SIZE_BYTES=5000
 TRAFFIC_ARRIVAL_RATE=0.2
+PACKET_TTL_TTI=0
+PACKET_TTL_MS=0
 CDL_PROFILES="NA"
 CDL_DELAY_SPREADS_NS="0"
 ALLOW_PROFILE_D=0
+PRBS_PER_GROUP=16
 CUSTOM_UE_PRG=0
 BASELINE_SCHEDULER="pf"
 COMPACT_TTI_LOG=1
-PROGRESS_TTI_INTERVAL=100
+PROGRESS_TTI_INTERVAL=0
 KPI_TTI_LOG_INTERVAL=100
 COMPARE_TTI_INTERVAL=0
 REPLAY_DUMP=0
@@ -44,8 +48,8 @@ EXEC_MODE="both"
 
 OUT_DIR="${ROOT_DIR}/training/gnnrl/checkpoints/m3_online_ppo"
 INIT_POLICY_CHECKPOINT=""
-ITERS=20
-ROLLOUT_STEPS=256
+ITERS=500
+ROLLOUT_STEPS=1024
 PPO_EPOCHS=6
 MINIBATCH_SIZE=128
 GAMMA=0.99
@@ -64,16 +68,23 @@ VALUE_LOSS="huber"
 VALUE_HUBER_BETA=10.0
 PLOT_AFTER_TRAIN=1
 PLOT_SMOOTH_WINDOW=5
+CURVE_EVERY_EPISODES=0
 HIDDEN_DIM=128
 NUM_CELL_MSG_LAYERS=2
-ACTION_MODE="prg_only_type0"
+ACTION_MODE="joint"
 SEED=42
+SEED_LIST=""
+TOPOLOGY_SEED_MODE="auto"
 DEVICE="auto"
 SOCKET_PATH="/tmp/cumac_stageb_online.sock"
 CONNECT_TIMEOUT_S=20.0
 SIM_WAIT_TIMEOUT=10.0
 ONLINE_PERSISTENT=1
-EPISODE_HORIZON=400
+EPISODE_HORIZON=1024
+EPISODE_BOUNDARY_MODE="auto"
+REWARD_MODE="goodput_only"
+UE_PER_CELL_EXPLICIT=0
+EPISODE_HORIZON_EXPLICIT=0
 
 EXTRA_SIM_ENV=()
 
@@ -93,7 +104,8 @@ Stage-B scenario options:
   --fading-mode <0|1|2|3|4>   Stage-B fading mode (default: ${FADING_MODE})
   --topology-scenario <m>     7cell | 3cell (default: ${TOPOLOGY_SCENARIO})
   --ue-per-cell <n>           Active UE count per cell (default: ${UE_PER_CELL})
-  --topology-seed <n>         Fixed topology seed (default: ${TOPOLOGY_SEED})
+  --total-ue-count <n>        Total active UE count across coordinated cells; must divide cell count
+  --topology-seed <n>         Base/fixed topology seed (default: ${TOPOLOGY_SEED})
   --ue-placement <m>          uniform | stratified (default: ${UE_PLACEMENT})
   --ue-radius-splits <a,b>    Stratified radius split ratios (default: ${UE_RADIUS_SPLITS})
   --ue-strata-counts <a,b,c>  Stratified UE counts per cell
@@ -102,6 +114,9 @@ Stage-B scenario options:
   --traffic-percent <p>       UE traffic percentage (default: ${TRAFFIC_PERCENT})
   --packet-size-bytes <b>     Packet size in bytes (default: ${PACKET_SIZE_BYTES})
   --traffic-arrival-rate <r>  Traffic arrival rate in pkt/TTI (default: ${TRAFFIC_ARRIVAL_RATE})
+  --packet-ttl-tti <n>        Packet TTL in TTI, 0 disables expiry (default: ${PACKET_TTL_TTI})
+  --packet-ttl-ms <v>         Packet TTL in ms, 0 disables expiry; ignored when ttl-tti > 0 (default: ${PACKET_TTL_MS})
+  --prbs-per-group <n>        Number of RBs in one PRG/RBG; PRG count is auto-derived for 272 total PRBs (default: ${PRBS_PER_GROUP})
   --cdl-profiles <list>       Comma-separated CDL profiles, single scenario uses the first item
   --cdl-delay-spreads <list>  Comma-separated delay spreads, single scenario uses the first item
   --allow-profile-d <0|1>     Forwarded to Stage-B build-only validation (default: ${ALLOW_PROFILE_D})
@@ -140,16 +155,21 @@ Online PPO options:
   --value-huber-beta <v>      Huber beta (default: ${VALUE_HUBER_BETA})
   --plot-after-train <0|1>    Export training curves (default: ${PLOT_AFTER_TRAIN})
   --plot-smooth-window <n>    Plot moving-average window (default: ${PLOT_SMOOTH_WINDOW})
+  --curve-every-episodes <n>  Write latest curves and a snapshot every N completed episodes (default: ${CURVE_EVERY_EPISODES})
   --hidden-dim <n>            Policy hidden dim (default: ${HIDDEN_DIM})
   --num-cell-msg-layers <n>   Number of cell message layers (default: ${NUM_CELL_MSG_LAYERS})
   --action-mode <m>           joint | prg_only_type0 (default: ${ACTION_MODE})
-  --seed <n>                  Random seed (default: ${SEED})
+  --seed <n>                  Trainer random seed for PPO sampling/optimization (default: ${SEED})
+  --seed-list <list>          Comma-separated topology seeds for explicit list-cycle mode
+  --topology-seed-mode <m>    auto | fixed | sequential | list_cycle (default: ${TOPOLOGY_SEED_MODE})
   --device <m>                auto | cpu | cuda (default: ${DEVICE})
   --socket-path <path>        Online socket path prefix (default: ${SOCKET_PATH})
   --connect-timeout-s <sec>   Socket connect timeout (default: ${CONNECT_TIMEOUT_S})
   --sim-wait-timeout <sec>    Simulator shutdown wait timeout (default: ${SIM_WAIT_TIMEOUT})
   --online-persistent <0|1>   Persistent bridge mode (default: ${ONLINE_PERSISTENT})
   --episode-horizon <n>       Episode horizon for reset requests (default: ${EPISODE_HORIZON})
+  --episode-boundary-mode <m> auto | bridge | trainer (default: ${EPISODE_BOUNDARY_MODE})
+  --reward-mode <m>           legacy | goodput_only | goodput_soft_queue | goodput_reliability (default: ${REWARD_MODE})
   --sim-env <KEY=VALUE>       Extra simulator env var, may be repeated
   -h, --help                  Show this help
 EOF
@@ -164,7 +184,8 @@ while [[ $# -gt 0 ]]; do
         --mode) DL_UL="$2"; shift 2 ;;
         --fading-mode) FADING_MODE="$2"; shift 2 ;;
         --topology-scenario) TOPOLOGY_SCENARIO="$2"; shift 2 ;;
-        --ue-per-cell) UE_PER_CELL="$2"; shift 2 ;;
+        --ue-per-cell) UE_PER_CELL="$2"; UE_PER_CELL_EXPLICIT=1; shift 2 ;;
+        --total-ue-count|--ue-count) TOTAL_UE_COUNT="$2"; shift 2 ;;
         --topology-seed) TOPOLOGY_SEED="$2"; shift 2 ;;
         --ue-placement) UE_PLACEMENT="$2"; shift 2 ;;
         --ue-radius-splits) UE_RADIUS_SPLITS="$2"; shift 2 ;;
@@ -174,6 +195,9 @@ while [[ $# -gt 0 ]]; do
         --traffic-percent) TRAFFIC_PERCENT="$2"; shift 2 ;;
         --packet-size-bytes|--traffic-rate) PACKET_SIZE_BYTES="$2"; shift 2 ;;
         --traffic-arrival-rate) TRAFFIC_ARRIVAL_RATE="$2"; shift 2 ;;
+        --packet-ttl-tti) PACKET_TTL_TTI="$2"; shift 2 ;;
+        --packet-ttl-ms) PACKET_TTL_MS="$2"; shift 2 ;;
+        --prbs-per-group) PRBS_PER_GROUP="$2"; shift 2 ;;
         --cdl-profiles) CDL_PROFILES="$2"; shift 2 ;;
         --cdl-delay-spreads) CDL_DELAY_SPREADS_NS="$2"; shift 2 ;;
         --allow-profile-d) ALLOW_PROFILE_D="$2"; shift 2 ;;
@@ -210,16 +234,21 @@ while [[ $# -gt 0 ]]; do
         --value-huber-beta) VALUE_HUBER_BETA="$2"; shift 2 ;;
         --plot-after-train) PLOT_AFTER_TRAIN="$2"; shift 2 ;;
         --plot-smooth-window) PLOT_SMOOTH_WINDOW="$2"; shift 2 ;;
+        --curve-every-episodes) CURVE_EVERY_EPISODES="$2"; shift 2 ;;
         --hidden-dim) HIDDEN_DIM="$2"; shift 2 ;;
         --num-cell-msg-layers) NUM_CELL_MSG_LAYERS="$2"; shift 2 ;;
         --action-mode) ACTION_MODE="$2"; shift 2 ;;
         --seed) SEED="$2"; shift 2 ;;
+        --seed-list) SEED_LIST="$2"; shift 2 ;;
+        --topology-seed-mode) TOPOLOGY_SEED_MODE="$2"; shift 2 ;;
         --device) DEVICE="$2"; shift 2 ;;
         --socket-path) SOCKET_PATH="$2"; shift 2 ;;
         --connect-timeout-s) CONNECT_TIMEOUT_S="$2"; shift 2 ;;
         --sim-wait-timeout) SIM_WAIT_TIMEOUT="$2"; shift 2 ;;
         --online-persistent) ONLINE_PERSISTENT="$2"; shift 2 ;;
-        --episode-horizon) EPISODE_HORIZON="$2"; shift 2 ;;
+        --episode-horizon) EPISODE_HORIZON="$2"; EPISODE_HORIZON_EXPLICIT=1; shift 2 ;;
+        --episode-boundary-mode) EPISODE_BOUNDARY_MODE="$2"; shift 2 ;;
+        --reward-mode) REWARD_MODE="$2"; shift 2 ;;
         --sim-env) EXTRA_SIM_ENV+=("$2"); shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
@@ -241,15 +270,93 @@ if [[ "${EXEC_MODE}" != "both" ]]; then
     exit 1
 fi
 
+TOPOLOGY_SCENARIO="$(echo "${TOPOLOGY_SCENARIO}" | tr '[:upper:]' '[:lower:]')"
+case "${TOPOLOGY_SCENARIO}" in
+    7|7cell|7cells|7site|7-site)
+        TOPOLOGY_SCENARIO="7cell"
+        TOPOLOGY_NUM_CELLS=7
+        ;;
+    3|3cell|3cells|3site|3-site)
+        TOPOLOGY_SCENARIO="3cell"
+        TOPOLOGY_NUM_CELLS=3
+        ;;
+    *)
+        echo "--topology-scenario must be 7cell or 3cell" >&2
+        exit 1
+        ;;
+esac
+if ! [[ "${UE_PER_CELL}" =~ ^[0-9]+$ ]] || [[ "${UE_PER_CELL}" -lt 1 ]]; then
+    echo "--ue-per-cell must be a positive integer" >&2
+    exit 1
+fi
+if [[ -n "${TOTAL_UE_COUNT}" ]]; then
+    if ! [[ "${TOTAL_UE_COUNT}" =~ ^[0-9]+$ ]] || [[ "${TOTAL_UE_COUNT}" -lt 1 ]]; then
+        echo "--total-ue-count must be a positive integer" >&2
+        exit 1
+    fi
+    if (( TOTAL_UE_COUNT % TOPOLOGY_NUM_CELLS != 0 )); then
+        echo "--total-ue-count must be divisible by the coordinated cell count (${TOPOLOGY_NUM_CELLS})" >&2
+        exit 1
+    fi
+    DERIVED_UE_PER_CELL=$((TOTAL_UE_COUNT / TOPOLOGY_NUM_CELLS))
+    if [[ "${UE_PER_CELL_EXPLICIT}" == "1" && "${UE_PER_CELL}" -ne "${DERIVED_UE_PER_CELL}" ]]; then
+        echo "--ue-per-cell (${UE_PER_CELL}) conflicts with --total-ue-count (${TOTAL_UE_COUNT}) for topology ${TOPOLOGY_SCENARIO}" >&2
+        exit 1
+    fi
+    UE_PER_CELL="${DERIVED_UE_PER_CELL}"
+fi
+TOTAL_UE_COUNT=$((UE_PER_CELL * TOPOLOGY_NUM_CELLS))
+
 BASELINE_SCHEDULER="$(echo "${BASELINE_SCHEDULER}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "pfq" && "${BASELINE_SCHEDULER}" != "rr" ]]; then
     echo "--baseline-scheduler must be pf, pfq, or rr" >&2
     exit 1
 fi
 
+REWARD_MODE="$(echo "${REWARD_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${REWARD_MODE}" != "legacy" && "${REWARD_MODE}" != "goodput_only" && "${REWARD_MODE}" != "goodput_soft_queue" && "${REWARD_MODE}" != "goodput_reliability" ]]; then
+    echo "--reward-mode must be legacy, goodput_only, goodput_soft_queue, or goodput_reliability" >&2
+    exit 1
+fi
+if ! [[ "${PRBS_PER_GROUP}" =~ ^[0-9]+$ ]] || [[ "${PRBS_PER_GROUP}" -lt 1 ]]; then
+    echo "--prbs-per-group must be a positive integer" >&2
+    exit 1
+fi
+if (( 272 % PRBS_PER_GROUP != 0 )); then
+    echo "--prbs-per-group must divide 272 total PRBs for the current Stage-B carrier configuration" >&2
+    exit 1
+fi
+PRG_COUNT=$((272 / PRBS_PER_GROUP))
+
+if ! [[ "${ITERS}" =~ ^[0-9]+$ ]] || [[ "${ITERS}" -lt 1 ]]; then
+    echo "--iters must be a positive integer" >&2
+    exit 1
+fi
+if ! [[ "${ROLLOUT_STEPS}" =~ ^[0-9]+$ ]] || [[ "${ROLLOUT_STEPS}" -lt 1 ]]; then
+    echo "--rollout-steps must be a positive integer" >&2
+    exit 1
+fi
+if [[ "${EPISODE_HORIZON_EXPLICIT}" != "1" ]]; then
+    EPISODE_HORIZON="${ROLLOUT_STEPS}"
+fi
+if ! [[ "${EPISODE_HORIZON}" =~ ^[0-9]+$ ]] || [[ "${EPISODE_HORIZON}" -lt 1 ]]; then
+    echo "--episode-horizon must be a positive integer" >&2
+    exit 1
+fi
+if [[ "${EPISODE_HORIZON}" -ne "${ROLLOUT_STEPS}" ]]; then
+    echo "--episode-horizon (${EPISODE_HORIZON}) must equal --rollout-steps (${ROLLOUT_STEPS}) in the aligned online PPO setup" >&2
+    exit 1
+fi
+
 ACTION_MODE="$(echo "${ACTION_MODE}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${ACTION_MODE}" != "joint" && "${ACTION_MODE}" != "prg_only_type0" ]]; then
     echo "--action-mode must be joint or prg_only_type0" >&2
+    exit 1
+fi
+
+TOPOLOGY_SEED_MODE="$(echo "${TOPOLOGY_SEED_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${TOPOLOGY_SEED_MODE}" != "auto" && "${TOPOLOGY_SEED_MODE}" != "fixed" && "${TOPOLOGY_SEED_MODE}" != "sequential" && "${TOPOLOGY_SEED_MODE}" != "list_cycle" ]]; then
+    echo "--topology-seed-mode must be auto, fixed, sequential, or list_cycle" >&2
     exit 1
 fi
 
@@ -300,6 +407,9 @@ BUILD_ARGS=(
     --traffic-percent "${TRAFFIC_PERCENT}"
     --packet-size-bytes "${PACKET_SIZE_BYTES}"
     --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}"
+    --packet-ttl-tti "${PACKET_TTL_TTI}"
+    --packet-ttl-ms "${PACKET_TTL_MS}"
+    --prbs-per-group "${PRBS_PER_GROUP}"
     --cdl-profiles "${CDL_PROFILES}"
     --cdl-delay-spreads "${CDL_DELAY_SPREADS_NS}"
     --allow-profile-d "${ALLOW_PROFILE_D}"
@@ -338,6 +448,8 @@ fi
 BASELINE_IND=0
 if [[ "${BASELINE_SCHEDULER}" == "rr" ]]; then
     BASELINE_IND=1
+elif [[ "${BASELINE_SCHEDULER}" == "pfq" ]]; then
+    BASELINE_IND=2
 fi
 
 profile="${CDL_PROFILES%%,*}"
@@ -361,10 +473,13 @@ SIM_ENV=(
     "CUMAC_TTI_KPI_LOG_INTERVAL=${KPI_TTI_LOG_INTERVAL}"
     "CUMAC_COMPARE_TTI_INTERVAL=${COMPARE_TTI_INTERVAL}"
     "CUMAC_TRAFFIC_ARRIVAL_RATE=${TRAFFIC_ARRIVAL_RATE}"
+    "CUMAC_PACKET_TTL_TTI=${PACKET_TTL_TTI}"
+    "CUMAC_PACKET_TTL_MS=${PACKET_TTL_MS}"
     "CUMAC_GNNRL_ACTION_MODE=${ACTION_MODE}"
     "CUMAC_RL_REPLAY_DUMP=${REPLAY_DUMP}"
     "CUMAC_RL_REPLAY_DIR=${REPLAY_DIR}"
     "CUMAC_EXEC_MODE=both"
+    "CUMAC_ONLINE_REWARD_MODE=${REWARD_MODE}"
 )
 if [[ "${profile}" != "NA" ]]; then
     SIM_ENV+=(
@@ -378,11 +493,32 @@ done
 
 SIM_ARGS="-d ${DL_IND} -b ${BASELINE_IND} -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${PACKET_SIZE_BYTES}"
 
+RESOLVED_TOPOLOGY_SEED_MODE="${TOPOLOGY_SEED_MODE}"
+if [[ "${RESOLVED_TOPOLOGY_SEED_MODE}" == "auto" ]]; then
+    if [[ -n "${SEED_LIST}" ]]; then
+        RESOLVED_TOPOLOGY_SEED_MODE="list_cycle"
+    else
+        RESOLVED_TOPOLOGY_SEED_MODE="sequential"
+    fi
+fi
+
 echo "[Stage-B Online] sim_bin=${BIN}"
 echo "[Stage-B Online] sim_cwd=${SIM_CWD}"
 echo "[Stage-B Online] sim_args=${SIM_ARGS}"
 echo "[Stage-B Online] action_mode=${ACTION_MODE}"
-echo "[Stage-B Online] scenario_frozen=topology_scenario:${TOPOLOGY_SCENARIO} tti:${TTI_COUNT} topology_seed:${TOPOLOGY_SEED} ue_placement:${UE_PLACEMENT} voronoi_clip:${UE_VORONOI_CLIP} bs_tx_pattern:${BS_TX_PATTERN} packet_size_bytes:${PACKET_SIZE_BYTES} traffic_arrival_rate:${TRAFFIC_ARRIVAL_RATE} exec_mode:both"
+echo "[Stage-B Online] trainer_seed=${SEED}"
+echo "[Stage-B Online] reward_mode=${REWARD_MODE}"
+echo "[Stage-B Online] prbs_per_group=${PRBS_PER_GROUP} prg_count=${PRG_COUNT}"
+echo "[Stage-B Online] ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
+echo "[Stage-B Online] rollout_steps=${ROLLOUT_STEPS} episode_horizon=${EPISODE_HORIZON} iters=${ITERS} total_train_tti=$((ITERS * ROLLOUT_STEPS))"
+echo "[Stage-B Online] packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS}"
+if [[ -n "${SEED_LIST}" ]]; then
+    echo "[Stage-B Online] topology_seed_schedule=${RESOLVED_TOPOLOGY_SEED_MODE} seed_list=${SEED_LIST}"
+else
+    echo "[Stage-B Online] topology_seed_schedule=${RESOLVED_TOPOLOGY_SEED_MODE} start_or_fixed_seed=${TOPOLOGY_SEED}"
+fi
+echo "[Stage-B Online] episode_boundary_mode=${EPISODE_BOUNDARY_MODE} curve_every_episodes=${CURVE_EVERY_EPISODES}"
+echo "[Stage-B Online] scenario_frozen=topology_scenario:${TOPOLOGY_SCENARIO} tti:${TTI_COUNT} ue_per_cell:${UE_PER_CELL} total_ue_count:${TOTAL_UE_COUNT} topology_seed:${TOPOLOGY_SEED} ue_placement:${UE_PLACEMENT} voronoi_clip:${UE_VORONOI_CLIP} bs_tx_pattern:${BS_TX_PATTERN} prbs_per_group:${PRBS_PER_GROUP} prg_count:${PRG_COUNT} packet_size_bytes:${PACKET_SIZE_BYTES} traffic_arrival_rate:${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti:${PACKET_TTL_TTI} packet_ttl_ms:${PACKET_TTL_MS} exec_mode:both"
 
 TRAIN_CMD=(
     python3 "${TRAIN_SCRIPT}"
@@ -414,15 +550,22 @@ TRAIN_CMD=(
     --value-huber-beta "${VALUE_HUBER_BETA}"
     --plot-after-train "${PLOT_AFTER_TRAIN}"
     --plot-smooth-window "${PLOT_SMOOTH_WINDOW}"
+    --curve-every-episodes "${CURVE_EVERY_EPISODES}"
     --hidden-dim "${HIDDEN_DIM}"
     --num-cell-msg-layers "${NUM_CELL_MSG_LAYERS}"
     --action-mode "${ACTION_MODE}"
     --out-dir "${OUT_DIR}"
     --seed "${SEED}"
+    --reward-mode "${REWARD_MODE}"
+    --topology-seed-mode "${TOPOLOGY_SEED_MODE}"
+    --episode-boundary-mode "${EPISODE_BOUNDARY_MODE}"
     --device "${DEVICE}"
 )
 if [[ -n "${INIT_POLICY_CHECKPOINT}" ]]; then
     TRAIN_CMD+=(--init-policy-checkpoint "${INIT_POLICY_CHECKPOINT}")
+fi
+if [[ -n "${SEED_LIST}" ]]; then
+    TRAIN_CMD+=(--seed-list "${SEED_LIST}")
 fi
 if [[ ${#SIM_ENV[@]} -gt 0 ]]; then
     TRAIN_CMD+=(--sim-env "${SIM_ENV[@]}")

@@ -29,7 +29,7 @@
  #define gpuDeviceIdx          0
 
  // simulation duration
- #define numSimChnRlz          2000
+ #define numSimChnRlz          4000
  
  // randomness
  #define seedConst          42
@@ -42,10 +42,10 @@
  #define cellRadiusConst          500
  #define numCellConst          3
  #define numCoorCellConst          3
- #define numUePerCellConst          8
- #define numUeForGrpConst          8
+ #define numUePerCellConst          12
+ #define numUeForGrpConst          12
  // assumption's that numUePerCellConst <= numUeForGrpConst
- #define numActiveUePerCellConst          8
+ #define numActiveUePerCellConst          12
  #define totNumUesConst          numCoorCellConst*numUePerCellConst
  #define totNumActiveUesConst          numCoorCellConst*numActiveUePerCellConst
  // antenna configurations
@@ -63,8 +63,8 @@
  #define ueAntPolarAnglesConst  {0.0f, 90.0f} // UE antenna polarization angles
  #define ueAntPatternConst      0  // 0: isotropic; 1: 38.901
  #define vDirectionConst        {90, 0} // moving direction, [RxA; RxZ] — RxA and RxZ specify the azimuth and zenith of the direction of travel of the moving UE; moving speed is converted to maxDopplerShift in cdlCfg
- #define nPrbsPerGrpConst          4
- #define nPrbGrpsConst          68
+ #define nPrbsPerGrpConst          16
+ #define nPrbGrpsConst          17
  #define WConst                 12.0*scsConst*nPrbsPerGrpConst
  #define totWConst              WConst*nPrbGrpsConst
  #define PtConst                79.4328 // Macrocell - 49.0 dBm (79.4328 W), Microcell - 23 dBm (0.1995 W)

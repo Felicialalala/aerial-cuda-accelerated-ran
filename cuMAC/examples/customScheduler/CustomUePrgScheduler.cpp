@@ -17,6 +17,7 @@
 
 #include "CustomUePrgScheduler.h"
 #include "GnnRlPolicyRuntime.h"
+#include "Type0SlotLayout.h"
 #include "cumac.h"
 
 #include <algorithm>
@@ -47,6 +48,12 @@ float envFloat(const char* name, float defaultValue)
     return parsed;
 }
 
+bool hasEnvValue(const char* name)
+{
+    const char* v = std::getenv(name);
+    return v != nullptr && v[0] != '\0';
+}
+
 int envInt(const char* name, int defaultValue)
 {
     const char* v = std::getenv(name);
@@ -59,6 +66,20 @@ int envInt(const char* name, int defaultValue)
         return defaultValue;
     }
     return static_cast<int>(parsed);
+}
+
+uint64_t envUInt64(const char* name, uint64_t defaultValue)
+{
+    const char* v = std::getenv(name);
+    if (v == nullptr || v[0] == '\0') {
+        return defaultValue;
+    }
+    char* endPtr = nullptr;
+    const unsigned long long parsed = std::strtoull(v, &endPtr, 10);
+    if (endPtr == v) {
+        return defaultValue;
+    }
+    return static_cast<uint64_t>(parsed);
 }
 
 CustomUePrgScheduler::ActionMode parseActionMode(const char* value)
@@ -78,9 +99,36 @@ CustomUePrgScheduler::ActionMode parseActionMode(const char* value)
     return CustomUePrgScheduler::ActionMode::Joint;
 }
 
+GnnRlPolicyRuntime::DecodeMode parseModelDecodeMode(const char* value)
+{
+    if (value == nullptr || value[0] == '\0') {
+        return GnnRlPolicyRuntime::DecodeMode::Sample;
+    }
+
+    std::string mode(value);
+    std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (mode == "argmax" || mode == "greedy") {
+        return GnnRlPolicyRuntime::DecodeMode::Argmax;
+    }
+    return GnnRlPolicyRuntime::DecodeMode::Sample;
+}
+
 const char* actionModeToString(const CustomUePrgScheduler::ActionMode mode)
 {
     return mode == CustomUePrgScheduler::ActionMode::PrgOnlyType0 ? "prg_only_type0" : "joint";
+}
+
+const char* decodeModeToString(const GnnRlPolicyRuntime::DecodeMode mode)
+{
+    return mode == GnnRlPolicyRuntime::DecodeMode::Argmax ? "argmax" : "sample";
+}
+
+std::string maxPrgShareToString(float value)
+{
+    if (value > 0.0f) {
+        return std::to_string(value);
+    }
+    return "auto";
 }
 
 bool assocToCell(const cumacCellGrpPrms* cellGrpPrmsCpu, uint16_t cellId, uint16_t activeUeId)
@@ -124,6 +172,7 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
         }
     }
     cfg.actionMode = parseActionMode(std::getenv("CUMAC_GNNRL_ACTION_MODE"));
+    cfg.modelDecodeMode = parseModelDecodeMode(std::getenv("CUMAC_GNNRL_MODEL_DECODE_MODE"));
 
     cfg.sinrWeight = envFloat("CUMAC_CUSTOM_SINR_WEIGHT", cfg.sinrWeight);
     cfg.pfWeight = envFloat("CUMAC_CUSTOM_PF_WEIGHT", cfg.pfWeight);
@@ -142,14 +191,19 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
         cfg.modelPath = std::string(modelPath);
     }
     cfg.policyTimeoutMs = std::max(0, envInt("CUMAC_POLICY_TIMEOUT_MS", cfg.policyTimeoutMs));
+    cfg.modelSampleSeed = envUInt64("CUMAC_GNNRL_MODEL_SAMPLE_SEED", cfg.modelSampleSeed);
     cfg.modelNoUeBias = envFloat("CUMAC_GNNRL_MODEL_NO_UE_BIAS", cfg.modelNoUeBias);
     cfg.modelMinSchedRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO", cfg.modelMinSchedRatio);
     cfg.modelNoPrgBias = envFloat("CUMAC_GNNRL_MODEL_NO_PRG_BIAS", cfg.modelNoPrgBias);
     cfg.modelMinPrgRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_PRG_RATIO", cfg.modelMinPrgRatio);
-    cfg.modelMaxPrgSharePerUe = envFloat("CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE", cfg.modelMaxPrgSharePerUe);
+    if (hasEnvValue("CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE")) {
+        cfg.modelMaxPrgSharePerUe = envFloat("CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE", cfg.modelMaxPrgSharePerUe);
+    }
     cfg.modelMinSchedRatio = std::max(0.0f, std::min(1.0f, cfg.modelMinSchedRatio));
     cfg.modelMinPrgRatio = std::max(0.0f, std::min(1.0f, cfg.modelMinPrgRatio));
-    cfg.modelMaxPrgSharePerUe = std::max(1.0e-3f, std::min(1.0f, cfg.modelMaxPrgSharePerUe));
+    if (cfg.modelMaxPrgSharePerUe > 0.0f) {
+        cfg.modelMaxPrgSharePerUe = std::max(1.0e-3f, std::min(1.0f, cfg.modelMaxPrgSharePerUe));
+    }
     return cfg;
 }
 
@@ -319,6 +373,9 @@ std::vector<std::vector<CustomUePrgScheduler::SelectedUe>> CustomUePrgScheduler:
             if (!assocToCell(cellGrpPrmsCpu, cIdx, activeUeId)) {
                 continue;
             }
+            if (activeTrafficBytes(activeUeId, cellGrpUeStatusCpu) == 0U) {
+                continue;
+            }
             candidates.push_back(
                 {0xFFFF, activeUeId, ueScore(activeUeId, cIdx, cellContext[cIdx], cellGrpUeStatusCpu, cellGrpPrmsCpu)});
         }
@@ -340,7 +397,13 @@ void CustomUePrgScheduler::runType0(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
     const uint16_t totNumCell = cellGrpPrmsCpu->totNumCell;
     const uint16_t nUe = cellGrpPrmsCpu->nUe;
     const uint16_t nPrbGrp = cellGrpPrmsCpu->nPrbGrp;
-    const uint8_t numUeSchdPerCellTTI = cellGrpPrmsCpu->numUeSchdPerCellTTI;
+    const Type0SlotLayout slotLayout = cumac::buildType0SlotLayout(
+        nCell,
+        cellGrpPrmsCpu->nActiveUe,
+        nUe,
+        [&](uint32_t cIdx, uint32_t ueIdx) -> bool {
+            return assocToCell(cellGrpPrmsCpu, cIdx, ueIdx) && activeTrafficBytes(static_cast<uint16_t>(ueIdx), cellGrpUeStatusCpu) > 0U;
+        });
 
     std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + nUe, 0xFFFF);
     std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (totNumCell * nPrbGrp), static_cast<int16_t>(-1));
@@ -350,14 +413,12 @@ void CustomUePrgScheduler::runType0(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
     std::vector<std::vector<SelectedUe>> scheduledByCell(nCell);
 
     for (uint16_t cIdx = 0; cIdx < nCell; ++cIdx) {
-        // In custom pipeline, per-cell slot hints may be stale/under-estimated.
-        // Use configured per-cell slot budget directly.
-        const uint8_t numCellSched = numUeSchdPerCellTTI;
+        const uint32_t numCellSched = slotLayout.slotCountPerCell[cIdx];
         const uint16_t chosenUe = std::min<uint16_t>(numCellSched, static_cast<uint16_t>(candidates[cIdx].size()));
         scheduledByCell[cIdx].reserve(chosenUe);
 
-        for (uint16_t localIdx = 0; localIdx < numUeSchdPerCellTTI; ++localIdx) {
-            const uint16_t schedSlot = static_cast<uint16_t>(cIdx * numUeSchdPerCellTTI + localIdx);
+        for (uint16_t localIdx = 0; localIdx < numCellSched; ++localIdx) {
+            const uint16_t schedSlot = static_cast<uint16_t>(slotLayout.cellSlotStart[cIdx] + localIdx);
             if (localIdx < chosenUe) {
                 SelectedUe selected = candidates[cIdx][localIdx];
                 selected.schedSlot = schedSlot;
@@ -427,7 +488,13 @@ void CustomUePrgScheduler::runType1(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
     const uint16_t nCell = cellGrpPrmsCpu->nCell;
     const uint16_t nUe = cellGrpPrmsCpu->nUe;
     const uint16_t nPrbGrp = cellGrpPrmsCpu->nPrbGrp;
-    const uint8_t numUeSchdPerCellTTI = cellGrpPrmsCpu->numUeSchdPerCellTTI;
+    const Type0SlotLayout slotLayout = cumac::buildType0SlotLayout(
+        nCell,
+        cellGrpPrmsCpu->nActiveUe,
+        nUe,
+        [&](uint32_t cIdx, uint32_t ueIdx) -> bool {
+            return assocToCell(cellGrpPrmsCpu, cIdx, ueIdx) && activeTrafficBytes(static_cast<uint16_t>(ueIdx), cellGrpUeStatusCpu) > 0U;
+        });
 
     std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + nUe, 0xFFFF);
     std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (2 * nUe), static_cast<int16_t>(-1));
@@ -436,15 +503,13 @@ void CustomUePrgScheduler::runType1(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
     std::vector<std::vector<SelectedUe>> candidates = buildCellCandidates(cellGrpUeStatusCpu, cellGrpPrmsCpu, cellContext);
 
     for (uint16_t cIdx = 0; cIdx < nCell; ++cIdx) {
-        // In custom pipeline, per-cell slot hints may be stale/under-estimated.
-        // Use configured per-cell slot budget directly.
-        const uint8_t numCellSched = numUeSchdPerCellTTI;
+        const uint32_t numCellSched = slotLayout.slotCountPerCell[cIdx];
         const uint16_t chosenUe = std::min<uint16_t>(numCellSched, static_cast<uint16_t>(candidates[cIdx].size()));
 
         std::vector<SelectedUe> scheduled;
         scheduled.reserve(chosenUe);
-        for (uint16_t localIdx = 0; localIdx < numUeSchdPerCellTTI; ++localIdx) {
-            const uint16_t schedSlot = static_cast<uint16_t>(cIdx * numUeSchdPerCellTTI + localIdx);
+        for (uint16_t localIdx = 0; localIdx < numCellSched; ++localIdx) {
+            const uint16_t schedSlot = static_cast<uint16_t>(slotLayout.cellSlotStart[cIdx] + localIdx);
             if (localIdx < chosenUe) {
                 SelectedUe selected = candidates[cIdx][localIdx];
                 selected.schedSlot = schedSlot;
@@ -517,11 +582,13 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                   << " maxActiveCellsPerPrg=" << m_cfg.maxActiveCellsPerPrg
                   << " modelPath=" << (m_cfg.modelPath.empty() ? "<empty>" : m_cfg.modelPath)
                   << " policyTimeoutMs=" << m_cfg.policyTimeoutMs
+                  << " modelDecodeMode=" << decodeModeToString(m_cfg.modelDecodeMode)
+                  << " modelSampleSeed=" << m_cfg.modelSampleSeed
                   << " modelNoUeBias=" << m_cfg.modelNoUeBias
                   << " modelMinSchedRatio=" << m_cfg.modelMinSchedRatio
                   << " modelNoPrgBias=" << m_cfg.modelNoPrgBias
                   << " modelMinPrgRatio=" << m_cfg.modelMinPrgRatio
-                  << " modelMaxPrgSharePerUe=" << m_cfg.modelMaxPrgSharePerUe
+                  << " modelMaxPrgSharePerUe=" << maxPrgShareToString(m_cfg.modelMaxPrgSharePerUe)
                   << std::endl;
         logOnce = true;
     }
@@ -536,6 +603,8 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 runtimeCfg.actionMode = (m_cfg.actionMode == ActionMode::PrgOnlyType0)
                                             ? GnnRlPolicyRuntime::ActionMode::PrgOnlyType0
                                             : GnnRlPolicyRuntime::ActionMode::Joint;
+                runtimeCfg.decodeMode = m_cfg.modelDecodeMode;
+                runtimeCfg.sampleSeed = m_cfg.modelSampleSeed;
                 runtimeCfg.noUeBias = m_cfg.modelNoUeBias;
                 runtimeCfg.minSchedRatio = m_cfg.modelMinSchedRatio;
                 runtimeCfg.noPrgBias = m_cfg.modelNoPrgBias;
@@ -549,6 +618,7 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
             }
 
             if (m_modelReady && m_modelRuntime != nullptr) {
+                m_modelRuntime->setObservationExtras(m_observationExtras);
                 const bool ok = m_modelRuntime->inferType0(
                     cellGrpUeStatusCpu, cellGrpPrmsCpu, schdSolCpu, schdSolGpu, stream);
                 if (ok) {
