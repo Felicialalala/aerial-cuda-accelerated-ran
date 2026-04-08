@@ -131,6 +131,24 @@ public:
         }
 
         const uint8_t nUeAnt = std::max<uint8_t>(1U, cellGrpPrmsCpu->nUeAnt);
+        std::vector<float> ueWbSinrDb(m_nActiveUe, -20.0f);
+        if (cellGrpPrmsCpu->wbSinr != nullptr) {
+            for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
+                float wbSinrLin = 0.0f;
+                for (uint8_t ant = 0; ant < nUeAnt; ++ant) {
+                    wbSinrLin += std::max(cellGrpPrmsCpu->wbSinr[ueIdx * nUeAnt + ant], 1.0e-9f);
+                }
+                wbSinrLin /= static_cast<float>(nUeAnt);
+                ueWbSinrDb[ueIdx] = 10.0f * std::log10(std::max(wbSinrLin, 1.0e-9f));
+            }
+        }
+
+        const size_t prgCellCount = static_cast<size_t>(m_nCell) * static_cast<size_t>(m_nPrg);
+        std::vector<float> top1PerCellPrgDb(prgCellCount, -20.0f);
+        std::vector<float> top2GapPerCellPrgDb(prgCellCount, 0.0f);
+        std::vector<float> top1WinnerWbSinrDb(prgCellCount, -20.0f);
+        std::vector<uint8_t> top1ValidPerCellPrg(prgCellCount, 0U);
+
         for (uint32_t prgIdx = 0; prgIdx < m_nPrg; ++prgIdx) {
             uint32_t reuseCount = 0U;
             for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
@@ -143,6 +161,7 @@ public:
             for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
                 float top1SinrDb = -20.0f;
                 float top2SinrDb = -20.0f;
+                uint32_t top1UeIdx = 0U;
                 bool any = false;
                 bool secondFound = false;
                 for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
@@ -168,6 +187,7 @@ public:
                         top2SinrDb = top1SinrDb;
                         secondFound = any;
                         top1SinrDb = sinrDb;
+                        top1UeIdx = ueIdx;
                         any = true;
                     } else if (sinrDb > top2SinrDb) {
                         top2SinrDb = sinrDb;
@@ -175,12 +195,64 @@ public:
                     }
                 }
                 const float gapDb = (any && secondFound) ? std::max(0.0f, top1SinrDb - top2SinrDb) : 0.0f;
+                const size_t idx = static_cast<size_t>(cIdx) * static_cast<size_t>(m_nPrg) + prgIdx;
+                top1PerCellPrgDb[idx] = top1SinrDb;
+                top2GapPerCellPrgDb[idx] = gapDb;
+                top1ValidPerCellPrg[idx] = any ? 1U : 0U;
+                if (any && top1UeIdx < ueWbSinrDb.size()) {
+                    top1WinnerWbSinrDb[idx] = ueWbSinrDb[top1UeIdx];
+                }
+            }
+
+            constexpr float kConflictMarginDb = 3.0f;
+            constexpr float kSinrDropScaleDb = 12.0f;
+            for (uint32_t cIdx = 0; cIdx < m_nCell; ++cIdx) {
+                const size_t idx = static_cast<size_t>(cIdx) * static_cast<size_t>(m_nPrg) + prgIdx;
+                const float top1SinrDb = top1PerCellPrgDb[idx];
+                const float gapDb = top2GapPerCellPrgDb[idx];
+                const bool any = top1ValidPerCellPrg[idx] != 0U;
+                float neighborMaxTop1SinrDb = -20.0f;
+                float neighborMeanTop1SinrDb = -20.0f;
+                float neighborTop1SumDb = 0.0f;
+                uint32_t neighborTop1Count = 0U;
+                uint32_t conflictCount = 0U;
+                for (uint32_t otherCIdx = 0; otherCIdx < m_nCell; ++otherCIdx) {
+                    if (otherCIdx == cIdx) {
+                        continue;
+                    }
+                    const size_t otherIdx = static_cast<size_t>(otherCIdx) * static_cast<size_t>(m_nPrg) + prgIdx;
+                    if (top1ValidPerCellPrg[otherIdx] == 0U) {
+                        continue;
+                    }
+                    const float otherTop1SinrDb = top1PerCellPrgDb[otherIdx];
+                    neighborMaxTop1SinrDb = std::max(neighborMaxTop1SinrDb, otherTop1SinrDb);
+                    neighborTop1SumDb += otherTop1SinrDb;
+                    neighborTop1Count += 1U;
+                    if (any && otherTop1SinrDb >= (top1SinrDb - kConflictMarginDb)) {
+                        conflictCount += 1U;
+                    }
+                }
+                if (neighborTop1Count > 0U) {
+                    neighborMeanTop1SinrDb = neighborTop1SumDb / static_cast<float>(neighborTop1Count);
+                }
+                const float samePrgConflictRatio =
+                    (m_nCell > 1U) ? static_cast<float>(conflictCount) / static_cast<float>(m_nCell - 1U) : 0.0f;
+                float prgSinrDropNorm = 0.0f;
+                if (any) {
+                    const float sinrDropDb = std::max(0.0f, top1WinnerWbSinrDb[idx] - top1SinrDb);
+                    prgSinrDropNorm = std::min(1.0f, sinrDropDb / kSinrDropScaleDb);
+                }
+                const float iciProxy = 0.5f * samePrgConflictRatio + 0.5f * prgSinrDropNorm;
                 const size_t base = (static_cast<size_t>(cIdx) * m_nPrg + prgIdx) *
                                     ObservationFeatureLayout::kPrgFeatDim;
                 m_snapshot.prgFeatures[base + 0U] = top1SinrDb;
                 m_snapshot.prgFeatures[base + 1U] = gapDb;
                 m_snapshot.prgFeatures[base + 2U] = (m_prevPrgAssigned[cIdx * m_nPrg + prgIdx] != 0U) ? 1.0f : 0.0f;
                 m_snapshot.prgFeatures[base + 3U] = reuseRatio;
+                m_snapshot.prgFeatures[base + 4U] = neighborMaxTop1SinrDb;
+                m_snapshot.prgFeatures[base + 5U] = neighborMeanTop1SinrDb;
+                m_snapshot.prgFeatures[base + 6U] = std::max(0.0f, std::min(1.0f, samePrgConflictRatio));
+                m_snapshot.prgFeatures[base + 7U] = std::max(0.0f, std::min(1.0f, iciProxy));
             }
         }
 

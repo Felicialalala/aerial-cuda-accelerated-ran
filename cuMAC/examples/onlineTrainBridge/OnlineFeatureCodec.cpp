@@ -21,6 +21,11 @@ float clampNonNeg(float value)
     return std::max(0.0F, value);
 }
 
+float clampUnit(float value)
+{
+    return std::max(0.0F, std::min(1.0F, value));
+}
+
 std::string toLowerCopy(const std::string& value)
 {
     std::string out = value;
@@ -28,6 +33,42 @@ std::string toLowerCopy(const std::string& value)
         return static_cast<char>(std::tolower(c));
     });
     return out;
+}
+
+float computeTbErrReusePenalty(float tbErrRate, float prgReuseRatio)
+{
+    // Penalize reuse when it is actually showing up as BLER, rather than
+    // relying on a coarse mean-SINR threshold that often stays too high.
+    const float safeTbErrRate = clampUnit(tbErrRate);
+    const float safeReuseRatio = clampUnit(prgReuseRatio);
+    return safeTbErrRate * safeReuseRatio;
+}
+
+float computeTxWasteRatio(float throughputMbps, float goodputMbps)
+{
+    if (throughputMbps <= 1.0e-6F) {
+        return 0.0F;
+    }
+    const float wastedMbps = std::max(0.0F, throughputMbps - goodputMbps);
+    return clampUnit(wastedMbps / throughputMbps);
+}
+
+float computeActivePrgGoodputEfficiency(float goodputSpectralEfficiencyBpsHz, float prgUtilizationRatio)
+{
+    // Reward "goodput per actually used PRG opportunity" so the policy can
+    // discover that leaving harmful PRGs blank may increase end-to-end goodput.
+    constexpr float kUtilFloor = 0.35F;
+    constexpr float kEfficiencyCap = 24.0F;
+    const float effectiveUtil = std::max(kUtilFloor, clampUnit(prgUtilizationRatio));
+    return std::min(kEfficiencyCap, std::max(0.0F, goodputSpectralEfficiencyBpsHz) / effectiveUtil);
+}
+
+float computeHarmfulPackingPenalty(float throughputMbps, float goodputMbps, float prgUtilizationRatio, float prgReuseRatio)
+{
+    const float txWasteRatio = computeTxWasteRatio(throughputMbps, goodputMbps);
+    const float densePackingPressure =
+        clampUnit(prgUtilizationRatio) * (0.25F + 0.75F * clampUnit(prgReuseRatio));
+    return txWasteRatio * densePackingPressure;
 }
 
 } // namespace
@@ -47,6 +88,14 @@ OnlineFeatureCodec::RewardMode OnlineFeatureCodec::parseRewardMode(const std::st
     if (lower == "goodput_reliability" || lower == "goodput_ttl_bler") {
         return RewardMode::GoodputReliability;
     }
+    if (lower == "goodput_reliability_reuseaware" || lower == "goodput_reuse_aware" ||
+        lower == "goodput_interference_aware") {
+        return RewardMode::GoodputReliabilityReuseAware;
+    }
+    if (lower == "goodput_reliability_blankaware" || lower == "goodput_blank_aware" ||
+        lower == "goodput_efficiency_aware") {
+        return RewardMode::GoodputReliabilityBlankAware;
+    }
     return RewardMode::GoodputOnly;
 }
 
@@ -59,6 +108,10 @@ const char* OnlineFeatureCodec::rewardModeToString(const RewardMode mode)
             return "goodput_soft_queue";
         case RewardMode::GoodputReliability:
             return "goodput_reliability";
+        case RewardMode::GoodputReliabilityReuseAware:
+            return "goodput_reliability_reuseaware";
+        case RewardMode::GoodputReliabilityBlankAware:
+            return "goodput_reliability_blankaware";
         case RewardMode::GoodputOnly:
         default:
             return "goodput_only";
@@ -372,6 +425,23 @@ OnlineFeatureCodec::RewardTerms OnlineFeatureCodec::buildReward(const cumacCellG
             terms.scalar = 0.05F * terms.goodputMbps - 2.0F * terms.tbErrRate - 4.0F * terms.expiryDropRate
                            + 0.25F * terms.fairnessJain;
             break;
+        case RewardMode::GoodputReliabilityReuseAware: {
+            const float tbErrReusePenalty = computeTbErrReusePenalty(terms.tbErrRate, terms.prgReuseRatio);
+            terms.scalar =
+                0.05F * terms.goodputMbps - 2.0F * terms.tbErrRate - 4.0F * terms.expiryDropRate
+                - 8.0F * tbErrReusePenalty + 0.25F * terms.fairnessJain;
+            break;
+        }
+        case RewardMode::GoodputReliabilityBlankAware: {
+            const float activePrgGoodputEfficiency =
+                computeActivePrgGoodputEfficiency(terms.goodputSpectralEfficiencyBpsHz, terms.prgUtilizationRatio);
+            const float harmfulPackingPenalty = computeHarmfulPackingPenalty(
+                terms.throughputMbps, terms.goodputMbps, terms.prgUtilizationRatio, terms.prgReuseRatio);
+            terms.scalar =
+                0.05F * terms.goodputMbps + 0.25F * activePrgGoodputEfficiency - 2.0F * terms.tbErrRate
+                - 4.0F * terms.expiryDropRate - 10.0F * harmfulPackingPenalty + 0.25F * terms.fairnessJain;
+            break;
+        }
         case RewardMode::GoodputOnly:
         default:
             terms.scalar = 0.05F * terms.goodputMbps;

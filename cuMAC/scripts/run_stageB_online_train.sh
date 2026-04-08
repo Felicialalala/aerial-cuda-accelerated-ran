@@ -8,6 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 RUN_SCRIPT="${ROOT_DIR}/cuMAC/scripts/run_stageB_main_experiment.sh"
 TRAIN_SCRIPT="${ROOT_DIR}/training/gnnrl/ppo_online_train.py"
+EVAL_SCRIPT="${ROOT_DIR}/training/gnnrl/eval_candidate_checkpoints.py"
 
 ARCH="$(uname -m)"
 BUILD_DIR="${ROOT_DIR}/build.${ARCH}"
@@ -79,10 +80,20 @@ DEVICE="auto"
 SOCKET_PATH="/tmp/cumac_stageb_online.sock"
 CONNECT_TIMEOUT_S=20.0
 SIM_WAIT_TIMEOUT=10.0
+SIM_LOG_MODE="file"
 ONLINE_PERSISTENT=1
 EPISODE_HORIZON=1024
 EPISODE_BOUNDARY_MODE="auto"
 REWARD_MODE="goodput_only"
+CANDIDATE_SAVE_EVERY_ITERS=0
+CANDIDATE_SAVE_START_ITER=1
+AUTO_MAIN_EVAL=0
+EVAL_BUILD_METHOD="skip"
+EVAL_DECODE_MODE="sample"
+EVAL_SAMPLE_SEEDS="42"
+EVAL_CANDIDATE_LIMIT=0
+EVAL_PROMOTE_BEST=1
+EVAL_TAG_PREFIX=""
 UE_PER_CELL_EXPLICIT=0
 EPISODE_HORIZON_EXPLICIT=0
 
@@ -166,10 +177,22 @@ Online PPO options:
   --socket-path <path>        Online socket path prefix (default: ${SOCKET_PATH})
   --connect-timeout-s <sec>   Socket connect timeout (default: ${CONNECT_TIMEOUT_S})
   --sim-wait-timeout <sec>    Simulator shutdown wait timeout (default: ${SIM_WAIT_TIMEOUT})
+  --sim-log-mode <m>          file | inherit (default: ${SIM_LOG_MODE})
   --online-persistent <0|1>   Persistent bridge mode (default: ${ONLINE_PERSISTENT})
   --episode-horizon <n>       Episode horizon for reset requests (default: ${EPISODE_HORIZON})
   --episode-boundary-mode <m> auto | bridge | trainer (default: ${EPISODE_BOUNDARY_MODE})
-  --reward-mode <m>           legacy | goodput_only | goodput_soft_queue | goodput_reliability (default: ${REWARD_MODE})
+  --reward-mode <m>           legacy | goodput_only | goodput_soft_queue | goodput_reliability | goodput_reliability_reuseaware | goodput_reliability_blankaware (default: ${REWARD_MODE})
+  --candidate-save-every-iters <n>
+                              Save periodic candidate checkpoints every N iters using the pre-update rollout actor (default: ${CANDIDATE_SAVE_EVERY_ITERS})
+  --candidate-save-start-iter <n>
+                              First iter eligible for periodic candidate checkpoint save (default: ${CANDIDATE_SAVE_START_ITER})
+  --auto-main-eval <0|1>      After training, export/evaluate candidates with main experiment and promote deployment best (default: ${AUTO_MAIN_EVAL})
+  --eval-build-method <m>     skip | cmake for candidate main-experiment eval (default: ${EVAL_BUILD_METHOD})
+  --eval-decode-mode <m>      sample | argmax for candidate eval (default: ${EVAL_DECODE_MODE})
+  --eval-sample-seeds <list>  Comma-separated sample seeds for candidate eval in sample mode (default: ${EVAL_SAMPLE_SEEDS})
+  --eval-candidate-limit <n>  Evaluate top-N training candidates; 0 means all discovered candidates (default: ${EVAL_CANDIDATE_LIMIT})
+  --eval-promote-best <0|1>   Copy deployment-best checkpoint/onnx to *_best_eval artifacts (default: ${EVAL_PROMOTE_BEST})
+  --eval-tag-prefix <text>    Optional tag prefix for candidate eval runs
   --sim-env <KEY=VALUE>       Extra simulator env var, may be repeated
   -h, --help                  Show this help
 EOF
@@ -245,10 +268,20 @@ while [[ $# -gt 0 ]]; do
         --socket-path) SOCKET_PATH="$2"; shift 2 ;;
         --connect-timeout-s) CONNECT_TIMEOUT_S="$2"; shift 2 ;;
         --sim-wait-timeout) SIM_WAIT_TIMEOUT="$2"; shift 2 ;;
+        --sim-log-mode) SIM_LOG_MODE="$2"; shift 2 ;;
         --online-persistent) ONLINE_PERSISTENT="$2"; shift 2 ;;
         --episode-horizon) EPISODE_HORIZON="$2"; EPISODE_HORIZON_EXPLICIT=1; shift 2 ;;
         --episode-boundary-mode) EPISODE_BOUNDARY_MODE="$2"; shift 2 ;;
         --reward-mode) REWARD_MODE="$2"; shift 2 ;;
+        --candidate-save-every-iters) CANDIDATE_SAVE_EVERY_ITERS="$2"; shift 2 ;;
+        --candidate-save-start-iter) CANDIDATE_SAVE_START_ITER="$2"; shift 2 ;;
+        --auto-main-eval) AUTO_MAIN_EVAL="$2"; shift 2 ;;
+        --eval-build-method) EVAL_BUILD_METHOD="$2"; shift 2 ;;
+        --eval-decode-mode) EVAL_DECODE_MODE="$2"; shift 2 ;;
+        --eval-sample-seeds) EVAL_SAMPLE_SEEDS="$2"; shift 2 ;;
+        --eval-candidate-limit) EVAL_CANDIDATE_LIMIT="$2"; shift 2 ;;
+        --eval-promote-best) EVAL_PROMOTE_BEST="$2"; shift 2 ;;
+        --eval-tag-prefix) EVAL_TAG_PREFIX="$2"; shift 2 ;;
         --sim-env) EXTRA_SIM_ENV+=("$2"); shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; usage; exit 1 ;;
@@ -314,8 +347,13 @@ if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "pfq" && "${
 fi
 
 REWARD_MODE="$(echo "${REWARD_MODE}" | tr '[:upper:]' '[:lower:]')"
-if [[ "${REWARD_MODE}" != "legacy" && "${REWARD_MODE}" != "goodput_only" && "${REWARD_MODE}" != "goodput_soft_queue" && "${REWARD_MODE}" != "goodput_reliability" ]]; then
-    echo "--reward-mode must be legacy, goodput_only, goodput_soft_queue, or goodput_reliability" >&2
+if [[ "${REWARD_MODE}" != "legacy" && "${REWARD_MODE}" != "goodput_only" && "${REWARD_MODE}" != "goodput_soft_queue" && "${REWARD_MODE}" != "goodput_reliability" && "${REWARD_MODE}" != "goodput_reliability_reuseaware" && "${REWARD_MODE}" != "goodput_reliability_blankaware" ]]; then
+    echo "--reward-mode must be legacy, goodput_only, goodput_soft_queue, goodput_reliability, goodput_reliability_reuseaware, or goodput_reliability_blankaware" >&2
+    exit 1
+fi
+SIM_LOG_MODE="$(echo "${SIM_LOG_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${SIM_LOG_MODE}" != "file" && "${SIM_LOG_MODE}" != "inherit" ]]; then
+    echo "--sim-log-mode must be file or inherit" >&2
     exit 1
 fi
 if ! [[ "${PRBS_PER_GROUP}" =~ ^[0-9]+$ ]] || [[ "${PRBS_PER_GROUP}" -lt 1 ]]; then
@@ -508,10 +546,12 @@ echo "[Stage-B Online] sim_args=${SIM_ARGS}"
 echo "[Stage-B Online] action_mode=${ACTION_MODE}"
 echo "[Stage-B Online] trainer_seed=${SEED}"
 echo "[Stage-B Online] reward_mode=${REWARD_MODE}"
+echo "[Stage-B Online] sim_log_mode=${SIM_LOG_MODE}"
 echo "[Stage-B Online] prbs_per_group=${PRBS_PER_GROUP} prg_count=${PRG_COUNT}"
 echo "[Stage-B Online] ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
 echo "[Stage-B Online] rollout_steps=${ROLLOUT_STEPS} episode_horizon=${EPISODE_HORIZON} iters=${ITERS} total_train_tti=$((ITERS * ROLLOUT_STEPS))"
 echo "[Stage-B Online] packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS}"
+echo "[Stage-B Online] candidate_save_every_iters=${CANDIDATE_SAVE_EVERY_ITERS} candidate_save_start_iter=${CANDIDATE_SAVE_START_ITER} auto_main_eval=${AUTO_MAIN_EVAL}"
 if [[ -n "${SEED_LIST}" ]]; then
     echo "[Stage-B Online] topology_seed_schedule=${RESOLVED_TOPOLOGY_SEED_MODE} seed_list=${SEED_LIST}"
 else
@@ -528,10 +568,13 @@ TRAIN_CMD=(
     --socket-path "${SOCKET_PATH}"
     --connect-timeout-s "${CONNECT_TIMEOUT_S}"
     --sim-wait-timeout "${SIM_WAIT_TIMEOUT}"
+    --sim-log-mode "${SIM_LOG_MODE}"
     --online-persistent "${ONLINE_PERSISTENT}"
     --episode-horizon "${EPISODE_HORIZON}"
     --iters "${ITERS}"
     --rollout-steps "${ROLLOUT_STEPS}"
+    --candidate-save-every-iters "${CANDIDATE_SAVE_EVERY_ITERS}"
+    --candidate-save-start-iter "${CANDIDATE_SAVE_START_ITER}"
     --ppo-epochs "${PPO_EPOCHS}"
     --minibatch-size "${MINIBATCH_SIZE}"
     --gamma "${GAMMA}"
@@ -572,3 +615,44 @@ if [[ ${#SIM_ENV[@]} -gt 0 ]]; then
 fi
 
 "${TRAIN_CMD[@]}"
+
+if [[ "${AUTO_MAIN_EVAL}" == "1" ]]; then
+    if [[ -z "${EVAL_TAG_PREFIX}" ]]; then
+        EVAL_TAG_PREFIX="$(basename "${OUT_DIR}")"
+    fi
+    echo "[Stage-B Online] auto main eval enabled: decode_mode=${EVAL_DECODE_MODE} sample_seeds=${EVAL_SAMPLE_SEEDS} candidate_limit=${EVAL_CANDIDATE_LIMIT}"
+    EVAL_CMD=(
+        python3 "${EVAL_SCRIPT}"
+        --train-out-dir "${OUT_DIR}"
+        --build-method "${EVAL_BUILD_METHOD}"
+        --topology-scenario "${TOPOLOGY_SCENARIO}"
+        --total-ue-count "${TOTAL_UE_COUNT}"
+        --prbs-per-group "${PRBS_PER_GROUP}"
+        --baseline-scheduler "${BASELINE_SCHEDULER}"
+        --fading-mode "${FADING_MODE}"
+        --cdl-profiles "${CDL_PROFILES}"
+        --cdl-delay-spreads "${CDL_DELAY_SPREADS_NS}"
+        --tti "${TTI_COUNT}"
+        --packet-size-bytes "${PACKET_SIZE_BYTES}"
+        --traffic-arrival-rate "${TRAFFIC_ARRIVAL_RATE}"
+        --packet-ttl-tti "${PACKET_TTL_TTI}"
+        --packet-ttl-ms "${PACKET_TTL_MS}"
+        --topology-seed "${TOPOLOGY_SEED}"
+        --progress-tti "${PROGRESS_TTI_INTERVAL}"
+        --kpi-tti-log "${KPI_TTI_LOG_INTERVAL}"
+        --compare-tti "${COMPARE_TTI_INTERVAL}"
+        --compact-output "${COMPACT_TTI_LOG}"
+        --exec-mode "${EXEC_MODE}"
+        --gnnrl-action-mode "${ACTION_MODE}"
+        --gnnrl-model-decode-mode "${EVAL_DECODE_MODE}"
+        --gnnrl-model-sample-seeds "${EVAL_SAMPLE_SEEDS}"
+        --gnnrl-model-no-ue-bias "0"
+        --gnnrl-model-no-prg-bias "0"
+        --gnnrl-model-min-sched-ratio "0"
+        --gnnrl-model-min-prg-ratio "0"
+        --candidate-limit "${EVAL_CANDIDATE_LIMIT}"
+        --promote-best "${EVAL_PROMOTE_BEST}"
+        --tag-prefix "${EVAL_TAG_PREFIX}"
+    )
+    "${EVAL_CMD[@]}"
+fi

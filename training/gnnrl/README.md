@@ -205,14 +205,72 @@ Notes:
 - `--topology-seed-mode auto` is the default. It resolves to `sequential` when `--seed-list` is empty, so topology seeds run as `topology-seed`, `topology-seed+1`, `topology-seed+2`, ...
 - `--topology-seed-mode fixed` keeps one topology for all episodes.
 - `--topology-seed-mode list_cycle` plus `--seed-list` enables explicit list-cycle topology scheduling.
+- For fixed deployment targets such as a single `--topology-seed 42` main experiment, `fixed` is still the best-matched training mode.
+- For moderate multi-seed generalization, prefer `list_cycle` over unbounded `sequential`: cycling a curated `8-16` seed set reduces restart noise and lets PPO revisit the same topologies often enough to actually improve on them.
+- A practical starting point is `--topology-seed-mode list_cycle --seed-list 42,43,44,45,46,47,48,49 --online-persistent 0 --episode-boundary-mode bridge --episode-horizon 2048 --rollout-steps 2048`.
 - `--episode-boundary-mode auto` is the default; it automatically switches to trainer-managed episode cuts for multi-seed or periodic curve export in persistent online mode.
 - `--reward-mode goodput_only` is the default. It makes the PPO scalar reward depend only on per-TTI successful delivery (`goodput`) so persistent-online runs do not drift downward just because backlog keeps accumulating across TTIs.
 - `--reward-mode goodput_soft_queue` keeps the same `goodput` objective but adds a bounded `log1p(buffer)` penalty when you want some latency sensitivity without the old unbounded backlog drift.
 - `--reward-mode goodput_reliability` keeps `goodput` as the primary objective but adds light `BLER` / `expiry_drop_rate` shaping plus a small fairness tie-breaker. This is the recommended TTL-enabled mode when deployment gaps come mostly from retransmission waste and packet expiry rather than raw served throughput.
+- `--reward-mode goodput_reliability_reuseaware` extends `goodput_reliability` with an extra `tbErrRate * prgReuseRatio` penalty. This is the recommended mode when the policy keeps saturating PRG utilization/reuse and you want it to learn that reuse is only worth it when it does not convert into BLER.
+- `--reward-mode goodput_reliability_blankaware` extends `goodput_reliability` with two extra terms: a bonus for `goodput / used_PRG` efficiency and a penalty for high-utilization/high-reuse packing when `throughput - goodput` is large. This is the mode to try when you specifically want the policy to discover that leaving some RBGs blank can increase end-to-end goodput.
 - `--reward-mode legacy` restores the older `0.05 * served_throughput - 0.05 * backlog - 0.002 * queue_delay - 1.5 * bler + 0.5 * fairness` scalar reward.
 - The old `round-robin` wording here only referred to cycling through the seed list per episode; it is unrelated to the native RR scheduler baseline.
 - If you want to mirror an existing baseline run, keep `--topology-scenario`, `--fading-mode`, `--packet-size-bytes`, `--traffic-arrival-rate`, and `--topology-seed` identical.
 - When latency freshness matters, you can also align `--packet-ttl-tti` or `--packet-ttl-ms`; TTL is off by default.
+- For deployment-aligned model selection, the launcher now supports two extra stages:
+  - `--candidate-save-every-iters N` saves periodic pre-update rollout actors under `candidate_checkpoints/` plus `online_ppo_candidate_checkpoints.csv`.
+  - `--auto-main-eval 1` exports those candidates to ONNX, runs `run_stageB_main_experiment.sh`, and promotes the winner to `ppo_actor_best_eval.pt` / `model_best_eval.onnx`.
+- Candidate main-experiment evaluation writes:
+  - `candidate_main_eval/candidate_eval_runs.csv`
+  - `candidate_main_eval/candidate_eval_metrics.csv`
+  - `candidate_main_eval/candidate_eval_summary.json`
+- A practical fixed-seed example is:
+  use the tuned PPO hyperparameters below rather than the script defaults. In recent runs, accidentally falling back to the defaults (`minibatch_size=128`, `entropy_coef=0.01`, `actor_lr=1e-4`, `critic_lr=3e-4`, `target_kl=0.05`) made training much noisier and significantly weaker than the tuned setting used by the stronger `v11/v13/v15` experiments.
+
+```bash
+./cuMAC/scripts/run_stageB_online_train.sh \
+  --topology-scenario 3cell \
+  --total-ue-count 36 \
+  --build-method skip \
+  --prbs-per-group 16 \
+  --baseline-scheduler pfq \
+  --fading-mode 0 \
+  --cdl-profiles NA \
+  --cdl-delay-spreads 0 \
+  --tti 4000 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 0.8 \
+  --packet-ttl-ms 200 \
+  --topology-seed 42 \
+  --topology-seed-mode fixed \
+  --online-persistent 1 \
+  --episode-boundary-mode trainer \
+  --episode-horizon 1024 \
+  --action-mode joint \
+  --reward-mode goodput_reliability_blankaware \
+  --iters 500 \
+  --rollout-steps 1024 \
+  --ppo-epochs 6 \
+  --minibatch-size 256 \
+  --entropy-coef 0.003 \
+  --actor-lr 2e-4 \
+  --critic-lr 1e-4 \
+  --target-kl 0.02 \
+  --candidate-save-every-iters 20 \
+  --candidate-save-start-iter 200 \
+  --auto-main-eval 1 \
+  --eval-build-method skip \
+  --eval-decode-mode sample \
+  --eval-sample-seeds 41,42,43 \
+  --out-dir training/gnnrl/checkpoints/m3_online_ppo_seed42_with_main_eval
+```
+
+- Recent practical lessons:
+  - For a fixed deployment target such as `topology-seed=42`, `fixed` seed training remains the most stable and best-aligned mode. `sequential` and `list_cycle` are still useful for generalization studies, but they are noisier and usually should not replace the main fixed-seed training run.
+  - The added PRG-side interference features (`neighborMaxTop1SinrDb`, `neighborMeanTop1SinrDb`, `samePrgConflictRatio`, `iciProxy`) help expose lower-reuse / lower-conflict candidate windows during training, but feature upgrades alone do not guarantee better deployment transfer.
+  - `goodput_reliability_reuseaware` and `goodput_reliability_blankaware` are useful shaping variants, but reward shaping by itself did not reliably teach the policy to leave PRGs blank in a deployment-helpful way. In practice, reward design needs to be paired with deployment-side checkpoint selection.
+  - A strong rollout checkpoint can still transfer poorly to exported ONNX + C++ runtime. Use `--candidate-save-every-iters` plus `--auto-main-eval 1` so the final promoted artifacts (`ppo_actor_best_eval.pt`, `model_best_eval.onnx`) are chosen by actual main-experiment KPI rather than rollout `goodput` alone.
 - `ppo_actor_best.pt` is now selected directly by rollout `goodput` (`rollout_goodput_mbps_mean`).
 - The first tie-breaker is lower `rollout_expiry_drop_rate_mean`; the second tie-breaker is lower `rollout_tb_err_rate_mean`.
 - PPO `objective` remains diagnostic-only and no longer decides `ppo_actor_best.pt`.
@@ -221,9 +279,9 @@ Notes:
 - With TTL enabled, online outputs also export `*_expired_bytes_*`, `*_expired_packets_*`, and `*_expiry_drop_rate_*` so you can distinguish buffer growth from freshness-driven expiry.
 - The online observation now also includes TTL/interference-aware features on top of the older queue/rate/SINR terms:
   `UE: HOL delay, TTL slack, recent scheduled ratio, recent goodput deficit`
-  `PRG: top-1 subband SINR, top-2 gap, previous per-cell PRG use, previous PRG reuse ratio`
+  `PRG: top-1 subband SINR, top-2 gap, previous per-cell PRG use, previous PRG reuse ratio, neighbor same-PRG max/mean quality, same-PRG conflict ratio, ICI proxy`
 - The current `joint` model forward input set is:
-  `obs_cell_features[n_cell,5]`, `obs_ue_features[n_active_ue,12]`, `obs_prg_features[n_cell,n_prg,4]`, `obs_edge_index[n_edges,2]`, `obs_edge_attr[n_edges,2]`, `action_mask_ue[n_active_ue]`, `action_mask_cell_ue[n_cell,n_active_ue]`.
+  `obs_cell_features[n_cell,5]`, `obs_ue_features[n_active_ue,12]`, `obs_prg_features[n_cell,n_prg,8]`, `obs_edge_index[n_edges,2]`, `obs_edge_attr[n_edges,2]`, `action_mask_ue[n_active_ue]`, `action_mask_cell_ue[n_cell,n_active_ue]`.
 - Dynamic Type-0 slot layout is now derived from `action_mask_ue & action_mask_cell_ue`, so cells only expose scheduler slots for currently live/schedulable UEs.
 - The PRG head now consumes those PRG features plus a live-masked slot-to-UE context inferred from the UE head, with a straight-through hard slot choice in the forward path so PRG decisions are closer to the eventual hard UE selection.
 - `joint` models exported with the updated pipeline require the new ONNX input set (`obs_prg_features`, `action_mask_ue`, `action_mask_cell_ue`) and should be re-trained / re-exported; older ONNX files are not forward-compatible with the updated runtime.

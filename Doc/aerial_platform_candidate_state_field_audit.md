@@ -10,7 +10,7 @@
 
 混成同一类。
 
-结论优先以当前仓库代码为准，时间点为 `2026-04-03`。
+结论优先以当前仓库代码为准，时间点为 `2026-04-07`。
 
 ## 2. 统一 shape 口径
 
@@ -36,7 +36,7 @@
    - `cellFeatDim = 5`
    - `ueFeatDim = 12`
    - `edgeFeatDim = 2`
-   - `prgFeatDim = 4`
+   - `prgFeatDim = 8`
    见 [`cuMAC/examples/onlineTrainBridge/OnlineObservationTypes.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineObservationTypes.h)。
 4. 当前 Stage-B 默认 `4T4R`，且 [`cuMAC/examples/parameters.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/parameters.h) 里 `prdSchemeConst = 0`，即默认 `no precoding`；平台能力上仍支持 `SVD precoding`。
 5. 当前 `4T4R Type-0` 主线每个 `cell × PRG` 只落一个 slot/UE，不存在“同小区同 PRG 多用户复用”的原生语义。
@@ -123,7 +123,7 @@
 
 - `obs_cell_features: [n_cell, 5]`
 - `obs_ue_features: [n_active_ue, 12]`
-- `obs_prg_features: [n_cell, n_prg, 4]`
+- `obs_prg_features: [n_cell, n_prg, 8]`
 - `obs_edge_index: [n_edges, 2]`
 - `obs_edge_attr: [n_edges, 2]`
 - `action_mask_cell_ue: [n_cell, n_active_ue]`
@@ -172,7 +172,7 @@
 
 ### 5.3 PRG-level
 
-`prgFeatDim = 4`
+`prgFeatDim = 8`
 
 来自 [`cuMAC/examples/onlineTrainBridge/OnlineObservationExtrasBuilder.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineObservationExtrasBuilder.h)：
 
@@ -180,6 +180,10 @@
 2. `top2GapDb`
 3. `prevPrgAssigned`
 4. `reuseRatio`
+5. `neighborMaxTop1SinrDb`
+6. `neighborMeanTop1SinrDb`
+7. `samePrgConflictRatio`
+8. `iciProxy`
 
 口径上分别表示：
 
@@ -187,6 +191,9 @@
 - 第 1 名与第 2 名 SINR 的差值
 - 上一个 TTI 该 `cell × PRG` 是否实际被分配
 - 上一个 TTI 同一 `PRG` 在多少个小区同时被用到，按 `reuse_count / n_cell` 归一化
+- 其他小区在同一 `PRG` 上最强候选 UE 的最大 / 平均 subband SINR
+- 与本小区 top-1 质量接近的邻小区比例，用来表达“同一 PRG 上当前 TTI 的跨小区竞争强度”
+- 一个轻量 `ICI proxy`：将“本 PRG 相对该候选 UE 的宽带 SINR 退化”与“same-PRG 冲突比例”合成到 `[0,1]`
 
 ### 5.4 Edge-level
 
@@ -196,6 +203,31 @@
 2. `load_diff_ratio`
 
 这说明如果你的首版算法只需要“小区图 + PRG 局部质量/复用状态”，其实不一定要第一天就把原始 CFR 全部拉出来。
+
+### 5.5 当前这 4 维新增特征解决了什么、还没解决什么
+
+最近一轮最小可行特征扩展新增了下面 4 个 `PRG` 特征：
+
+1. `neighborMaxTop1SinrDb`
+2. `neighborMeanTop1SinrDb`
+3. `samePrgConflictRatio`
+4. `iciProxy`
+
+它们解决的主要是两个盲点：
+
+- 旧版 `PRG` 特征只能看到“本小区这个 PRG 好不好”，但看不到“邻小区是否也非常想抢这个 PRG”
+- 旧版也只能从上一 TTI 的 `reuseRatio` 侧面猜冲突，缺少“当前 TTI 的 same-PRG 竞争强度”信号
+
+但它们仍然不是显式、精确的 `ICI` 导出：
+
+- `neighborMaxTop1SinrDb / neighborMeanTop1SinrDb` 只是邻区候选质量 proxy
+- `samePrgConflictRatio` 是基于 top-1 质量接近度构造的竞争 proxy
+- `iciProxy` 也是“subband-vs-wideband 退化 + same-PRG 冲突比例”的合成量
+
+因此当前结论应理解为：
+
+- 这 4 维足以作为“是否值得少复用 / 留空部分 PRG”的最小可行状态信号
+- 但如果后续算法明确需要精确 ICI、跨小区链路增益或 beam-domain overlap，仍应优先从 `multiCellSinrCal` 或原始 channel/precoding 路径继续 hook，而不是把 `iciProxy` 当成最终版干扰真值
 
 ## 6. 建议的首版取数优先级
 
@@ -223,6 +255,20 @@
 - `Beam overlap`
 - `CoMP indicator`
 - `PHR`
+
+### 6.4 最近几轮实验给出的经验
+
+1. 单靠 reward 改造，不足以稳定学出“主动留空 PRG 更好”的策略。
+   - `goodput_reliability_reuseaware` 与 `goodput_reliability_blankaware` 都能改变训练中的局部行为，但如果最终仍按 rollout `goodput` 选 best，导出的部署模型仍可能偏向更激进、更高复用的 checkpoint。
+2. 新增 4 维 `PRG` 干扰特征后，训练中已经能出现“较低 reuse / util 但 rollout goodput 仍高”的候选窗口。
+   - 这说明特征本身是有信号的，不是“完全没用”。
+   - 但这些候选窗口是否真的更适合部署，需要通过导出 ONNX 后的主实验评测来选，而不能只看训练曲线。
+3. 对固定部署目标（例如固定 `topology-seed=42` 的主实验），`fixed seed` 训练仍然最稳。
+   - `sequential` / `list_cycle` 更适合泛化研究，不适合直接替代主训练 run。
+4. 当前最值得优先补的，不再只是更多 reward 项，而是：
+   - deployment-aligned checkpoint 选择
+   - 更精确的 ICI / cross-cell coupling hook
+   - 明确区分“训练里看起来好的 rollout”与“主实验里真的好的导出模型”
 
 ## 7. 一页结论
 

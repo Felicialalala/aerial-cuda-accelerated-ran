@@ -16,7 +16,16 @@ struct ObservationFeatureLayout {
     static constexpr uint32_t kUeExtraFeatDim = 4U;
     static constexpr uint32_t kUeFeatDim = kUeBaseFeatDim + kUeExtraFeatDim;
     static constexpr uint32_t kEdgeFeatDim = 2U;
-    static constexpr uint32_t kPrgFeatDim = 4U;
+    // PRG features:
+    // 0 top1SinrDb
+    // 1 top2GapDb
+    // 2 prevPrgAssigned
+    // 3 reuseRatio
+    // 4 neighborMaxTop1SinrDb
+    // 5 neighborMeanTop1SinrDb
+    // 6 samePrgConflictRatio
+    // 7 iciProxy
+    static constexpr uint32_t kPrgFeatDim = 8U;
 };
 
 struct ObservationExtras {

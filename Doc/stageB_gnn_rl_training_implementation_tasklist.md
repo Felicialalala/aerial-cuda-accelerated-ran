@@ -141,26 +141,47 @@ python3 training/gnnrl/ppo_train.py \
 ```bash
 ./cuMAC/scripts/run_stageB_online_train.sh \
   --topology-scenario 3cell \
+  --total-ue-count 36 \
   --baseline-scheduler pfq \
-  --build-method cmake \
+  --build-method skip \
+  --prbs-per-group 16 \
   --fading-mode 0 \
   --cdl-profiles NA \
   --cdl-delay-spreads 0 \
-  --tti 2000 \
+  --tti 4000 \
   --packet-size-bytes 3000 \
   --traffic-arrival-rate 0.8 \
+  --packet-ttl-ms 200 \
   --topology-seed 42 \
   --exec-mode both \
-  --action-mode prg_only_type0 \
-  --init-policy-checkpoint training/gnnrl/checkpoints/m1_bc_3cell_seed42/checkpoint_best.pt \
+  --topology-seed-mode fixed \
+  --online-persistent 1 \
+  --episode-boundary-mode trainer \
+  --episode-horizon 1024 \
+  --rollout-steps 1024 \
+  --action-mode joint \
+  --reward-mode goodput_reliability_blankaware \
+  --ppo-epochs 6 \
+  --minibatch-size 256 \
+  --entropy-coef 0.003 \
+  --actor-lr 2e-4 \
+  --critic-lr 1e-4 \
+  --target-kl 0.02 \
+  --candidate-save-every-iters 20 \
+  --candidate-save-start-iter 200 \
+  --auto-main-eval 1 \
+  --eval-build-method skip \
+  --eval-decode-mode sample \
+  --eval-sample-seeds 41,42,43 \
+  --eval-candidate-limit 16 \
   --out-dir training/gnnrl/checkpoints/m3_online_ppo_3cell_seed42
 ```
 
 ## 5. 当前仍未完全闭环的地方
 
 - 奖励里还没有直接纳入 packet-level delay
-- 训练结束后的 RR/PF/PFQ/GNNRL 统一 compare 还没有单脚本闭环
-- checkpoint 选择仍建议结合 KPI 回看，不要只看 `objective`
+- 训练后的“统一 compare 总结”还没有完全收敛成一条覆盖所有 baseline / sample-seed / tag 约定的总脚本，但主线已经支持候选 checkpoint 自动导出并用主实验选 `deployment-best`
+- 训练内 `ppo_actor_best.pt` 仍是 rollout 口径；如果要部署，checkpoint 选择仍建议结合主实验 KPI 回看，不要只看 `objective` 或 rollout `goodput`
 - repo 没有自带 `torch` 安装与锁版本方案
 
 ## 6. 现在最重要的门禁
@@ -171,4 +192,6 @@ python3 training/gnnrl/ppo_train.py \
 - replay 目录里存在 `rl_replay_meta.json`
 - replay inspect 结果 `size_match: true`
 - 训练时固定 `topology-scenario`、`fading-mode`、`packet-size-bytes`、`traffic-arrival-rate`、`topology-seed`
-- 与当前 baseline 做同口径比较时，优先使用 `prg_only_type0`
+- 与当前 baseline 做同口径比较时，优先使用 `joint`
+- 对固定部署目标，优先使用 tuned PPO 参数，不要退回 launcher 默认值
+- 如果训练要直接产出可部署模型，优先开启 `--candidate-save-every-iters` 与 `--auto-main-eval 1`

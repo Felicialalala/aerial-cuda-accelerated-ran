@@ -32,7 +32,7 @@
  #define numSimChnRlz          4000
  
  // randomness
- #define seedConst          42
+ #define seedConst          43
 
  // system parameters
  //#define mu                     0 // OFDM numerology: 0, 1, 2, 3, 4

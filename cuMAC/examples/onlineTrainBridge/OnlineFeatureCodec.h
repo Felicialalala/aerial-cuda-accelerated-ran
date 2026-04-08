@@ -26,6 +26,8 @@ public:
         GoodputOnly,
         GoodputSoftQueue,
         GoodputReliability,
+        GoodputReliabilityReuseAware,
+        GoodputReliabilityBlankAware,
     };
 
     struct RewardTerms {

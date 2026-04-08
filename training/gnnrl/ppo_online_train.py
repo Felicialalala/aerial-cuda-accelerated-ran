@@ -214,36 +214,31 @@ def _plot_training_curves(
     def has_episode_metric(key: str) -> bool:
         return bool(episode_history) and any(key in r and r.get(key, "") not in ("", None) for r in episode_history)
 
-    curves: List[Tuple[str, List[int], List[float], str]] = []
+    curves: List[Tuple[str, str, List[int], List[float], str]] = []
     if history:
-        for key in (
-            "rollout_reward_raw_mean",
-            "rollout_goodput_mbps_mean",
-            "rollout_total_buffer_mb_mean",
-            "rollout_expiry_drop_rate_mean",
-            "rollout_tb_err_rate_mean",
-            "objective",
-            "value_loss",
-            "approx_kl",
-            "entropy",
+        for key, title in (
+            ("rollout_goodput_mbps_mean", "Rollout Goodput (Mbps)"),
+            ("rollout_tb_err_rate_mean", "Rollout TB BLER"),
+            ("rollout_expiry_drop_rate_mean", "Rollout Expiry Drop Rate"),
+            ("rollout_sched_wb_sinr_db_mean", "Rollout Scheduled WB SINR (dB)"),
+            ("rollout_prg_reuse_ratio_mean", "Rollout PRG Reuse Ratio"),
+            ("rollout_prg_utilization_ratio_mean", "Rollout PRG Utilization Ratio"),
+            ("entropy", "Policy Entropy"),
+            ("approx_kl", "Approx KL"),
         ):
             if has_iter_metric(key):
-                curves.append((key, iters, arr_iter(key), "iteration"))
+                curves.append((key, title, iters, arr_iter(key), "iteration"))
     if episode_history:
-        for key in (
-            "episode_reward_raw_mean",
-            "episode_goodput_mbps_mean",
-            "episode_sched_wb_sinr_db_mean",
-            "episode_total_buffer_mb_mean",
-            "episode_expired_bytes_mean",
-            "episode_expired_packets_mean",
-            "episode_expiry_drop_rate_mean",
-            "episode_prg_utilization_ratio_mean",
-            "episode_goodput_spectral_efficiency_bpshz_mean",
-            "episode_prg_reuse_ratio_mean",
+        for key, title in (
+            ("episode_goodput_mbps_mean", "Episode Goodput (Mbps)"),
+            ("episode_tb_err_rate_mean", "Episode TB BLER"),
+            ("episode_expiry_drop_rate_mean", "Episode Expiry Drop Rate"),
+            ("episode_sched_wb_sinr_db_mean", "Episode Scheduled WB SINR (dB)"),
+            ("episode_prg_reuse_ratio_mean", "Episode PRG Reuse Ratio"),
+            ("episode_prg_utilization_ratio_mean", "Episode PRG Utilization Ratio"),
         ):
             if has_episode_metric(key):
-                curves.append((key, episodes, arr_episode(key), "episode"))
+                curves.append((key, title, episodes, arr_episode(key), "episode"))
 
     n = len(curves)
     ncols = 3
@@ -253,15 +248,15 @@ def _plot_training_curves(
         axes_flat = list(axes)
     else:
         axes_flat = list(axes.flatten())
-    for idx, (name, x, y, xlabel) in enumerate(curves):
+    for idx, (name, title, x, y, xlabel) in enumerate(curves):
         ax = axes_flat[idx]
-        ax.plot(x, y, linewidth=1.2, alpha=0.45, label=f"{name} (raw)")
+        ax.plot(x, y, linewidth=1.2, alpha=0.45, label="raw")
         ys = _moving_average(y, smooth_window)
         if smooth_window > 1:
-            ax.plot(x, ys, linewidth=1.8, label=f"{name} (ma{smooth_window})")
+            ax.plot(x, ys, linewidth=1.8, label=f"ma{smooth_window}")
         if name == "approx_kl" and target_kl is not None:
             ax.axhline(float(target_kl), color="tab:red", linestyle="--", linewidth=1.0, label="target_kl")
-        ax.set_title(name)
+        ax.set_title(title)
         ax.set_xlabel(xlabel)
         ax.grid(True, alpha=0.25)
         ax.legend(loc="best", fontsize=8)
@@ -435,6 +430,7 @@ class OnlineEpisodeRunner:
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.proc: Optional[subprocess.Popen] = None
+        self.proc_log_handle = None
         self.env: Optional[AerialEnvClient] = None
         self.current_obs: Optional[Dict[str, np.ndarray]] = None
         self.episode_idx = 0
@@ -448,12 +444,21 @@ class OnlineEpisodeRunner:
         self.current_episode_step = 0
         self.global_step = 0
         self.episode_accumulator: Optional[EpisodeAccumulator] = None
+        self.sim_log_path: Optional[Path] = None
+        self.sim_log_mode = str(getattr(args, "sim_log_mode", "file"))
+        if self.sim_log_mode == "file":
+            log_root = Path(args.sim_cwd).resolve() if args.sim_cwd else Path(args.out_dir).resolve()
+            log_root.mkdir(parents=True, exist_ok=True)
+            self.sim_log_path = log_root / "online_bridge_sim.log"
 
     @property
     def dims(self):
         if self.env is None:
             return None
         return self.env.dims
+
+    def _sim_log_display_path(self) -> str:
+        return "-" if self.sim_log_path is None else str(self.sim_log_path)
 
     def _episode_seed_for(self, episode_idx: int) -> int:
         if self.args.resolved_topology_seed_mode == "list_cycle":
@@ -496,7 +501,7 @@ class OnlineEpisodeRunner:
         }
         return obs
 
-    def _launch_sim(self, socket_path: str, topology_seed: int) -> subprocess.Popen:
+    def _launch_sim(self, socket_path: str, topology_seed: int, episode_idx: int, episode_seed: int) -> subprocess.Popen:
         sim_env = os.environ.copy()
         sim_env["CUMAC_ONLINE_BRIDGE"] = "1"
         sim_env["CUMAC_ONLINE_SOCKET"] = socket_path
@@ -512,6 +517,20 @@ class OnlineEpisodeRunner:
         sim_env["CUMAC_TOPOLOGY_SEED"] = str(int(topology_seed))
 
         cmd = [self.args.sim_bin] + shlex.split(self.args.sim_args)
+        if self.sim_log_mode == "file" and self.sim_log_path is not None:
+            self.proc_log_handle = open(self.sim_log_path, "a", encoding="utf-8", buffering=1)
+            launch_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            self.proc_log_handle.write(
+                f"\n===== [{launch_ts}] episode={episode_idx} episode_seed={episode_seed} "
+                f"topology_seed={topology_seed} socket={socket_path} =====\n"
+            )
+            return subprocess.Popen(
+                cmd,
+                env=sim_env,
+                cwd=self.args.sim_cwd,
+                stdout=self.proc_log_handle,
+                stderr=subprocess.STDOUT,
+            )
         return subprocess.Popen(cmd, env=sim_env, cwd=self.args.sim_cwd)
 
     def _wait_process(self, timeout_s: float) -> None:
@@ -535,6 +554,14 @@ class OnlineEpisodeRunner:
         if self.proc is not None:
             self._wait_process(timeout_s=self.args.sim_wait_timeout)
             self.proc = None
+        if self.proc_log_handle is not None:
+            try:
+                self.proc_log_handle.flush()
+                self.proc_log_handle.close()
+            except Exception:
+                pass
+            finally:
+                self.proc_log_handle = None
         if self.socket_path:
             try:
                 os.unlink(self.socket_path)
@@ -553,7 +580,20 @@ class OnlineEpisodeRunner:
         self.socket_path = f"{self.args.socket_path}.{os.getpid()}.{next_episode_idx}"
         episode_seed = self._episode_seed_for(next_episode_idx)
         topology_seed = self._topology_seed_for(episode_seed)
-        self.proc = self._launch_sim(socket_path=self.socket_path, topology_seed=topology_seed)
+        self.proc = self._launch_sim(
+            socket_path=self.socket_path,
+            topology_seed=topology_seed,
+            episode_idx=next_episode_idx,
+            episode_seed=episode_seed,
+        )
+        print(
+            f"[episode {next_episode_idx:04d}] launch "
+            f"episode_seed={episode_seed} topology_seed={topology_seed} "
+            f"boundary={self.args.resolved_episode_boundary_mode} "
+            f"persistent={int(self.args.online_persistent)} "
+            f"socket={self.socket_path} "
+            f"sim_log={self._sim_log_display_path()}"
+        )
 
         self.env = AerialEnvClient(AerialEnvConfig(socket_path=self.socket_path, connect_timeout_s=self.args.connect_timeout_s))
         obs = self.env.reset(seed=episode_seed, episode_horizon=self.args.episode_horizon)
@@ -1163,6 +1203,12 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--sim-args", default="-d 1 -b 0 -x 0 -f 0 -g 100 -r 5000", help="CLI args for simulation binary")
     p.add_argument("--sim-cwd", default="", help="Optional cwd for launching simulation")
     p.add_argument("--sim-env", nargs="*", default=[], help="Extra env vars, format KEY=VALUE")
+    p.add_argument(
+        "--sim-log-mode",
+        choices=["file", "inherit"],
+        default="file",
+        help="file: write simulator console to sim_runtime log and keep trainer stdout concise; inherit: print simulator logs directly",
+    )
     p.add_argument("--socket-path", default="/tmp/cumac_stageb_online.sock", help="Unix socket path prefix")
     p.add_argument("--connect-timeout-s", type=float, default=20.0)
     p.add_argument("--sim-wait-timeout", type=float, default=10.0)
@@ -1177,6 +1223,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--episode-horizon", type=int, default=1024)
     p.add_argument("--iters", type=int, default=500)
     p.add_argument("--rollout-steps", type=int, default=1024)
+    p.add_argument(
+        "--candidate-save-every-iters",
+        type=int,
+        default=0,
+        help="Save a periodic candidate actor checkpoint every N iters using the pre-update rollout actor; 0 disables",
+    )
+    p.add_argument(
+        "--candidate-save-start-iter",
+        type=int,
+        default=1,
+        help="First iter eligible for periodic candidate checkpoint save",
+    )
     p.add_argument("--ppo-epochs", type=int, default=6)
     p.add_argument("--minibatch-size", type=int, default=128)
     p.add_argument("--gamma", type=float, default=0.99)
@@ -1249,6 +1307,10 @@ def main() -> int:
         raise ValueError("--rollout-steps must be >= 1")
     if args.episode_horizon < 1:
         raise ValueError("--episode-horizon must be >= 1")
+    if args.candidate_save_every_iters < 0:
+        raise ValueError("--candidate-save-every-iters must be >= 0")
+    if args.candidate_save_start_iter < 1:
+        raise ValueError("--candidate-save-start-iter must be >= 1")
     if args.episode_horizon != args.rollout_steps:
         raise ValueError(
             f"--episode-horizon ({args.episode_horizon}) must equal --rollout-steps ({args.rollout_steps}) in the aligned online PPO setup"
@@ -1361,6 +1423,9 @@ def main() -> int:
             f"[launch] rollout_steps={args.rollout_steps} episode_horizon={args.episode_horizon} "
             f"iters={args.iters} total_train_tti={args.iters * args.rollout_steps}"
         )
+        print(f"[launch] sim_log_mode={args.sim_log_mode}")
+        if runner.sim_log_path is not None:
+            print(f"[launch] sim_log_path={runner.sim_log_path}")
         if args.resolved_topology_seed_mode == "list_cycle":
             print(f"[launch] topology_seed_schedule=list_cycle explicit_seed_list={args.resolved_seed_list}")
         elif args.resolved_topology_seed_mode == "sequential":
@@ -1389,10 +1454,13 @@ def main() -> int:
         summary_path = out_dir / "online_ppo_summary.json"
         history_csv_path = out_dir / "online_ppo_metrics.csv"
         episode_history_csv_path = out_dir / "online_ppo_episode_metrics.csv"
+        candidate_checkpoint_dir = out_dir / "candidate_checkpoints"
+        candidate_history_csv_path = out_dir / "online_ppo_candidate_checkpoints.csv"
         curves_path = out_dir / "online_ppo_curves.png"
 
         history: List[Dict[str, float]] = []
         episode_history: List[Dict[str, float]] = []
+        candidate_history: List[Dict[str, float]] = []
         curve_snapshot_paths: List[str] = []
         best_checkpoint_score = -1.0e30
         best_checkpoint_tiebreak = 1.0e30
@@ -1501,7 +1569,6 @@ def main() -> int:
             mean_kl = kl_sum / denom
             mean_clipfrac = clipfrac_sum / denom
             objective = -mean_policy_loss + args.entropy_coef * mean_entropy
-            rollout_score = float(rollout["rewards_raw"].mean().item())
 
             row = {
                 "iter": it,
@@ -1613,7 +1680,8 @@ def main() -> int:
             row["checkpoint_tiebreak2_metric"] = "rollout_tb_err_rate_mean"
             row["checkpoint_tiebreak2_score"] = checkpoint_tiebreak2
 
-            if checkpoint_key > best_checkpoint_key:
+            is_new_best_checkpoint = checkpoint_key > best_checkpoint_key
+            if is_new_best_checkpoint:
                 best_checkpoint_key = checkpoint_key
                 best_checkpoint_score = checkpoint_score
                 best_checkpoint_tiebreak = checkpoint_tiebreak
@@ -1632,21 +1700,49 @@ def main() -> int:
                     actor_best_path,
                 )
 
+            should_save_candidate = (
+                int(args.candidate_save_every_iters) > 0
+                and it >= int(args.candidate_save_start_iter)
+                and ((it - int(args.candidate_save_start_iter)) % int(args.candidate_save_every_iters) == 0)
+            )
+            if should_save_candidate:
+                candidate_checkpoint_dir.mkdir(parents=True, exist_ok=True)
+                candidate_path = candidate_checkpoint_dir / f"ppo_actor_iter{it:04d}.pt"
+                torch.save(
+                    {
+                        "iter": it,
+                        "model_state_dict": rollout_actor_state_dict,
+                        "model_config": actor.model_config_dict(),
+                        "source": "m3_online_ppo_candidate",
+                        "metrics": row,
+                        "args": vars(args),
+                        "policy_state_source": "pre_update_rollout_actor",
+                        "candidate_reason": "periodic_interval",
+                    },
+                    candidate_path,
+                )
+                candidate_row = dict(row)
+                candidate_row["candidate_iter"] = it
+                candidate_row["candidate_path"] = str(candidate_path)
+                candidate_row["candidate_reason"] = "periodic_interval"
+                candidate_row["policy_state_source"] = "pre_update_rollout_actor"
+                candidate_row["candidate_is_new_best_checkpoint"] = int(is_new_best_checkpoint)
+                candidate_history.append(candidate_row)
+                _write_history_csv(candidate_history, candidate_history_csv_path)
+                print(f"[candidate] saved iter={it} path={candidate_path}")
+
             print(
-                f"[iter {it:03d}] objective={objective:.5f} "
-                f"raw_reward={rollout_score:.5f} "
-                f"pol_loss={mean_policy_loss:.5f} val_loss={mean_value_loss:.5f} "
-                f"entropy={mean_entropy:.5f} kl={mean_kl:.5f} clipfrac={mean_clipfrac:.5f} "
-                f"episodes={len(episode_history)} "
+                f"[iter {it:03d}] episodes={len(episode_history)} "
                 f"goodput={row['rollout_goodput_mbps_mean']:.2f}Mbps "
-                f"buf={row['rollout_total_buffer_mb_mean']:.2f}MB "
-                f"sinr={row['rollout_sched_wb_sinr_db_mean']:.2f}dB "
-                f"expB={row['rollout_expired_bytes_mean']:.1f} "
-                f"expR={row['rollout_expiry_drop_rate_mean']:.4f} "
-                f"util={row['rollout_prg_utilization_ratio_mean']:.3f} "
-                f"se={row['rollout_goodput_spectral_efficiency_bpshz_mean']:.3f} "
-                f"reuse={row['rollout_prg_reuse_ratio_mean']:.3f} "
                 f"bler={row['rollout_tb_err_rate_mean']:.4f} "
+                f"expR={row['rollout_expiry_drop_rate_mean']:.4f} "
+                f"sinr={row['rollout_sched_wb_sinr_db_mean']:.2f}dB "
+                f"reuse={row['rollout_prg_reuse_ratio_mean']:.3f} "
+                f"util={row['rollout_prg_utilization_ratio_mean']:.3f} "
+                f"entropy={mean_entropy:.4f} "
+                f"kl={mean_kl:.5f} "
+                f"objective={objective:.5f} "
+                f"best_ckpt={int(is_new_best_checkpoint)} "
                 f"early_stop_kl={int(stop_early)}"
             )
 
@@ -1703,10 +1799,15 @@ def main() -> int:
             "best_actor_policy_state_source": "pre_update_rollout_actor",
             "last_actor_checkpoint": str(actor_last_path),
             "last_train_checkpoint": str(train_last_path),
+            "sim_log_mode": args.sim_log_mode,
+            "sim_log_path": runner._sim_log_display_path(),
             "iter_metrics_csv": str(history_csv_path),
             "episode_metrics_csv": str(episode_history_csv_path),
             "completed_episodes": len(episode_history),
             "curve_snapshots": curve_snapshot_paths,
+            "candidate_checkpoint_dir": str(candidate_checkpoint_dir),
+            "candidate_checkpoint_csv": str(candidate_history_csv_path),
+            "candidate_checkpoints_saved": len(candidate_history),
             "args": vars(args),
             "history": history,
             "last_episode_metrics": None if not episode_history else episode_history[-1],
@@ -1715,6 +1816,7 @@ def main() -> int:
             json.dump(summary, f, indent=2, ensure_ascii=True)
         _write_history_csv(history, history_csv_path)
         _write_history_csv(episode_history, episode_history_csv_path)
+        _write_history_csv(candidate_history, candidate_history_csv_path)
 
         plot_ok = False
         if int(args.plot_after_train) == 1:
