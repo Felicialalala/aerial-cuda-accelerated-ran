@@ -56,6 +56,7 @@ typedef struct mcDynDescr {
   float*      sinVal; 
   uint16_t*   setSchdUePerCellTTI; // global UE IDs of scheduled UEs
   float*      pfMetricArr; // for storing computed PF metrices
+  float*      pfPredBytesArr; // for Type-0 PFQ post-processing, stores estimated bytes per (cell, PRG, selected UE slot)
   uint16_t*   pfIdArr; // for storing indices (indicating PRB and UE indecies) of computed PF metrices
   int*        numCompleteBlk; // for type-1 allocate. Memory allocated when creating scheduler object
 
@@ -86,6 +87,10 @@ typedef struct mcDynDescr {
   float       betaCoeff; // coefficient for improving cell edge UEs' performance in multi-cell scheduling
   float       pfQueueBufferCoeff; // coefficient for queue-aware PF weighting
   float       pfQueueBufferScaleBytes; // normalization scale in bytes for queue-aware PF weighting
+  uint8_t     pfQueueDemandAwareCap; // enable demand-aware cap for Type-0 queue-aware PF scheduling
+  float       pfQueueDemandCapSlackBytes; // slack bytes added before further grants are capped
+  float       pfQueueIntraTtiDecayCoeff; // per-PRG decay applied to repeated grants for the same UE within one TTI
+  float       pfSlotDurationSec; // slot duration used to estimate bytes per PRG from instantaneous rate
 } mcDynDescr_t;
 
 class multiCellScheduler {
@@ -180,11 +185,22 @@ private:
   // launch configuration structure
   std::unique_ptr<launchCfg_t> pLaunchCfg;
 
+  // host-side scratch buffers for Type-0 PFQ post-processing
+  std::vector<float> type0PfMetricHost;
+  std::vector<float> type0PredBytesHost;
+  std::vector<uint16_t> type0SchedSlotToActiveUeHost;
+  std::vector<uint16_t> type0CellIdHost;
+  std::vector<uint8_t> type0CellAssocHost;
+  std::vector<uint32_t> type0BufferSizeHost;
+  std::vector<int16_t> type0AllocHost;
+
   // for type-1 allocate
   int* numCompleteBlk_d; // variable in GPU global memory to indicate the number of thread blocks that have completed compute job
   std::vector<int> numCompleteBlk_h; // storing zero value in CPU memory for initializing numCompleteBlk_d per setup call
 
   void kernelSelect();
+  bool needType0QueuePostProcess() const;
+  void postProcessType0AllocOnHost(cudaStream_t strm);
 };
 
 typedef struct multiCellScheduler*          mcSchdHndl_t;

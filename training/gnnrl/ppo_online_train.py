@@ -182,6 +182,27 @@ def _write_history_csv(history: List[Dict[str, float]], csv_path: Path) -> None:
             wr.writerow(row)
 
 
+def _read_history_csv(csv_path: Path) -> List[Dict[str, str]]:
+    if not csv_path.exists():
+        return []
+    with open(csv_path, "r", encoding="utf-8", newline="") as f:
+        return list(csv.DictReader(f))
+
+
+def _load_curve_snapshot_paths(summary_path: Path) -> List[str]:
+    if not summary_path.exists():
+        return []
+    try:
+        with open(summary_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except Exception:
+        return []
+    curve_snapshots = payload.get("curve_snapshots", [])
+    if not isinstance(curve_snapshots, list):
+        return []
+    return [str(path) for path in curve_snapshots]
+
+
 def _plot_training_curves(
     history: List[Dict[str, float]],
     episode_history: Optional[List[Dict[str, float]]],
@@ -340,6 +361,44 @@ class RunningScalarNorm:
 
     def normalize(self, x: float) -> float:
         return float((x - self.mean) / self.std())
+
+
+def _restore_running_norm(payload: Dict, dim: int) -> RunningNorm:
+    norm = RunningNorm(dim=dim)
+    count = int(payload.get("count", 0))
+    if count <= 0:
+        return norm
+    mean = torch.tensor(payload.get("mean", []), dtype=torch.float32).view(-1)
+    std = torch.tensor(payload.get("std", []), dtype=torch.float32).view(-1)
+    if mean.numel() != dim or std.numel() != dim:
+        raise ValueError(f"resume state_norm dim mismatch: got mean={mean.numel()} std={std.numel()} expected={dim}")
+    norm.count = count
+    norm.mean = mean.clone()
+    if count < 2:
+        norm.m2 = torch.zeros(dim, dtype=torch.float32)
+    else:
+        norm.m2 = std.square() * float(count)
+    return norm
+
+
+def _restore_running_scalar_norm(payload: Dict) -> RunningScalarNorm:
+    norm = RunningScalarNorm()
+    count = int(payload.get("count", 0))
+    norm.count = count
+    norm.mean = float(payload.get("mean", 0.0))
+    if count < 2:
+        norm.m2 = 0.0
+    else:
+        std = float(payload.get("std", 1.0))
+        norm.m2 = (std * std) * float(count)
+    return norm
+
+
+def _optimizer_state_to_device(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    for state in optimizer.state.values():
+        for key, value in list(state.items()):
+            if torch.is_tensor(value):
+                state[key] = value.to(device)
 
 
 @dataclass
@@ -1273,6 +1332,11 @@ def parse_args() -> argparse.Namespace:
     )
 
     p.add_argument("--init-policy-checkpoint", default="", help="Optional warm-start checkpoint")
+    p.add_argument(
+        "--resume-train-checkpoint",
+        default="",
+        help="Optional full PPO train checkpoint (ppo_train_last.pt) to continue training from",
+    )
     p.add_argument("--hidden-dim", type=int, default=128)
     p.add_argument("--num-cell-msg-layers", type=int, default=2)
     p.add_argument("--action-mode", default="", help="Override action mode: joint | prg_only_type0")
@@ -1301,6 +1365,8 @@ def main() -> int:
 
     if args.curve_every_episodes < 0:
         raise ValueError("--curve-every-episodes must be >= 0")
+    if args.init_policy_checkpoint and args.resume_train_checkpoint:
+        raise ValueError("--init-policy-checkpoint and --resume-train-checkpoint are mutually exclusive")
     if args.iters < 1:
         raise ValueError("--iters must be >= 1")
     if args.rollout_steps < 1:
@@ -1366,7 +1432,33 @@ def main() -> int:
             raise NotImplementedError(f"online PPO currently supports alloc_type=0 only, got {dims0.alloc_type}")
 
         requested_action_mode = normalize_action_mode(args.action_mode) if args.action_mode else ""
-        if args.init_policy_checkpoint:
+        resume_train_ckpt = None
+        resume_start_iter = 0
+        if args.resume_train_checkpoint:
+            resume_train_ckpt = torch.load(args.resume_train_checkpoint, map_location="cpu")
+            model_cfg = dict(resume_train_ckpt["model_config"])
+            model_cfg["n_cell"] = dims.n_cell
+            model_cfg["n_active_ue"] = dims.n_active_ue
+            model_cfg["n_sched_ue"] = dims.n_sched_ue
+            model_cfg["n_prg"] = dims.n_prg
+            model_cfg["cell_feat_dim"] = dims.cell_feat_dim
+            model_cfg["ue_feat_dim"] = dims.ue_feat_dim
+            model_cfg["edge_feat_dim"] = dims.edge_feat_dim
+            model_cfg["prg_feat_dim"] = dims.prg_feat_dim
+            model_cfg["hidden_dim"] = int(model_cfg.get("hidden_dim", args.hidden_dim))
+            model_cfg["num_cell_msg_layers"] = int(model_cfg.get("num_cell_msg_layers", args.num_cell_msg_layers))
+            resume_action_mode = normalize_action_mode(model_cfg.get("action_mode", ACTION_MODE_JOINT))
+            if requested_action_mode and requested_action_mode != resume_action_mode:
+                raise ValueError(
+                    f"--action-mode ({requested_action_mode}) conflicts with resume checkpoint action_mode ({resume_action_mode})"
+                )
+            model_cfg["action_mode"] = resume_action_mode
+            actor = build_model_from_config(model_cfg)
+            actor.load_state_dict(resume_train_ckpt["actor_state_dict"], strict=True)
+            args.action_mode = model_cfg["action_mode"]
+            resume_start_iter = int(resume_train_ckpt.get("iter", 0))
+            print(f"[resume] full train checkpoint load ok: {args.resume_train_checkpoint} iter={resume_start_iter}")
+        elif args.init_policy_checkpoint:
             ckpt = torch.load(args.init_policy_checkpoint, map_location="cpu")
             model_cfg = dict(ckpt["model_config"])
             model_cfg["n_cell"] = dims.n_cell
@@ -1445,6 +1537,16 @@ def main() -> int:
 
         state_norm = RunningNorm(dim=state_dim) if args.normalize_state == 1 else None
         reward_norm = RunningScalarNorm() if args.normalize_reward == 1 else None
+        if resume_train_ckpt is not None:
+            critic.load_state_dict(resume_train_ckpt["critic_state_dict"], strict=True)
+            actor_optimizer.load_state_dict(resume_train_ckpt["actor_optimizer_state_dict"])
+            critic_optimizer.load_state_dict(resume_train_ckpt["critic_optimizer_state_dict"])
+            _optimizer_state_to_device(actor_optimizer, device)
+            _optimizer_state_to_device(critic_optimizer, device)
+            if state_norm is not None:
+                state_norm = _restore_running_norm(resume_train_ckpt.get("state_norm", {}), state_dim)
+            if reward_norm is not None:
+                reward_norm = _restore_running_scalar_norm(resume_train_ckpt.get("reward_norm", {}))
 
         out_dir = Path(args.out_dir).resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -1462,6 +1564,11 @@ def main() -> int:
         episode_history: List[Dict[str, float]] = []
         candidate_history: List[Dict[str, float]] = []
         curve_snapshot_paths: List[str] = []
+        if resume_train_ckpt is not None:
+            history = _read_history_csv(history_csv_path)
+            episode_history = _read_history_csv(episode_history_csv_path)
+            candidate_history = _read_history_csv(candidate_history_csv_path)
+            curve_snapshot_paths = _load_curve_snapshot_paths(summary_path)
         best_checkpoint_score = -1.0e30
         best_checkpoint_tiebreak = 1.0e30
         best_checkpoint_tiebreak2 = 1.0e30
@@ -1470,8 +1577,29 @@ def main() -> int:
         best_objective = -1.0e30
         best_objective_iter = -1
         next_curve_episode = int(args.curve_every_episodes) if int(args.curve_every_episodes) > 0 else 0
+        for prev_row in history:
+            prev_key = _checkpoint_sort_key(prev_row)
+            if prev_key > best_checkpoint_key:
+                best_checkpoint_key = prev_key
+                best_checkpoint_score = float(prev_row.get("rollout_goodput_mbps_mean", 0.0))
+                best_checkpoint_tiebreak = float(prev_row.get("rollout_expiry_drop_rate_mean", 1.0e30))
+                best_checkpoint_tiebreak2 = float(prev_row.get("rollout_tb_err_rate_mean", 1.0e30))
+                best_iter = int(prev_row.get("iter", -1))
+            prev_objective = float(prev_row.get("objective", -1.0e30))
+            if prev_objective > best_objective:
+                best_objective = prev_objective
+                best_objective_iter = int(prev_row.get("iter", -1))
+        if next_curve_episode > 0 and episode_history:
+            while next_curve_episode <= len(episode_history):
+                next_curve_episode += int(args.curve_every_episodes)
+        if resume_train_ckpt is not None:
+            print(
+                f"[resume] existing history loaded: iters={len(history)} episodes={len(episode_history)} "
+                f"candidates={len(candidate_history)} best_iter={best_iter}"
+            )
 
-        for it in range(1, args.iters + 1):
+        final_iter_target = resume_start_iter + args.iters
+        for it in range(resume_start_iter + 1, final_iter_target + 1):
             rollout = _collect_rollout(
                 runner=runner,
                 actor=actor,
@@ -1795,6 +1923,8 @@ def main() -> int:
             "best_objective": best_objective,
             "best_objective_iter": best_objective_iter,
             "best_iter": best_iter,
+            "resume_train_checkpoint": "" if not args.resume_train_checkpoint else str(Path(args.resume_train_checkpoint).resolve()),
+            "resume_start_iter": resume_start_iter,
             "best_actor_checkpoint": str(actor_best_path),
             "best_actor_policy_state_source": "pre_update_rollout_actor",
             "last_actor_checkpoint": str(actor_last_path),

@@ -41,6 +41,7 @@ All other options are forwarded to ${RUN_SCRIPT##*/}.
 Common forwarded options include:
   --ue-per-cell <n>           Active/scheduled UE count per cell
   --total-ue-count <n>        Total active/scheduled UE count across coordinated cells
+  --precoding <mode>          Compile-time precoding mode: none | svd
 
 Typical example:
   $(basename "$0") \\
@@ -51,6 +52,7 @@ Typical example:
     --cdl-delay-spreads 0 \\
     --tti 2000 \\
     --custom-ue-prg 0 \\
+    --precoding svd \\
     --packet-size-bytes 3000 \\
     --traffic-arrival-rate 0.2 \\
     --topology-seed 42 \\

@@ -5,6 +5,7 @@
 
 #include "GnnRlPolicyRuntime.h"
 
+#include "Type0SampledAction.h"
 #include "cumac.h"
 
 #include <algorithm>
@@ -579,64 +580,19 @@ void GnnRlPolicyRuntime::applySampledType0Action(const std::vector<int32_t>& ueA
                                                  const cumacCellGrpPrms* cellGrpPrmsCpu,
                                                  cumacSchdSol* schdSolCpu) const
 {
-    if (cellGrpPrmsCpu == nullptr || schdSolCpu == nullptr || schdSolCpu->setSchdUePerCellTTI == nullptr ||
-        schdSolCpu->allocSol == nullptr) {
-        return;
-    }
-
-    std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + m_nSchedUe, 0xFFFF);
-    std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (m_totNumCell * m_nPrbGrp), static_cast<int16_t>(-1));
-
-    std::vector<uint8_t> usedUe(m_nActiveUe, 0U);
-    const uint32_t ueLen = std::min<uint32_t>(m_nSchedUe, static_cast<uint32_t>(ueAction.size()));
-    for (uint32_t slot = 0; slot < ueLen; ++slot) {
-        if (!slotLayout.validSlot(slot)) {
-            continue;
-        }
-        const int32_t ue = ueAction[slot];
-        if (ue < 0 || static_cast<uint32_t>(ue) >= m_nActiveUe) {
-            continue;
-        }
-        if (m_ueMaskHost[static_cast<uint32_t>(ue)] == 0U) {
-            continue;
-        }
-        const uint32_t cIdx = slotLayout.slotToCell[slot];
-        if (!assocToCell(cellGrpPrmsCpu, cIdx, static_cast<uint32_t>(ue))) {
-            continue;
-        }
-        if (usedUe[static_cast<uint32_t>(ue)] != 0U) {
-            continue;
-        }
-        usedUe[static_cast<uint32_t>(ue)] = 1U;
-        schdSolCpu->setSchdUePerCellTTI[slot] = static_cast<uint16_t>(ue);
-    }
-
-    const uint32_t actionAllocLen = m_totNumCell * m_nPrbGrp;
-    const uint32_t prgLen = std::min<uint32_t>(actionAllocLen, static_cast<uint32_t>(prgAction.size()));
-    for (uint32_t idx = 0; idx < prgLen; ++idx) {
-        const int16_t v = prgAction[idx];
-        if (v < 0) {
-            continue;
-        }
-        const uint32_t cIdx = idx % m_nCell;
-        const uint32_t prgIdx = idx / m_totNumCell;
-        if (cellGrpPrmsCpu->prgMsk != nullptr && cellGrpPrmsCpu->prgMsk[cIdx] != nullptr) {
-            if (cellGrpPrmsCpu->prgMsk[cIdx][prgIdx] == 0) {
-                continue;
-            }
-        }
-        const uint32_t slot = static_cast<uint32_t>(v);
-        if (slot >= m_nSchedUe) {
-            continue;
-        }
-        if (!slotLayout.slotBelongsToCell(slot, cIdx)) {
-            continue;
-        }
-        if (schdSolCpu->setSchdUePerCellTTI[slot] == 0xFFFF) {
-            continue;
-        }
-        schdSolCpu->allocSol[idx] = v;
-    }
+    applyType0SampledActionToSchedule(
+        ueAction,
+        prgAction,
+        m_ueMaskHost,
+        slotLayout,
+        m_nCell,
+        m_nActiveUe,
+        m_nSchedUe,
+        m_nPrbGrp,
+        m_totNumCell,
+        cellGrpPrmsCpu,
+        schdSolCpu,
+        [&](uint32_t cIdx, uint32_t ueIdx) -> bool { return assocToCell(cellGrpPrmsCpu, cIdx, ueIdx); });
 }
 
 bool GnnRlPolicyRuntime::decodeType0Sampled(const cumacCellGrpPrms* cellGrpPrmsCpu,

@@ -72,6 +72,14 @@ def main():
             "flows": trf.get("flows", 0),
             "offered_mbps": trf.get("offered_mbps", 0.0),
             "served_mbps_est": trf.get("served_mbps_est", 0.0),
+            "packet_effective_service_rate_mbps": gkpi.get(
+                "packet_effective_service_rate_mbps",
+                trf.get("packet_effective_service_rate_mbps", 0.0),
+            ),
+            "packet_effective_service_rate_per_packet_mean_mbps": gkpi.get(
+                "packet_effective_service_rate_per_packet_mean_mbps",
+                trf.get("packet_effective_service_rate_per_packet_mean_mbps", 0.0),
+            ),
             "drop_rate": trf.get("drop_rate", None),
             "queue_delay_est_ms": trf.get("queue_delay_est_ms", None),
         }
@@ -109,6 +117,8 @@ def main():
                 "flows": 0,
                 "offered_mbps": 0.0,
                 "served_mbps_est": 0.0,
+                "packet_effective_service_rate_mbps": 0.0,
+                "packet_effective_service_rate_per_packet_mean_mbps": 0.0,
                 "drop_rate": None,
                 "queue_delay_est_ms": None,
             }
@@ -139,6 +149,8 @@ def main():
         lines.append(
             f"{r['scenario']} [{r['status']}/{r['reason']}]: cluster_sum_thr={r['cluster_sum_thr_mbps']:.3f} Mbps, "
             f"ue_jain={r['ue_thr_jain']}, ue_p10={r['ue_thr_p10_mbps']}, "
+            f"r_pkt={r['packet_effective_service_rate_mbps']:.3f} Mbps, "
+            f"r_pkt_pkt_mean={r['packet_effective_service_rate_per_packet_mean_mbps']:.3f} Mbps, "
             f"queue_p95_ms={r['queue_delay_p95_ms']}, residual_buffer_ratio={r['residual_buffer_ratio']}"
         )
     txt_file.write_text("\n".join(lines) + "\n")

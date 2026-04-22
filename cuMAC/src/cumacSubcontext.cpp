@@ -174,10 +174,12 @@ namespace cumac {
         }
 
         pfMetricSize = sizeof(float)*data.nCell*pow2N;
+        pfPredBytesSize = 0;
         pfIdSize     = sizeof(uint16_t)*data.nCell*pow2N;
     } else {
         gpuAllocSolSize = sizeof(int16_t)*data.nCell*data.nPrbGrp;
-        pfMetricSize = 0;
+        pfMetricSize = sizeof(float)*data.nCell*data.nPrbGrp*data.nUe;
+        pfPredBytesSize = pfMetricSize;
         pfIdSize = 0;
     } 
 
@@ -240,9 +242,11 @@ namespace cumac {
         if (data.allocType) {
             CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfMetricArr, pfMetricSize));
             CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfIdArr, pfIdSize));
+            schdSolGpu->pfPredBytesArr = nullptr;
         } else {
-            schdSolGpu->pfMetricArr = nullptr;
-            schdSolGpu->pfIdArr = nullptr; 
+            CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfMetricArr, pfMetricSize));
+            CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfPredBytesArr, pfPredBytesSize));
+            schdSolGpu->pfIdArr = nullptr;
         }
 
         CUDA_CHECK_ERR(cudaMallocHost((void **)&prgMsk, prgMskSize));
@@ -322,9 +326,11 @@ namespace cumac {
         if (data.allocType) {
             CUDA_CHECK_ERR(cudaMallocHost((void **)&schdSolCpu->pfMetricArr, pfMetricSize));
             CUDA_CHECK_ERR(cudaMallocHost((void **)&schdSolCpu->pfIdArr, pfIdSize));
+            schdSolCpu->pfPredBytesArr = nullptr;
         } else {
-            schdSolCpu->pfMetricArr = nullptr;
-            schdSolCpu->pfIdArr = nullptr; 
+            CUDA_CHECK_ERR(cudaMallocHost((void **)&schdSolCpu->pfMetricArr, pfMetricSize));
+            CUDA_CHECK_ERR(cudaMallocHost((void **)&schdSolCpu->pfPredBytesArr, pfPredBytesSize));
+            schdSolCpu->pfIdArr = nullptr;
         }
 
         CUDA_CHECK_ERR(cudaMallocHost((void **)&cellGrpPrmsCpu->prgMsk, prgMskSize));
@@ -482,6 +488,7 @@ namespace cumac {
         if (schdSolGpu->mcsSelSol)                  CUDA_CHECK_ERR(cudaFree(schdSolGpu->mcsSelSol));
         if (schdSolGpu->layerSelSol)                CUDA_CHECK_ERR(cudaFree(schdSolGpu->layerSelSol));
         if (schdSolGpu->pfMetricArr)                CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfMetricArr));
+        if (schdSolGpu->pfPredBytesArr)             CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfPredBytesArr));
         if (schdSolGpu->pfIdArr)                    CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfIdArr));
     }
     
@@ -536,6 +543,7 @@ namespace cumac {
         if (schdSolCpu->mcsSelSol)                  CUDA_CHECK_ERR(cudaFreeHost(schdSolCpu->mcsSelSol));
         if (schdSolCpu->layerSelSol)                CUDA_CHECK_ERR(cudaFreeHost(schdSolCpu->layerSelSol));
         if (schdSolCpu->pfMetricArr)                CUDA_CHECK_ERR(cudaFreeHost(schdSolCpu->pfMetricArr));
+        if (schdSolCpu->pfPredBytesArr)             CUDA_CHECK_ERR(cudaFreeHost(schdSolCpu->pfPredBytesArr));
         if (schdSolCpu->pfIdArr)                    CUDA_CHECK_ERR(cudaFreeHost(schdSolCpu->pfIdArr));
     }
  }

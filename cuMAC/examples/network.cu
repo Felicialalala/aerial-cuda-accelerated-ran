@@ -711,9 +711,11 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
             }
 
             pfMetricSize = sizeof(float)*pow2N;
+            pfPredBytesSize = 0;
             pfIdSize     = sizeof(uint16_t)*pow2N;
         } else {
             pfMetricSize = 0;
+            pfPredBytesSize = 0;
             pfIdSize = 0;
         }
      } else {
@@ -727,9 +729,11 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
             }
 
             pfMetricSize = sizeof(float)*nCell*pow2N;
+            pfPredBytesSize = 0;
             pfIdSize     = sizeof(uint16_t)*nCell*pow2N;
         } else {
-            pfMetricSize = 0;
+            pfMetricSize = sizeof(float)*nCell*nPrbGrp*nUe;
+            pfPredBytesSize = pfMetricSize;
             pfIdSize = 0;
         }
      }
@@ -951,11 +955,18 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->mcsSelSol, mcsSelSolSize));
      CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->layerSelSol, layerSize));
      CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->setSchdUePerCellTTI, setSchdUeSolSize));
-     if (gpuAllocType) {
+     if (gpuAllocType || mimoMode == 0) {
         CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfMetricArr, pfMetricSize));
-        CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfIdArr, pfIdSize));
+        if (gpuAllocType) {
+            CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfIdArr, pfIdSize));
+            schdSolGpu->pfPredBytesArr = nullptr;
+        } else {
+            CUDA_CHECK_ERR(cudaMalloc((void **)&schdSolGpu->pfPredBytesArr, pfPredBytesSize));
+            schdSolGpu->pfIdArr = nullptr;
+        }
      } else {
         schdSolGpu->pfMetricArr = nullptr;
+        schdSolGpu->pfPredBytesArr = nullptr;
         schdSolGpu->pfIdArr = nullptr; 
      }
      CUDA_CHECK_ERR(cudaMalloc((void **)&cellGrpPrmsGpu->estH_fr, hSize));
@@ -1002,6 +1013,20 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
         schdSolCpu->setSchdUePerCellTTI        = new uint16_t[totNumCell*numUeSchdPerCellTTI];
      } else { // 64TR   
         schdSolCpu->setSchdUePerCellTTI        = new uint16_t[totNumCell*numUeForGrpPerCell];
+     }
+     if (gpuAllocType || mimoMode == 0) {
+        schdSolCpu->pfMetricArr               = new float[pfMetricSize / sizeof(float)];
+        if (gpuAllocType) {
+            schdSolCpu->pfPredBytesArr = nullptr;
+            schdSolCpu->pfIdArr = new uint16_t[pfIdSize / sizeof(uint16_t)];
+        } else {
+            schdSolCpu->pfPredBytesArr = new float[pfPredBytesSize / sizeof(float)];
+            schdSolCpu->pfIdArr = nullptr;
+        }
+     } else {
+        schdSolCpu->pfMetricArr = nullptr;
+        schdSolCpu->pfPredBytesArr = nullptr;
+        schdSolCpu->pfIdArr = nullptr;
      }
      schdSolCpu->layerSelSol                = new uint8_t[nUe];
      cellGrpUeStatusCpu->avgRates           = new float[nUe];
@@ -1074,6 +1099,7 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      cellGrpPrmsGpu->receiverScheme        = receiverScheme;
      cellGrpPrmsGpu->allocType             = gpuAllocType;
      cellGrpPrmsGpu->betaCoeff             = betaCoeff;
+     cellGrpPrmsGpu->pfSlotDurationSec     = slotDuration;
      cellGrpPrmsGpu->sinValThr             = sinValThr;
      cellGrpPrmsGpu->prioWeightStep        = prioWeightStep;
      cellGrpPrmsGpu->harqEnabledInd        = 0; // disable HARQ by default
@@ -1096,6 +1122,7 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      cellGrpPrmsCpu->receiverScheme        = receiverScheme;
      cellGrpPrmsCpu->allocType             = cpuAllocType;
      cellGrpPrmsCpu->betaCoeff             = betaCoeff;
+     cellGrpPrmsCpu->pfSlotDurationSec     = slotDuration;
      cellGrpPrmsCpu->sinValThr             = sinValThr;
      cellGrpPrmsCpu->prioWeightStep        = prioWeightStep;
      cellGrpPrmsCpu->harqEnabledInd        = 0; // disable HARQ by default
@@ -1199,6 +1226,7 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      if (schdSolGpu->muMimoInd) CUDA_CHECK_ERR(cudaFree(schdSolGpu->muMimoInd));
      if (schdSolGpu->nSCID) CUDA_CHECK_ERR(cudaFree(schdSolGpu->nSCID));
      if (schdSolGpu->pfMetricArr) CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfMetricArr));
+     if (schdSolGpu->pfPredBytesArr) CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfPredBytesArr));
      if (schdSolGpu->pfIdArr) CUDA_CHECK_ERR(cudaFree(schdSolGpu->pfIdArr));
      
      // free CPU mem allocate /////////////////////////////////
@@ -1206,6 +1234,9 @@ static inline int sanitizeLayerCount(int layerCount, int maxLayers)
      if (schdSolCpu->mcsSelSol) delete[] schdSolCpu->mcsSelSol;
      if (schdSolCpu->layerSelSol) delete[] schdSolCpu->layerSelSol;
      if (schdSolCpu->setSchdUePerCellTTI) delete[] schdSolCpu->setSchdUePerCellTTI;
+     if (schdSolCpu->pfMetricArr) delete[] schdSolCpu->pfMetricArr;
+     if (schdSolCpu->pfPredBytesArr) delete[] schdSolCpu->pfPredBytesArr;
+     if (schdSolCpu->pfIdArr) delete[] schdSolCpu->pfIdArr;
      if (cellGrpUeStatusCpu->avgRates) delete[] cellGrpUeStatusCpu->avgRates;
      if (cellGrpUeStatusCpu->avgRatesActUe) delete[] cellGrpUeStatusCpu->avgRatesActUe;
      if (cellGrpUeStatusCpu->tbErrLast) delete[] cellGrpUeStatusCpu->tbErrLast;

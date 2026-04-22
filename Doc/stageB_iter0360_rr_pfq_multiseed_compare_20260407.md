@@ -75,6 +75,26 @@
 
 为主，不使用 `cpu_gpu_compare.*` 作为胜负依据。
 
+### 2.5 当前 deployment best 冻结说明
+
+截至 `2026-04-08`，当前这条主线应固定：
+
+- deployment best = `iter0360`
+- 训练 rollout best = `iter0667`
+
+两者不是一回事。
+
+原因不是“文档口径保守”，而是当前已经有完整反例：
+
+- 训练摘要 [`online_ppo_summary.json`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/online_ppo_summary.json) 里，`best_rollout_iter = 667`
+- 候选主实验摘要 [`candidate_eval_summary.json`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/candidate_main_eval/candidate_eval_summary.json) 里，当前被提升的 deployment best 仍是 `best_candidate = iter0360`
+- 后续手动导出并在 `topology-seed=41,42,43` 上重跑后，`iter0667` 的 deployment 表现进一步确认差于 `iter0360`
+
+因此后续文档、脚本默认值和口头结论都应统一使用：
+
+- `iter0360` = 当前部署最优 checkpoint / ONNX
+- `iter0667` = “训练 rollout 更优但部署更差”的反例 checkpoint
+
 ## 3. 关键产物路径
 
 ### 3.1 Baseline 平均
@@ -97,6 +117,19 @@
   - [`seed_runs.csv`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_model_multiseed_compare_iter0360_toposeed414243_20260407_085302/seed_runs.csv)
 - 模型每场景每 seed 清单：
   - [`scenario_seed_manifest.csv`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_model_multiseed_compare_iter0360_toposeed414243_20260407_085302/scenario_seed_manifest.csv)
+
+### 3.4 训练摘要与 deployment best 证据
+
+- 训练阶段 summary：
+  - [`online_ppo_summary.json`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/online_ppo_summary.json)
+- 候选 checkpoint 主实验 summary：
+  - [`candidate_eval_summary.json`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/candidate_main_eval/candidate_eval_summary.json)
+- 训练逐 iter 指标：
+  - [`online_ppo_metrics.csv`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/online_ppo_metrics.csv)
+- `iter0667` 手动 deployment 对比运行目录：
+  - [`s41 run`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_main_experiment_iter0667_toposeed414243_s41_20260408_065034)
+  - [`s42 run`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_main_experiment_iter0667_toposeed414243_s42_20260408_065101)
+  - [`s43 run`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_main_experiment_iter0667_toposeed414243_s43_20260408_065126)
 
 ## 4. 运行命令记录
 
@@ -409,12 +442,92 @@
 - 模型在“高 served throughput + 更低 TTL 过期 + 更强 edge fairness”上已经做得比 baseline 更激进且更有效
 - 但它还没有进入 `RR` 那种“低 BLER + 低中位时延”的稳定可靠性区间
 
+### 6.6 为什么当前 deployment best 要固定为 `iter0360`，而不是训练 rollout best `iter0667`
+
+先给结论：
+
+- 当前 deployment best 应固定为 `iter0360`
+- `iter0667` 只能记作“训练侧 rollout best”的后期 checkpoint，不能直接替换部署模型
+
+事实层证据如下。
+
+#### 6.6.1 训练侧：`iter0667` 的 rollout 指标更高
+
+训练侧数值来自 [`online_ppo_metrics.csv`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/online_ppo_metrics.csv) 与 [`online_ppo_summary.json`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval/online_ppo_summary.json)。
+
+| 指标 | iter0360 | iter0667 | 训练侧解读 |
+|---|---:|---:|---|
+| rollout goodput | `1112.35 Mbps` | `1227.11 Mbps` | `iter0667` 更高，因此成为 `best_rollout_iter` |
+| rollout throughput | `1232.23 Mbps` | `1355.24 Mbps` | `iter0667` 更激进 |
+| rollout expiry drop rate | `0.18235` | `0.19752` | `iter0667` 反而更差 |
+| rollout TB err rate | `0.10813` | `0.10882` | `iter0667` 略差 |
+| rollout PRG utilization | `0.99697` | `0.98541` | `iter0667` 略低 |
+| rollout PRG reuse ratio | `0.99546` | `0.97811` | `iter0667` 略低 |
+| rollout sched WB SINR | `19.39 dB` | `18.41 dB` | `iter0667` 更低 |
+
+这说明：
+
+- 当前训练侧 `ppo_actor_best.pt` 的选择规则，会优先吃到更高的 rollout `goodput`
+- 即使该 checkpoint 的 `expiry` / `TB err` 已经没有更好，也不妨碍它在训练侧被判成“best”
+
+#### 6.6.2 部署侧：同一 checkpoint 导出后，`iter0667` 明显差于 `iter0360`
+
+部署侧这里统一看 exported ONNX + C++ runtime 的主实验结果。
+
+- `iter0360` 使用 [`rr_vs_pfq_vs_iter0360_compare_mean.csv`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_model_multiseed_compare_iter0360_toposeed414243_20260407_085302/RAYLEIGH/rr_vs_pfq_vs_iter0360_compare_mean.csv)
+- `iter0667` 没有单独 wrapper 聚合目录，这里直接对 `s41/s42/s43` 三个 [`kpi_summary.json`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_main_experiment_iter0667_toposeed414243_s41_20260408_065034/RAYLEIGH/kpi_summary.json) 求均值
+
+| 指标 | iter0360 deployment mean | iter0667 deployment mean | `iter0667 - iter0360` | 解读 |
+|---|---:|---:|---:|---|
+| Cluster throughput | `1119.38 Mbps` | `1027.26 Mbps` | `-92.11 Mbps` | `iter0667` 更差 |
+| Cluster goodput | `973.68 Mbps` | `859.45 Mbps` | `-114.23 Mbps` | `iter0667` 明显更差 |
+| Expiry drop rate | `0.13355` | `0.18854` | `+0.05499` | `iter0667` 明显更差 |
+| TB BLER | `0.13805` | `0.17191` | `+0.03386` | `iter0667` 明显更差 |
+| Packet delay mean | `68.04 ms` | `87.48 ms` | `+19.44 ms` | `iter0667` 更差 |
+| Packet delay p50 | `19.83 ms` | `52.33 ms` | `+32.50 ms` | `iter0667` 更差 |
+| Served buffer ratio | `0.81026` | `0.74198` | `-0.06828` | `iter0667` 更差 |
+| UE throughput p5 | `18.39 Mbps` | `17.07 Mbps` | `-1.32 Mbps` | `iter0667` 更差 |
+| UE goodput p10 | `16.24 Mbps` | `14.52 Mbps` | `-1.72 Mbps` | `iter0667` 更差 |
+
+因此这不是“训练和部署略有波动”，而是一个明确反例：
+
+- `iter0667` 在训练 rollout 上更好
+- 但一到 exported ONNX + C++ runtime 的 deployment 主实验口径，就同时输掉 `throughput / goodput / expiry / BLER / delay`
+
+#### 6.6.3 更合理的原因解释
+
+下面区分“已验证事实”和“基于证据的推断”。
+
+已验证事实：
+
+1. 训练侧当前是按 `rollout_goodput_mbps_mean` 排 `ppo_actor_best.pt`
+2. deployment 侧当前真正应该看的，是 exported ONNX + C++ runtime 主实验 KPI
+3. 对这条 run，训练侧 best 是 `iter0667`，deployment 侧 best 是 `iter0360`
+
+基于当前证据，更合理的原因推断是：
+
+1. checkpoint 选择目标不一致
+   - 训练侧更偏向 rollout `goodput`
+   - deployment 侧更关心 exported policy 在真实主实验口径下的 `goodput + expiry + BLER + delay`
+2. 后期 checkpoint 更容易吃到固定训练口径上的局部收益
+   - 当前训练主线是固定 `topology-seed=42`
+   - `iter0667` 更可能是“在训练 rollout 口径上继续抬高吞吐”，但泛化到 `topology-seed=41,42,43` 后没有保住 end-to-end 业务指标
+3. 当前特征 / reward 改造仍不足以单独保证 deployment transfer
+   - `blankaware` 与新增 PRG 干扰特征已经能改变训练期局部行为
+   - 但它们还不足以保证“训练后期更高 rollout goodput”一定转化成“部署后更高 goodput”
+
+因此当前最重要的工程结论不是“继续追训练 best”，而是：
+
+- 新 checkpoint 必须先过 exported ONNX + C++ runtime 主实验评测
+- 在同一 deployment 口径下实打实超过 `iter0360` 后，才允许替换当前 best
+
 ## 7. 最终结论
 
 ### 7.1 简短结论
 
 - 如果当前项目的第一目标是 `cluster goodput` 和 `TTL-aware service`，`iter0360` 已经是这组对比里最好的策略。
 - 如果目标是“全面超过 RR”，当前还做不到，因为 `BLER` 和低时延表现仍明显差于 `RR`。
+- 当前 deployment best 应冻结为 `iter0360`，不能因为 `iter0667` 在训练 rollout 上更高就直接替换。
 
 ### 7.2 更准确的表述
 
@@ -430,6 +543,9 @@
   - 关注 `backlog_free_ue_ratio`
 - 如果下一轮目标只是拿到更强的“业务完成率”结果：
   - 当前 `iter0360` 已经足够作为新的强候选 baseline
+- 如果下一轮目标是替换 deployment best：
+  - 必须先在 exported ONNX + C++ runtime 的同口径主实验里超过 `iter0360`
+  - 不再接受“只看训练 rollout 更高”的替换理由
 
 ## 8. 备注
 

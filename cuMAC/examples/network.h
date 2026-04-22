@@ -273,6 +273,7 @@ namespace cumac {
     uint32_t    mcsSelSolSize;
     uint32_t    setSchdUeSolSize;
     uint32_t    pfMetricSize;
+    uint32_t    pfPredBytesSize;
     uint32_t    pfIdSize;
     uint32_t    arSize;
     uint32_t    arActUeSize;

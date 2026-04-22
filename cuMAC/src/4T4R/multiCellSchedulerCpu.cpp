@@ -27,6 +27,8 @@ namespace cumac {
 
 namespace {
 
+constexpr uint16_t kInvalidActUeId = 0xFFFF;
+
 float queueAwarePfWeight(const mcDynDescrCpu_t* pCpuDynDesc, uint16_t ueIdx)
 {
     if (pCpuDynDesc->pfQueueBufferCoeff <= 0.0f || pCpuDynDesc->bufferSize == nullptr ||
@@ -50,6 +52,147 @@ float computePfMetric(const mcDynDescrCpu_t* pCpuDynDesc, float dataRate, uint16
 {
     const float pfMetric = std::pow(dataRate, pCpuDynDesc->betaCoeff) / pCpuDynDesc->avgRates[ueIdx];
     return pfMetric * queueAwarePfWeight(pCpuDynDesc, ueIdx);
+}
+
+float estimatePfPredBytes(const mcDynDescrCpu_t* pCpuDynDesc, float dataRate)
+{
+    float predBytes = 0.0f;
+    if (pCpuDynDesc->pfSlotDurationSec > 0.0f && dataRate > 0.0f) {
+        predBytes = dataRate * pCpuDynDesc->pfSlotDurationSec * 0.125f;
+    }
+    if (!(predBytes > 0.0f)) {
+        const float fallbackBytes = pCpuDynDesc->pfQueueBufferScaleBytes > 0.0f
+                                        ? pCpuDynDesc->pfQueueBufferScaleBytes
+                                        : 1.0f;
+        predBytes = fallbackBytes;
+    }
+    return std::max(predBytes, 1.0f);
+}
+
+float adjustType0PfMetric(const mcDynDescrCpu_t* pCpuDynDesc,
+                          uint16_t ueIdx,
+                          float basePfMetric,
+                          float predBytes,
+                          float assignedBytes,
+                          uint32_t assignedPrgCount,
+                          bool applyDemandCap)
+{
+    if (!(basePfMetric > 0.0f)) {
+        return 0.0f;
+    }
+
+    float adjustedMetric = basePfMetric;
+    if (applyDemandCap && pCpuDynDesc->pfQueueDemandAwareCap != 0 && pCpuDynDesc->bufferSize != nullptr &&
+        pCpuDynDesc->setSchdUePerCellTTI != nullptr && ueIdx < pCpuDynDesc->nUe) {
+        const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+        if (actUeId == kInvalidActUeId || actUeId >= pCpuDynDesc->nActiveUe) {
+            return 0.0f;
+        }
+
+        const float demandBytes = static_cast<float>(pCpuDynDesc->bufferSize[actUeId]) +
+                                  std::max(pCpuDynDesc->pfQueueDemandCapSlackBytes, 0.0f);
+        const float remainingBytes = demandBytes - assignedBytes;
+        if (!(remainingBytes > 0.0f)) {
+            return 0.0f;
+        }
+
+        const float safePredBytes = std::max(predBytes, 1.0f);
+        if (safePredBytes > remainingBytes) {
+            adjustedMetric *= remainingBytes / safePredBytes;
+        }
+    }
+
+    if (pCpuDynDesc->pfQueueIntraTtiDecayCoeff > 0.0f && assignedPrgCount > 0) {
+        adjustedMetric /= (1.0f + pCpuDynDesc->pfQueueIntraTtiDecayCoeff *
+                                      static_cast<float>(assignedPrgCount));
+    }
+
+    return adjustedMetric;
+}
+
+float creditedType0PfGrantBytes(const mcDynDescrCpu_t* pCpuDynDesc,
+                                uint16_t ueIdx,
+                                float predBytes,
+                                float assignedBytes,
+                                bool clampToDemand)
+{
+    float creditedBytes = std::max(predBytes, 1.0f);
+    if (!clampToDemand || pCpuDynDesc->bufferSize == nullptr || pCpuDynDesc->setSchdUePerCellTTI == nullptr ||
+        ueIdx >= pCpuDynDesc->nUe) {
+        return creditedBytes;
+    }
+
+    const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+    if (actUeId == kInvalidActUeId || actUeId >= pCpuDynDesc->nActiveUe) {
+        return creditedBytes;
+    }
+
+    const float demandBytes = static_cast<float>(pCpuDynDesc->bufferSize[actUeId]) +
+                              std::max(pCpuDynDesc->pfQueueDemandCapSlackBytes, 0.0f);
+    const float remainingBytes = demandBytes - assignedBytes;
+    if (!(remainingBytes > 0.0f)) {
+        return 0.0f;
+    }
+    return std::min(creditedBytes, remainingBytes);
+}
+
+void assignType0PfCellDemandCapped(const mcDynDescrCpu_t* pCpuDynDesc,
+                                   uint16_t realCellId,
+                                   const std::vector<float>& queueAwarePfMetricByRbgUe,
+                                   const std::vector<float>& predBytesByRbgUe)
+{
+    std::vector<float> assignedBytes(pCpuDynDesc->nUe, 0.0f);
+    std::vector<uint32_t> assignedPrgCount(pCpuDynDesc->nUe, 0);
+
+    auto metricOffset = [&](uint16_t rbgIdx, uint16_t ueIdx) -> size_t {
+        return static_cast<size_t>(rbgIdx) * pCpuDynDesc->nUe + ueIdx;
+    };
+
+    auto selectBestUe = [&](uint16_t rbgIdx, float& bestPredBytes) -> int16_t {
+        float bestMetric = 0.0f;
+        int16_t bestUe = -1;
+        bestPredBytes = 0.0f;
+
+        for (uint16_t ueIdx = 0; ueIdx < pCpuDynDesc->nUe; ++ueIdx) {
+            if (!pCpuDynDesc->cellAssoc[static_cast<size_t>(realCellId) * pCpuDynDesc->nUe + ueIdx]) {
+                continue;
+            }
+
+            const size_t idx = metricOffset(rbgIdx, ueIdx);
+            const float predBytes = predBytesByRbgUe[idx];
+            const float metric = adjustType0PfMetric(pCpuDynDesc,
+                                                     ueIdx,
+                                                     queueAwarePfMetricByRbgUe[idx],
+                                                     predBytes,
+                                                     assignedBytes[ueIdx],
+                                                     assignedPrgCount[ueIdx],
+                                                     true);
+            if (metric > bestMetric) {
+                bestMetric = metric;
+                bestPredBytes = predBytes;
+                bestUe = static_cast<int16_t>(ueIdx);
+            }
+        }
+
+        return bestUe;
+    };
+
+    auto commitGrant = [&](uint16_t rbgIdx, int16_t ueIdx, float predBytes) {
+        pCpuDynDesc->allocSol[static_cast<size_t>(rbgIdx) * pCpuDynDesc->totNumCell + realCellId] = ueIdx;
+        if (ueIdx < 0) {
+            return;
+        }
+
+        assignedBytes[ueIdx] += creditedType0PfGrantBytes(
+            pCpuDynDesc, static_cast<uint16_t>(ueIdx), predBytes, assignedBytes[ueIdx], true);
+        assignedPrgCount[ueIdx] += 1;
+    };
+
+    for (uint16_t rbgIdx = 0; rbgIdx < pCpuDynDesc->nPrbGrp; ++rbgIdx) {
+        float bestPredBytes = 0.0f;
+        const int16_t bestUe = selectBestUe(rbgIdx, bestPredBytes);
+        commitGrant(rbgIdx, bestUe, bestPredBytes);
+    }
 }
 
 } // namespace
@@ -83,10 +226,11 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_noPrdMmse()
 
     for (int cellIdx = 0; cellIdx < pCpuDynDesc->nCell; cellIdx++) {
         int cIdx = pCpuDynDesc->cellId[cellIdx]; // real cell ID among all cells in the network
+        std::vector<float> cellQueueAwarePfMetric(
+            static_cast<size_t>(pCpuDynDesc->nPrbGrp) * pCpuDynDesc->nUe, 0.0f);
+        std::vector<float> cellPredBytes(
+            static_cast<size_t>(pCpuDynDesc->nPrbGrp) * pCpuDynDesc->nUe, 0.0f);
         for (int rbgIdx = 0; rbgIdx < pCpuDynDesc->nPrbGrp; rbgIdx++) {
-            float   maxv = 0;
-            int16_t maxi = -1;
-
             for (int ueIdx = 0; ueIdx < pCpuDynDesc->nUe; ueIdx++) {
                 if (!pCpuDynDesc->cellAssoc[cIdx*pCpuDynDesc->nUe + ueIdx])
                     continue;
@@ -141,14 +285,15 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_noPrdMmse()
                     }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
-                float pfMetric = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
-                if (pfMetric > maxv) {
-                    maxv = pfMetric;
-                    maxi = ueIdx;
-                }  
+                const size_t metricIdx = static_cast<size_t>(rbgIdx) * pCpuDynDesc->nUe + ueIdx;
+                const float predBytes = estimatePfPredBytes(pCpuDynDesc.get(), dataRate);
+                cellPredBytes[metricIdx] = predBytes;
+                cellQueueAwarePfMetric[metricIdx] = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
             }
-            pCpuDynDesc->allocSol[rbgIdx*pCpuDynDesc->totNumCell + cIdx] = maxi;
         }
+
+        assignType0PfCellDemandCapped(
+            pCpuDynDesc.get(), static_cast<uint16_t>(cIdx), cellQueueAwarePfMetric, cellPredBytes);
     }
 
     delete[] CMat;
@@ -165,8 +310,6 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
     uint32_t nBsUeAntPrd        = pCpuDynDesc->nBsAnt*pCpuDynDesc->nUeAnt;
     uint32_t nCellBsUeAntPrd    = pCpuDynDesc->totNumCell*nBsUeAntPrd;
     uint32_t nUeCellBsUeAntPrd  = pCpuDynDesc->nUe*nCellBsUeAntPrd;
-    uint32_t nCellBsAntSqrd     = pCpuDynDesc->totNumCell*nBsAntSqrd;
-    uint32_t nUeCellBsAntSqrd   = pCpuDynDesc->nUe*nCellBsAntSqrd;
 
     cuComplex* BMat             = new cuComplex[nBsUeAntPrd];
     cuComplex* CMat             = new cuComplex[nUeAntSqrd];
@@ -178,11 +321,12 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
 
     for (int cellIdx = 0; cellIdx < pCpuDynDesc->nCell; cellIdx++) {
         int cIdx = pCpuDynDesc->cellId[cellIdx]; // real cell ID among all cells in the network
+        std::vector<float> cellQueueAwarePfMetric(
+            static_cast<size_t>(pCpuDynDesc->nPrbGrp) * pCpuDynDesc->nUe, 0.0f);
+        std::vector<float> cellPredBytes(
+            static_cast<size_t>(pCpuDynDesc->nPrbGrp) * pCpuDynDesc->nUe, 0.0f);
 
         for (int rbgIdx = 0; rbgIdx < pCpuDynDesc->nPrbGrp; rbgIdx++) {
-            float   maxv = 0;
-            int16_t maxi = -1;
-
             for (int ueIdx = 0; ueIdx < pCpuDynDesc->nUe; ueIdx++) {
                 if (!pCpuDynDesc->cellAssoc[cIdx*pCpuDynDesc->nUe + ueIdx])
                     continue;
@@ -242,15 +386,15 @@ void multiCellSchedulerCpu::multiCellSchedulerCpu_svdMmse()
                     }
                     dataRate += pCpuDynDesc->W*static_cast<float>(log2(static_cast<double>(sinrTemp)));
                 }
-                float pfMetric = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
-
-                if (pfMetric > maxv) {
-                    maxv = pfMetric;
-                    maxi = ueIdx;
-                }  
+                const size_t metricIdx = static_cast<size_t>(rbgIdx) * pCpuDynDesc->nUe + ueIdx;
+                const float predBytes = estimatePfPredBytes(pCpuDynDesc.get(), dataRate);
+                cellPredBytes[metricIdx] = predBytes;
+                cellQueueAwarePfMetric[metricIdx] = computePfMetric(pCpuDynDesc.get(), dataRate, ueIdx);
             }
-            pCpuDynDesc->allocSol[rbgIdx*pCpuDynDesc->totNumCell + cIdx] = maxi;
         }
+
+        assignType0PfCellDemandCapped(
+            pCpuDynDesc.get(), static_cast<uint16_t>(cIdx), cellQueueAwarePfMetric, cellPredBytes);
     }
     
     delete[] BMat;
@@ -893,6 +1037,10 @@ void multiCellSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
     pCpuDynDesc->betaCoeff              = cellGrpPrms->betaCoeff;
     pCpuDynDesc->pfQueueBufferCoeff     = cellGrpPrms->pfQueueBufferCoeff;
     pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
+    pCpuDynDesc->pfQueueDemandAwareCap  = cellGrpPrms->pfQueueDemandAwareCap;
+    pCpuDynDesc->pfQueueDemandCapSlackBytes = cellGrpPrms->pfQueueDemandCapSlackBytes;
+    pCpuDynDesc->pfQueueIntraTtiDecayCoeff = cellGrpPrms->pfQueueIntraTtiDecayCoeff;
+    pCpuDynDesc->pfSlotDurationSec      = cellGrpPrms->pfSlotDurationSec;
     pCpuDynDesc->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
     pCpuDynDesc->postEqSinr             = cellGrpPrms->postEqSinr;   
     precodingScheme                     = cellGrpPrms->precodingScheme;
@@ -929,6 +1077,10 @@ void multiCellSchedulerCpu::debugLog()
     printf("betaCoeff: %f\n", pCpuDynDesc->betaCoeff);
     printf("pfQueueBufferCoeff: %f\n", pCpuDynDesc->pfQueueBufferCoeff);
     printf("pfQueueBufferScaleBytes: %f\n", pCpuDynDesc->pfQueueBufferScaleBytes);
+    printf("pfQueueDemandAwareCap: %u\n", pCpuDynDesc->pfQueueDemandAwareCap);
+    printf("pfQueueDemandCapSlackBytes: %f\n", pCpuDynDesc->pfQueueDemandCapSlackBytes);
+    printf("pfQueueIntraTtiDecayCoeff: %f\n", pCpuDynDesc->pfQueueIntraTtiDecayCoeff);
+    printf("pfSlotDurationSec: %f\n", pCpuDynDesc->pfSlotDurationSec);
     printf("columnMajor: %d\n", columnMajor);
 
     printf("cellId: ");

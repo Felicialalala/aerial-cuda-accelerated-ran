@@ -27,6 +27,28 @@ constexpr uint16_t numRunSchKnlTimeMsr = 1000;
 
 #define dir 0
 
+constexpr uint16_t kInvalidActUeId = 0xFFFF;
+
+static __host__ __device__ __forceinline__ float estimatePfPredBytesCommon(float slotDurationSec,
+                                                                            float fallbackBytes,
+                                                                            float dataRate)
+{
+  float predBytes = 0.0f;
+  if (slotDurationSec > 0.0f && dataRate > 0.0f) {
+    predBytes = dataRate * slotDurationSec * 0.125f;
+  }
+  if (!(predBytes > 0.0f)) {
+    predBytes = fallbackBytes > 0.0f ? fallbackBytes : 1.0f;
+  }
+  return predBytes > 1.0f ? predBytes : 1.0f;
+}
+
+static __device__ __forceinline__ float estimatePfPredBytes(const mcDynDescr_t* pDynDescr, float dataRate)
+{
+  return estimatePfPredBytesCommon(
+      pDynDescr->pfSlotDurationSec, pDynDescr->pfQueueBufferScaleBytes, dataRate);
+}
+
 static __device__ __forceinline__ float queueAwarePfWeight(const mcDynDescr_t* pDynDescr, int16_t ueIdx)
 {
   if (pDynDescr->pfQueueBufferCoeff <= 0.0f || pDynDescr->bufferSize == nullptr ||
@@ -51,6 +73,14 @@ static __device__ __forceinline__ float computePfMetric(const mcDynDescr_t* pDyn
 {
   const float pfMetric = pow(dataRate, pDynDescr->betaCoeff) / pDynDescr->avgRates[ueIdx];
   return pfMetric * queueAwarePfWeight(pDynDescr, ueIdx);
+}
+
+static __host__ __device__ __forceinline__ size_t type0CandidateBaseIndex(uint16_t nPrbGrp,
+                                                                           uint16_t nUe,
+                                                                           uint16_t cellOrd,
+                                                                           uint16_t rbgIdx)
+{
+  return (static_cast<size_t>(cellOrd) * nPrbGrp + rbgIdx) * nUe;
 }
 
 
@@ -455,9 +485,24 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
   for (uint16_t blkIdx = blockIdx.x; blkIdx < nThrdBlk; blkIdx += gridDim.x) {
     uint16_t rbgIdx = floor(static_cast<float>(blkIdx)/pDynDescr->nCell);
     uint16_t cIdx   = pDynDescr->cellId[blkIdx - rbgIdx*pDynDescr->nCell];
+    const size_t pfStart = type0CandidateBaseIndex(
+        pDynDescr->nPrbGrp, pDynDescr->nUe, blkIdx % pDynDescr->nCell, rbgIdx);
   
     ueIdxArr[threadIdx.x] = -1;
     pfMetric[threadIdx.x] = 0;
+    if (threadIdx.x == 0) {
+        if (pDynDescr->pfMetricArr != nullptr) {
+            for (int j = 0; j < pDynDescr->nUe; j++) {
+                pDynDescr->pfMetricArr[pfStart + j] = 0.0f;
+            }
+        }
+        if (pDynDescr->pfPredBytesArr != nullptr) {
+            for (int j = 0; j < pDynDescr->nUe; j++) {
+                pDynDescr->pfPredBytesArr[pfStart + j] = 0.0f;
+            }
+        }
+    }
+    __syncthreads();
 
     bool cnt = true;
   
@@ -684,7 +729,12 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
+            const float instRate = pfMetric[realAssocUeIdxInBlk];
+            if (pDynDescr->pfPredBytesArr != nullptr) {
+                pDynDescr->pfPredBytesArr[pfStart + static_cast<uint16_t>(uIdx)] =
+                    estimatePfPredBytes(pDynDescr, instRate);
+            }
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, instRate, uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = uIdx;
         }
         if (cnt){
@@ -700,6 +750,14 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
 
   // select UE
     if (threadIdx.x == 0) {
+        if (pDynDescr->pfMetricArr != nullptr) {
+            for (int j = 0; j < pDynDescr->nUe; j++) {
+                if (ueIdxArr[j] >= 0) {
+                    const uint16_t actualUeSlot = static_cast<uint16_t>(ueIdxArr[j]);
+                    pDynDescr->pfMetricArr[pfStart + actualUeSlot] = pfMetric[j];
+                }
+            }
+        }
         float   maxv = 0;
         int16_t maxi = -1;
         for (int j = 0; j<pDynDescr->nUe; j++) {
@@ -773,9 +831,24 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
   for (uint16_t blkIdx = blockIdx.x; blkIdx < nThrdBlk; blkIdx += gridDim.x) {
     uint16_t rbgIdx = floor(static_cast<float>(blkIdx)/pDynDescr->nCell);
     uint16_t cIdx   = pDynDescr->cellId[blkIdx - rbgIdx*pDynDescr->nCell];
+    const size_t pfStart = type0CandidateBaseIndex(
+        pDynDescr->nPrbGrp, pDynDescr->nUe, blkIdx % pDynDescr->nCell, rbgIdx);
 
     ueIdxArr[threadIdx.x] = -1;
     pfMetric[threadIdx.x] = 0;
+    if (threadIdx.x == 0) {
+        if (pDynDescr->pfMetricArr != nullptr) {
+            for (int j = 0; j < pDynDescr->nUe; j++) {
+                pDynDescr->pfMetricArr[pfStart + j] = 0.0f;
+            }
+        }
+        if (pDynDescr->pfPredBytesArr != nullptr) {
+            for (int j = 0; j < pDynDescr->nUe; j++) {
+                pDynDescr->pfPredBytesArr[pfStart + j] = 0.0f;
+            }
+        }
+    }
+    __syncthreads();
 
     bool cnt = true;
   
@@ -981,7 +1054,12 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
         __syncthreads(); 
 
         if (uIdx >= 0 && eIdx == 0) {
-            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, pfMetric[realAssocUeIdxInBlk], uIdx);
+            const float instRate = pfMetric[realAssocUeIdxInBlk];
+            if (pDynDescr->pfPredBytesArr != nullptr) {
+                pDynDescr->pfPredBytesArr[pfStart + static_cast<uint16_t>(uIdx)] =
+                    estimatePfPredBytes(pDynDescr, instRate);
+            }
+            pfMetric[realAssocUeIdxInBlk] = computePfMetric(pDynDescr, instRate, uIdx);
             ueIdxArr[realAssocUeIdxInBlk] = uIdx;
         }
         if (cnt){
@@ -997,6 +1075,14 @@ static __global__ __launch_bounds__ (1024, MinBlkPerSM_) void multiCellScheduler
   
     // select UE
     if (threadIdx.x == 0) {
+        if (pDynDescr->pfMetricArr != nullptr) {
+            for (int j = 0; j < pDynDescr->nUe; j++) {
+                if (ueIdxArr[j] >= 0) {
+                    const uint16_t actualUeSlot = static_cast<uint16_t>(ueIdxArr[j]);
+                    pDynDescr->pfMetricArr[pfStart + actualUeSlot] = pfMetric[j];
+                }
+            }
+        }
         float   maxv = 0;
         int16_t maxi = -1;
         for (int j = 0; j<pDynDescr->nUe; j++) {
@@ -5422,6 +5508,183 @@ void multiCellScheduler::kernelSelect()
   kernelNodeParamsDriver.sharedMemBytes = 0;
 }
 
+bool multiCellScheduler::needType0QueuePostProcess() const
+{
+  return allocType == 0 && lightWeight == 0 && pCpuDynDesc != nullptr &&
+         pCpuDynDesc->pfMetricArr != nullptr && pCpuDynDesc->pfPredBytesArr != nullptr &&
+         pCpuDynDesc->setSchdUePerCellTTI != nullptr && pCpuDynDesc->bufferSize != nullptr &&
+         (pCpuDynDesc->pfQueueDemandAwareCap != 0 || pCpuDynDesc->pfQueueIntraTtiDecayCoeff > 0.0f);
+}
+
+void multiCellScheduler::postProcessType0AllocOnHost(cudaStream_t strm)
+{
+  if (!needType0QueuePostProcess()) {
+    return;
+  }
+
+  CUDA_CHECK_ERR(cudaStreamSynchronize(strm));
+
+  const size_t candidateCount = static_cast<size_t>(pCpuDynDesc->nCell) *
+                                static_cast<size_t>(pCpuDynDesc->nPrbGrp) *
+                                static_cast<size_t>(pCpuDynDesc->nUe);
+  const size_t assocCount = static_cast<size_t>(pCpuDynDesc->totNumCell) *
+                            static_cast<size_t>(pCpuDynDesc->nUe);
+  const size_t allocCount = static_cast<size_t>(pCpuDynDesc->totNumCell) *
+                            static_cast<size_t>(pCpuDynDesc->nPrbGrp);
+
+  type0PfMetricHost.resize(candidateCount);
+  type0PredBytesHost.resize(candidateCount);
+  type0SchedSlotToActiveUeHost.resize(pCpuDynDesc->nUe);
+  type0CellIdHost.resize(pCpuDynDesc->nCell);
+  type0CellAssocHost.resize(assocCount);
+  type0BufferSizeHost.resize(pCpuDynDesc->nActiveUe);
+  type0AllocHost.resize(allocCount);
+
+  CUDA_CHECK_ERR(cudaMemcpy(type0PfMetricHost.data(),
+                            pCpuDynDesc->pfMetricArr,
+                            candidateCount * sizeof(float),
+                            cudaMemcpyDeviceToHost));
+  CUDA_CHECK_ERR(cudaMemcpy(type0PredBytesHost.data(),
+                            pCpuDynDesc->pfPredBytesArr,
+                            candidateCount * sizeof(float),
+                            cudaMemcpyDeviceToHost));
+  CUDA_CHECK_ERR(cudaMemcpy(type0SchedSlotToActiveUeHost.data(),
+                            pCpuDynDesc->setSchdUePerCellTTI,
+                            static_cast<size_t>(pCpuDynDesc->nUe) * sizeof(uint16_t),
+                            cudaMemcpyDeviceToHost));
+  CUDA_CHECK_ERR(cudaMemcpy(type0CellIdHost.data(),
+                            pCpuDynDesc->cellId,
+                            static_cast<size_t>(pCpuDynDesc->nCell) * sizeof(uint16_t),
+                            cudaMemcpyDeviceToHost));
+  CUDA_CHECK_ERR(cudaMemcpy(type0CellAssocHost.data(),
+                            pCpuDynDesc->cellAssoc,
+                            assocCount * sizeof(uint8_t),
+                            cudaMemcpyDeviceToHost));
+  CUDA_CHECK_ERR(cudaMemcpy(type0BufferSizeHost.data(),
+                            pCpuDynDesc->bufferSize,
+                            static_cast<size_t>(pCpuDynDesc->nActiveUe) * sizeof(uint32_t),
+                            cudaMemcpyDeviceToHost));
+
+  std::fill(type0AllocHost.begin(), type0AllocHost.end(), static_cast<int16_t>(-1));
+
+  auto adjustedMetric = [&](uint16_t ueIdx,
+                            float basePfMetric,
+                            float predBytes,
+                            float assignedBytes,
+                            uint32_t assignedPrgCount,
+                            bool applyDemandCap) -> float {
+    if (!(basePfMetric > 0.0f)) {
+      return 0.0f;
+    }
+
+    float metric = basePfMetric;
+    if (applyDemandCap && pCpuDynDesc->pfQueueDemandAwareCap != 0 &&
+        ueIdx < type0SchedSlotToActiveUeHost.size()) {
+      const uint16_t actUeId = type0SchedSlotToActiveUeHost[ueIdx];
+      if (actUeId == kInvalidActUeId || actUeId >= type0BufferSizeHost.size()) {
+        return 0.0f;
+      }
+
+      const float demandBytes = static_cast<float>(type0BufferSizeHost[actUeId]) +
+                                std::max(pCpuDynDesc->pfQueueDemandCapSlackBytes, 0.0f);
+      const float remainingBytes = demandBytes - assignedBytes;
+      if (!(remainingBytes > 0.0f)) {
+        return 0.0f;
+      }
+
+      const float safePredBytes = predBytes > 1.0f ? predBytes : 1.0f;
+      if (safePredBytes > remainingBytes) {
+        metric *= remainingBytes / safePredBytes;
+      }
+    }
+
+    if (pCpuDynDesc->pfQueueIntraTtiDecayCoeff > 0.0f && assignedPrgCount > 0) {
+      metric /= (1.0f + pCpuDynDesc->pfQueueIntraTtiDecayCoeff *
+                            static_cast<float>(assignedPrgCount));
+    }
+
+    return metric;
+  };
+
+  auto creditedBytes = [&](uint16_t ueIdx,
+                           float predBytes,
+                           float assignedBytes,
+                           bool clampToDemand) -> float {
+    float grantBytes = predBytes > 1.0f ? predBytes : 1.0f;
+    if (!clampToDemand || ueIdx >= type0SchedSlotToActiveUeHost.size()) {
+      return grantBytes;
+    }
+
+    const uint16_t actUeId = type0SchedSlotToActiveUeHost[ueIdx];
+    if (actUeId == kInvalidActUeId || actUeId >= type0BufferSizeHost.size()) {
+      return grantBytes;
+    }
+
+    const float demandBytes = static_cast<float>(type0BufferSizeHost[actUeId]) +
+                              std::max(pCpuDynDesc->pfQueueDemandCapSlackBytes, 0.0f);
+    const float remainingBytes = demandBytes - assignedBytes;
+    if (!(remainingBytes > 0.0f)) {
+      return 0.0f;
+    }
+
+    return std::min(grantBytes, remainingBytes);
+  };
+
+  for (uint16_t cellOrd = 0; cellOrd < pCpuDynDesc->nCell; cellOrd++) {
+    const uint16_t realCellId = type0CellIdHost[cellOrd];
+    if (realCellId >= pCpuDynDesc->totNumCell) {
+      continue;
+    }
+
+    std::vector<float> assignedBytesPerUe(pCpuDynDesc->nUe, 0.0f);
+    std::vector<uint32_t> assignedPrgCountPerUe(pCpuDynDesc->nUe, 0);
+
+    for (uint16_t rbgIdx = 0; rbgIdx < pCpuDynDesc->nPrbGrp; rbgIdx++) {
+      const size_t pfStart = type0CandidateBaseIndex(
+          pCpuDynDesc->nPrbGrp, pCpuDynDesc->nUe, cellOrd, rbgIdx);
+      float bestMetric = 0.0f;
+      float bestPredBytes = 0.0f;
+      int16_t bestUe = -1;
+
+      for (uint16_t ueIdx = 0; ueIdx < pCpuDynDesc->nUe; ueIdx++) {
+        if (type0CellAssocHost[static_cast<size_t>(realCellId) * pCpuDynDesc->nUe + ueIdx] == 0U) {
+          continue;
+        }
+
+        const float basePfMetric = type0PfMetricHost[pfStart + ueIdx];
+        const float predBytes = type0PredBytesHost[pfStart + ueIdx];
+        const float metric = adjustedMetric(
+            ueIdx,
+            basePfMetric,
+            predBytes,
+            assignedBytesPerUe[ueIdx],
+            assignedPrgCountPerUe[ueIdx],
+            true);
+        if (metric > bestMetric) {
+          bestMetric = metric;
+          bestPredBytes = predBytes;
+          bestUe = static_cast<int16_t>(ueIdx);
+        }
+      }
+
+      type0AllocHost[static_cast<size_t>(rbgIdx) * pCpuDynDesc->totNumCell + realCellId] = bestUe;
+      if (bestUe >= 0) {
+        assignedBytesPerUe[bestUe] +=
+            creditedBytes(
+                static_cast<uint16_t>(bestUe), bestPredBytes, assignedBytesPerUe[bestUe], true);
+        assignedPrgCountPerUe[bestUe] += 1;
+      } else {
+        type0AllocHost[static_cast<size_t>(rbgIdx) * pCpuDynDesc->totNumCell + realCellId] = -1;
+      }
+    }
+  }
+
+  CUDA_CHECK_ERR(cudaMemcpy(pCpuDynDesc->allocSol,
+                            type0AllocHost.data(),
+                            allocCount * sizeof(int16_t),
+                            cudaMemcpyHostToDevice));
+}
+
 // default setup() function
 void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
                                cumacSchdSol*        schdSol,
@@ -5448,6 +5711,7 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   pCpuDynDesc->bufferSize           = cellGrpUeStatus->bufferSize;
   pCpuDynDesc->allocSol             = schdSol->allocSol;
   pCpuDynDesc->pfMetricArr          = schdSol->pfMetricArr;
+  pCpuDynDesc->pfPredBytesArr       = schdSol->pfPredBytesArr;
   pCpuDynDesc->pfIdArr              = schdSol->pfIdArr;
   pCpuDynDesc->cellAssoc            = cellGrpPrms->cellAssoc;
   pCpuDynDesc->nUe                  = cellGrpPrms->nUe; // total number of UEs
@@ -5466,6 +5730,10 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   pCpuDynDesc->betaCoeff            = cellGrpPrms->betaCoeff;
   pCpuDynDesc->pfQueueBufferCoeff   = cellGrpPrms->pfQueueBufferCoeff;
   pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
+  pCpuDynDesc->pfQueueDemandAwareCap = cellGrpPrms->pfQueueDemandAwareCap;
+  pCpuDynDesc->pfQueueDemandCapSlackBytes = cellGrpPrms->pfQueueDemandCapSlackBytes;
+  pCpuDynDesc->pfQueueIntraTtiDecayCoeff = cellGrpPrms->pfQueueIntraTtiDecayCoeff;
+  pCpuDynDesc->pfSlotDurationSec    = cellGrpPrms->pfSlotDurationSec;
   pCpuDynDesc->sinVal               = cellGrpPrms->sinVal;
   columnMajor                       = in_columnMajor;
   halfPrecision                     = in_halfPrecision;
@@ -5519,6 +5787,19 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
         numThrdBlk = 2*numSM;
      }
   }
+
+  if (allocType == 0) {
+    const size_t candidateCount = static_cast<size_t>(pCpuDynDesc->nCell) *
+                                  static_cast<size_t>(pCpuDynDesc->nPrbGrp) *
+                                  static_cast<size_t>(pCpuDynDesc->nUe);
+    type0PfMetricHost.resize(candidateCount);
+    type0PredBytesHost.resize(candidateCount);
+    type0SchedSlotToActiveUeHost.resize(pCpuDynDesc->nUe);
+    type0CellIdHost.resize(pCpuDynDesc->nCell);
+    type0CellAssocHost.resize(static_cast<size_t>(pCpuDynDesc->totNumCell) * pCpuDynDesc->nUe);
+    type0BufferSizeHost.resize(pCpuDynDesc->nActiveUe);
+    type0AllocHost.resize(static_cast<size_t>(pCpuDynDesc->totNumCell) * pCpuDynDesc->nPrbGrp);
+  }
   CUDA_CHECK_ERR(cudaMemcpyAsync(pGpuDynDesc, pCpuDynDesc.get(), sizeof(mcDynDescr_t), cudaMemcpyHostToDevice, strm));
 
   // select kernel (includes launch geometry). Populate launchCfg.
@@ -5550,11 +5831,13 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   pCpuDynDesc->bufferSize           = cellGrpUeStatus->bufferSize;
   pCpuDynDesc->allocSol             = schdSol->allocSol;
   pCpuDynDesc->pfMetricArr          = schdSol->pfMetricArr;
+  pCpuDynDesc->pfPredBytesArr       = schdSol->pfPredBytesArr;
   pCpuDynDesc->pfIdArr              = schdSol->pfIdArr;
   pCpuDynDesc->cellAssoc            = cellGrpPrms->cellAssoc;
   pCpuDynDesc->nUe                  = cellGrpPrms->nUe; // total number of UEs
   pCpuDynDesc->nActiveUe            = cellGrpPrms->nActiveUe;
   pCpuDynDesc->nCell                = cellGrpPrms->nCell; // number of coordinated cells
+  pCpuDynDesc->totNumCell           = cellGrpPrms->totNumCell;
   pCpuDynDesc->nPrbGrp              = cellGrpPrms->nPrbGrp;
   pCpuDynDesc->nBsAnt               = cellGrpPrms->nBsAnt;
   pCpuDynDesc->nUeAnt               = cellGrpPrms->nUeAnt;
@@ -5568,9 +5851,14 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   pCpuDynDesc->betaCoeff            = cellGrpPrms->betaCoeff;
   pCpuDynDesc->pfQueueBufferCoeff   = cellGrpPrms->pfQueueBufferCoeff;
   pCpuDynDesc->pfQueueBufferScaleBytes = cellGrpPrms->pfQueueBufferScaleBytes;
+  pCpuDynDesc->pfQueueDemandAwareCap = cellGrpPrms->pfQueueDemandAwareCap;
+  pCpuDynDesc->pfQueueDemandCapSlackBytes = cellGrpPrms->pfQueueDemandCapSlackBytes;
+  pCpuDynDesc->pfQueueIntraTtiDecayCoeff = cellGrpPrms->pfQueueIntraTtiDecayCoeff;
+  pCpuDynDesc->pfSlotDurationSec    = cellGrpPrms->pfSlotDurationSec;
   pCpuDynDesc->sinVal_asim          = cellGrpPrms->sinVal_asim;
   columnMajor                       = in_columnMajor;
   halfPrecision                     = in_halfPrecision;
+  lightWeight                       = 0;
   pCpuDynDesc->estH_fr              = nullptr;
   pCpuDynDesc->estH_fr_half         = nullptr;
   pCpuDynDesc->prdMat               = nullptr;
@@ -5607,6 +5895,18 @@ void multiCellScheduler::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
   if (allocType) {
     CUDA_CHECK_ERR(cudaMemcpyAsync(numCompleteBlk_d, numCompleteBlk_h.data(), sizeof(int), cudaMemcpyHostToDevice, strm));
   }
+  if (allocType == 0) {
+    const size_t candidateCount = static_cast<size_t>(pCpuDynDesc->nCell) *
+                                  static_cast<size_t>(pCpuDynDesc->nPrbGrp) *
+                                  static_cast<size_t>(pCpuDynDesc->nUe);
+    type0PfMetricHost.resize(candidateCount);
+    type0PredBytesHost.resize(candidateCount);
+    type0SchedSlotToActiveUeHost.resize(pCpuDynDesc->nUe);
+    type0CellIdHost.resize(pCpuDynDesc->nCell);
+    type0CellAssocHost.resize(static_cast<size_t>(pCpuDynDesc->totNumCell) * pCpuDynDesc->nUe);
+    type0BufferSizeHost.resize(pCpuDynDesc->nActiveUe);
+    type0AllocHost.resize(static_cast<size_t>(pCpuDynDesc->totNumCell) * pCpuDynDesc->nPrbGrp);
+  }
   CUDA_CHECK_ERR(cudaMemcpyAsync(pGpuDynDesc, pCpuDynDesc.get(), sizeof(mcDynDescr_t), cudaMemcpyHostToDevice, strm));
 
   // select kernel (includes launch geometry). Populate launchCfg.
@@ -5635,6 +5935,10 @@ void multiCellScheduler::debugLog()
     printf("betaCoeff: %f\n", pCpuDynDesc->betaCoeff);
     printf("pfQueueBufferCoeff: %f\n", pCpuDynDesc->pfQueueBufferCoeff);
     printf("pfQueueBufferScaleBytes: %f\n", pCpuDynDesc->pfQueueBufferScaleBytes);
+    printf("pfQueueDemandAwareCap: %u\n", pCpuDynDesc->pfQueueDemandAwareCap);
+    printf("pfQueueDemandCapSlackBytes: %f\n", pCpuDynDesc->pfQueueDemandCapSlackBytes);
+    printf("pfQueueIntraTtiDecayCoeff: %f\n", pCpuDynDesc->pfQueueIntraTtiDecayCoeff);
+    printf("pfSlotDurationSec: %f\n", pCpuDynDesc->pfSlotDurationSec);
     printf("columnMajor: %d\n", columnMajor);
 
     uint16_t* log_cellId = new uint16_t[pCpuDynDesc->nCell];
@@ -5798,10 +6102,19 @@ void multiCellScheduler::run(cudaStream_t strm)
                                 kernelNodeParamsDriver.extra)); 
   #ifdef SCHEDULER_KERNEL_TIME_MEASURE_
   }
+  if (needType0QueuePostProcess()) {
+    postProcessType0AllocOnHost(strm);
+  }
   CUDA_CHECK_ERR(cudaEventRecord(stop));
   CUDA_CHECK_ERR(cudaEventSynchronize(stop));
   CUDA_CHECK_ERR(cudaEventElapsedTime(&milliseconds, start, stop));
   printf("Multi-cell scheduler ext time = %f ms\n", milliseconds/static_cast<float>(numRunSchKnlTimeMsr));
   #endif                                    
+
+  #ifndef SCHEDULER_KERNEL_TIME_MEASURE_
+  if (needType0QueuePostProcess()) {
+    postProcessType0AllocOnHost(strm);
+  }
+  #endif
 }
 }

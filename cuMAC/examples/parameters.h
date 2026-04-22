@@ -78,7 +78,7 @@
  #define sigmaSqrdConst         pow(10.0, ((sigmaSqrdDBmConst - 30.0)/10.0))
  #define gpuAllocTypeConst          0
  #define cpuAllocTypeConst          0
- #define prdSchemeConst         0 // 0 - no precoding, 1 - SVD precoding
+ #define prdSchemeConst          1
  #define rxSchemeConst          1 // 1 - MMSE-IRC
  #define heteroUeSelCellsConst  0 // 0 - homogeneous UE selection config. across cells, 1 - heterogeneous UE selection config. across cells
  // heterogeneous UE selection config. currently not supported for performance benchmarking vs. RR scheduler

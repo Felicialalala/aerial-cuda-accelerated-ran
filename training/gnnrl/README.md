@@ -194,6 +194,7 @@ Multi-seed merged online training:
 Notes:
 
 - `cuMAC/scripts/run_stageB_online_train.sh` is the recommended launcher so online PPO reuses Stage-B scenario parameters/build flow.
+- The launcher defaults are now slightly more deployment-aligned than before: `--topology-seed-mode fixed`, `--episode-boundary-mode trainer`, sample-based deployment eval, and a longer rollout horizon (`2048`, clamped to `--tti` when needed unless you override it explicitly).
 - The launcher now supports `--topology-scenario 3cell|7cell`, so it can follow the same compile-time topology as your Stage-B baseline runs.
 - `--action-mode joint` is now the recommended baseline-aligned mode. Each Type-0 slot in a cell can choose from that cell's full associated-UE set, so variable association counts remain visible to the policy.
 - `--action-mode prg_only_type0` fixes all Type-0 slots to the native all-active-UE layout and only learns PRG assignment.
@@ -202,7 +203,7 @@ Notes:
 - `--online-persistent 1` (default): keep one simulator subprocess alive and stream continuous TTIs.
 - `--episode-horizon` is also honored by trainer-managed episode boundaries when `--curve-every-episodes > 0` or `--topology-seed-mode != fixed` under `--online-persistent 1`.
 - With `--topology-seed-mode fixed` plus trainer-managed boundaries, the trainer now uses soft episode rollover: hitting `--episode-horizon` only finalizes episode stats/GAE and keeps the same simulator process/socket alive until the simulator reaches its own natural ring horizon.
-- `--topology-seed-mode auto` is the default. It resolves to `sequential` when `--seed-list` is empty, so topology seeds run as `topology-seed`, `topology-seed+1`, `topology-seed+2`, ...
+- `--topology-seed-mode auto` is still available when you explicitly want topology cycling. It resolves to `sequential` when `--seed-list` is empty, so topology seeds run as `topology-seed`, `topology-seed+1`, `topology-seed+2`, ...
 - `--topology-seed-mode fixed` keeps one topology for all episodes.
 - `--topology-seed-mode list_cycle` plus `--seed-list` enables explicit list-cycle topology scheduling.
 - For fixed deployment targets such as a single `--topology-seed 42` main experiment, `fixed` is still the best-matched training mode.
@@ -246,11 +247,11 @@ Notes:
   --topology-seed-mode fixed \
   --online-persistent 1 \
   --episode-boundary-mode trainer \
-  --episode-horizon 1024 \
+  --episode-horizon 2048 \
   --action-mode joint \
   --reward-mode goodput_reliability_blankaware \
   --iters 500 \
-  --rollout-steps 1024 \
+  --rollout-steps 2048 \
   --ppo-epochs 6 \
   --minibatch-size 256 \
   --entropy-coef 0.003 \
@@ -266,11 +267,22 @@ Notes:
   --out-dir training/gnnrl/checkpoints/m3_online_ppo_seed42_with_main_eval
 ```
 
+- To continue from the last saved PPO state instead of re-warm-starting just the actor, use:
+
+```bash
+./cuMAC/scripts/run_stageB_online_train.sh \
+  --resume-train-checkpoint training/gnnrl/checkpoints/<run_dir>/ppo_train_last.pt \
+  --iters 200
+```
+
+  If `--out-dir` is omitted, the launcher now reuses the checkpoint's parent run directory and appends to the existing metric CSVs/summary. It also restores the previous run's scenario/model/training settings when those flags are not explicitly provided. If you want to continue from the old weights but switch to a new horizon, pass the new `--rollout-steps`, `--episode-horizon`, and any other changed scenario flags explicitly.
+
 - Recent practical lessons:
   - For a fixed deployment target such as `topology-seed=42`, `fixed` seed training remains the most stable and best-aligned mode. `sequential` and `list_cycle` are still useful for generalization studies, but they are noisier and usually should not replace the main fixed-seed training run.
   - The added PRG-side interference features (`neighborMaxTop1SinrDb`, `neighborMeanTop1SinrDb`, `samePrgConflictRatio`, `iciProxy`) help expose lower-reuse / lower-conflict candidate windows during training, but feature upgrades alone do not guarantee better deployment transfer.
   - `goodput_reliability_reuseaware` and `goodput_reliability_blankaware` are useful shaping variants, but reward shaping by itself did not reliably teach the policy to leave PRGs blank in a deployment-helpful way. In practice, reward design needs to be paired with deployment-side checkpoint selection.
   - A strong rollout checkpoint can still transfer poorly to exported ONNX + C++ runtime. Use `--candidate-save-every-iters` plus `--auto-main-eval 1` so the final promoted artifacts (`ppo_actor_best_eval.pt`, `model_best_eval.onnx`) are chosen by actual main-experiment KPI rather than rollout `goodput` alone.
+  - Concrete current example: in `m3_online_ppo_3cell_pfq_fixedseed42_v16b_joint_ttl200_rbg16_ue36_blankaware_prg8_i500_eval`, the training summary reports `best_rollout_iter=667`, but candidate main-eval still promotes `iter0360`, and later manual exported deployment runs on `topology-seed=41,42,43` show `iter0667` is worse than `iter0360` on `goodput`, `expiry`, `BLER`, and delay. Treat `iter0360` as the current deployment best until a newer checkpoint beats it under the same exported main-experiment evaluation.
 - `ppo_actor_best.pt` is now selected directly by rollout `goodput` (`rollout_goodput_mbps_mean`).
 - The first tie-breaker is lower `rollout_expiry_drop_rate_mean`; the second tie-breaker is lower `rollout_tb_err_rate_mean`.
 - PPO `objective` remains diagnostic-only and no longer decides `ppo_actor_best.pt`.
@@ -282,6 +294,7 @@ Notes:
   `PRG: top-1 subband SINR, top-2 gap, previous per-cell PRG use, previous PRG reuse ratio, neighbor same-PRG max/mean quality, same-PRG conflict ratio, ICI proxy`
 - The current `joint` model forward input set is:
   `obs_cell_features[n_cell,5]`, `obs_ue_features[n_active_ue,12]`, `obs_prg_features[n_cell,n_prg,8]`, `obs_edge_index[n_edges,2]`, `obs_edge_attr[n_edges,2]`, `action_mask_ue[n_active_ue]`, `action_mask_cell_ue[n_cell,n_active_ue]`.
+- `2026-04-08` re-audit against `OnlineObservationTypes.h`, `OnlineFeatureCodec.cpp`, and `OnlineObservationExtrasBuilder.h` confirmed that the documented `5/12/8/2` feature dimensions and ordering still match code. The only naming alias to keep in mind is that code comments may say `reuseRatio` where the docs say `prev_prg_reuse_ratio`; they refer to the same previous-TTI PRG reuse feature.
 - Dynamic Type-0 slot layout is now derived from `action_mask_ue & action_mask_cell_ue`, so cells only expose scheduler slots for currently live/schedulable UEs.
 - The PRG head now consumes those PRG features plus a live-masked slot-to-UE context inferred from the UE head, with a straight-through hard slot choice in the forward path so PRG decisions are closer to the eventual hard UE selection.
 - `joint` models exported with the updated pipeline require the new ONNX input set (`obs_prg_features`, `action_mask_ue`, `action_mask_cell_ue`) and should be re-trained / re-exported; older ONNX files are not forward-compatible with the updated runtime.

@@ -53,6 +53,10 @@ typedef struct mcDynDescrCpu {
     float       betaCoeff; // coefficient for improving cell edge UEs' performance in multi-cell scheduling
     float       pfQueueBufferCoeff; // coefficient for queue-aware PF weighting
     float       pfQueueBufferScaleBytes; // normalization scale in bytes for queue-aware PF weighting
+    uint8_t     pfQueueDemandAwareCap; // enable demand-aware cap for Type-0 queue-aware PF scheduling
+    float       pfQueueDemandCapSlackBytes; // slack bytes added before further grants are capped
+    float       pfQueueIntraTtiDecayCoeff; // per-PRG decay applied to repeated grants for the same UE within one TTI
+    float       pfSlotDurationSec; // slot duration used to estimate bytes per PRG from instantaneous rate
 } mcDynDescrCpu_t;
 
 class multiCellSchedulerCpu {

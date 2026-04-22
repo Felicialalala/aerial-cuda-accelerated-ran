@@ -68,6 +68,7 @@ ONLINE_BRIDGE=0         # 1=enable online bridge mode in binary
 ONLINE_SOCKET="/tmp/cumac_stageb_online.sock"
 EXEC_MODE="both"       # both | gpu
 EFFECTIVE_LAYERS=0     # 0=auto, otherwise cap adaptive layer selection to <= this value
+PRECODING="none"      # none | svd
 UE_PER_CELL_EXPLICIT=0
 
 usage() {
@@ -130,6 +131,7 @@ Options:
   --online-socket <path>      Unix socket path for online bridge (default: ${ONLINE_SOCKET})
   --exec-mode <mode>          both | gpu (default: ${EXEC_MODE})
   --effective-layers <n>      0=auto; otherwise cap adaptive layer selection to <= n (default: ${EFFECTIVE_LAYERS})
+  --precoding <mode>          Precoding mode: none | svd (default: ${PRECODING})
   --tag <name>                Optional run tag
   --restore-params <0|1>      Restore parameters.h on exit (default: ${RESTORE_PARAMS})
   -h, --help                  Show this help
@@ -198,6 +200,7 @@ while [[ $# -gt 0 ]]; do
         --online-socket) ONLINE_SOCKET="$2"; shift 2 ;;
         --exec-mode) EXEC_MODE="$2"; shift 2 ;;
         --effective-layers) EFFECTIVE_LAYERS="$2"; shift 2 ;;
+        --precoding) PRECODING="$2"; shift 2 ;;
         --tag) RUN_TAG="$2"; shift 2 ;;
         --restore-params) RESTORE_PARAMS="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
@@ -423,6 +426,21 @@ if [[ "${EXEC_MODE}" != "both" && "${EXEC_MODE}" != "gpu" ]]; then
     echo "--exec-mode must be both or gpu" >&2
     exit 1
 fi
+PRECODING="$(echo "${PRECODING}" | tr '[:upper:]' '[:lower:]')"
+case "${PRECODING}" in
+    0|none|no|off|no_precoding)
+        PRECODING="none"
+        PRECODING_CONST="0"
+        ;;
+    1|svd|svd_precoding)
+        PRECODING="svd"
+        PRECODING_CONST="1"
+        ;;
+    *)
+        echo "--precoding must be one of: none, svd, 0, 1" >&2
+        exit 1
+        ;;
+esac
 if ! [[ "${RESTORE_PARAMS}" =~ ^[01]$ ]]; then
     echo "--restore-params must be 0 or 1" >&2
     exit 1
@@ -506,7 +524,7 @@ set_param() {
 
 print_effective_compile_params() {
     echo "[Stage-B] Compile-time parameter snapshot:"
-    sed -n '/#define numCellConst/p; /#define numCoorCellConst/p; /#define numUePerCellConst/p; /#define numActiveUePerCellConst/p; /#define totNumUesConst/p; /#define totNumActiveUesConst/p; /#define nPrbsPerGrpConst/p; /#define nPrbGrpsConst/p; /#define gpuAllocTypeConst/p; /#define cpuAllocTypeConst/p' "${PARAM_FILE}" | sed 's/^/[Stage-B]   /'
+    sed -n '/#define numCellConst/p; /#define numCoorCellConst/p; /#define numUePerCellConst/p; /#define numActiveUePerCellConst/p; /#define totNumUesConst/p; /#define totNumActiveUesConst/p; /#define nPrbsPerGrpConst/p; /#define nPrbGrpsConst/p; /#define gpuAllocTypeConst/p; /#define cpuAllocTypeConst/p; /#define prdSchemeConst/p' "${PARAM_FILE}" | sed 's/^/[Stage-B]   /'
 }
 
 sanitize_reason() {
@@ -736,7 +754,7 @@ compact_pass_outputs() {
         "${out_dir}/kpi_summary.txt"
 }
 
-echo "[Stage-B] Apply main experiment parameters (${TOPOLOGY_DESC}, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation)..."
+echo "[Stage-B] Apply main experiment parameters (${TOPOLOGY_DESC}, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation, precoding=${PRECODING})..."
 echo "[Stage-B] Scenario UE config: ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
 set_param gpuDeviceIdx "${GPU_ID}"
 set_param numSimChnRlz "${TTI_COUNT}"
@@ -757,6 +775,7 @@ set_param nPrbsPerGrpConst "${PRBS_PER_GROUP}"
 set_param nPrbGrpsConst "${PRG_COUNT}"
 set_param gpuAllocTypeConst "0"
 set_param cpuAllocTypeConst "0"
+set_param prdSchemeConst "${PRECODING_CONST}"
 print_effective_compile_params
 if [[ "${RESTORE_PARAMS}" == "0" ]]; then
     echo "[Stage-B] parameters.h will be kept after run so external rebuilds use the same Stage-B config."
@@ -845,7 +864,7 @@ fi
 if [[ "${BUILD_ONLY}" == "1" ]]; then
     echo "[Stage-B] Build-only mode ready."
     echo "[Stage-B] Binary: ${BIN}"
-    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE}"
+    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} precoding=${PRECODING} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE}"
     exit 0
 fi
 
@@ -963,6 +982,7 @@ for i in "${!PROFILE_ARR[@]}"; do
     fi
     echo "  exec_mode=${EXEC_MODE}"
     echo "  effective_layers=${EFFECTIVE_LAYERS}"
+    echo "  precoding=${PRECODING}"
     if [[ -n "${GNNRL_MODEL_NO_UE_BIAS}" || -n "${GNNRL_MODEL_MIN_SCHED_RATIO}" || -n "${GNNRL_MODEL_NO_PRG_BIAS}" || -n "${GNNRL_MODEL_MIN_PRG_RATIO}" || -n "${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE}" ]]; then
         echo "  gnnrl_model_decode_overrides: no_ue_bias=${GNNRL_MODEL_NO_UE_BIAS:-auto} min_sched_ratio=${GNNRL_MODEL_MIN_SCHED_RATIO:-auto} no_prg_bias=${GNNRL_MODEL_NO_PRG_BIAS:-auto} min_prg_ratio=${GNNRL_MODEL_MIN_PRG_RATIO:-auto} max_prg_share_per_ue=${GNNRL_MODEL_MAX_PRG_SHARE_PER_UE:-auto}"
     fi

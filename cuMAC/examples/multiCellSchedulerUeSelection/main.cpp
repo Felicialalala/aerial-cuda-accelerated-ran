@@ -28,6 +28,7 @@
 #include "../onlineTrainBridge/OnlineBridgeServer.h"
 #include "../onlineTrainBridge/OnlineFeatureCodec.h"
 #include "../onlineTrainBridge/OnlineObservationExtrasBuilder.h"
+#include "../customScheduler/Type0SampledAction.h"
 #include "../customScheduler/Type0SlotLayout.h"
 #include "../rlReplay/ReplayWriter.h"
 #include "trafficModel/trafficService.hpp"
@@ -382,60 +383,19 @@ void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
             const bool live = ueIdx < maskUe.size() && maskUe[ueIdx] != 0U;
             return live && assocToCellOnline(cellGrpPrmsCpu, cIdx, ueIdx);
         });
-
-    std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + nSchedUe, 0xFFFF);
-    std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (nTotCell * nPrg), static_cast<int16_t>(-1));
-
-    std::vector<uint8_t> usedUe(nActiveUe, 0U);
-    const uint32_t ueLen = std::min<uint32_t>(nSchedUe, static_cast<uint32_t>(action.ueAction.size()));
-    for (uint32_t slot = 0; slot < ueLen; ++slot) {
-        if (!slotLayout.validSlot(slot)) {
-            continue;
-        }
-        const int32_t ue = action.ueAction[slot];
-        if (ue < 0 || static_cast<uint32_t>(ue) >= nActiveUe) {
-            continue;
-        }
-        if (static_cast<uint32_t>(ue) >= maskUe.size() || maskUe[static_cast<uint32_t>(ue)] == 0U) {
-            continue;
-        }
-        const uint32_t cIdx = slotLayout.slotToCell[slot];
-        if (!assocToCellOnline(cellGrpPrmsCpu, cIdx, static_cast<uint32_t>(ue))) {
-            continue;
-        }
-        if (usedUe[static_cast<uint32_t>(ue)] != 0U) {
-            continue;
-        }
-        usedUe[static_cast<uint32_t>(ue)] = 1U;
-        schdSolCpu->setSchdUePerCellTTI[slot] = static_cast<uint16_t>(ue);
-    }
-
-    const uint32_t actionAllocLen = nTotCell * nPrg;
-    const uint32_t prgLen = std::min<uint32_t>(actionAllocLen, static_cast<uint32_t>(action.prgAction.size()));
-    for (uint32_t idx = 0; idx < prgLen; ++idx) {
-        const int16_t v = action.prgAction[idx];
-        if (v < 0) {
-            continue;
-        }
-        const uint32_t cIdx = idx % nCell;
-        const uint32_t prgIdx = idx / nTotCell;
-        if (cellGrpPrmsCpu->prgMsk != nullptr && cellGrpPrmsCpu->prgMsk[cIdx] != nullptr) {
-            if (cellGrpPrmsCpu->prgMsk[cIdx][prgIdx] == 0) {
-                continue;
-            }
-        }
-        const uint32_t slot = static_cast<uint32_t>(v);
-        if (slot >= nSchedUe) {
-            continue;
-        }
-        if (!slotLayout.slotBelongsToCell(slot, cIdx)) {
-            continue;
-        }
-        if (schdSolCpu->setSchdUePerCellTTI[slot] == 0xFFFF) {
-            continue;
-        }
-        schdSolCpu->allocSol[idx] = v;
-    }
+    cumac::applyType0SampledActionToSchedule(
+        action.ueAction,
+        action.prgAction,
+        maskUe,
+        slotLayout,
+        nCell,
+        nActiveUe,
+        nSchedUe,
+        nPrg,
+        nTotCell,
+        cellGrpPrmsCpu,
+        schdSolCpu,
+        [&](uint32_t cIdx, uint32_t ueIdx) -> bool { return assocToCellOnline(cellGrpPrmsCpu, cIdx, ueIdx); });
 
     const size_t ueSelBytes = static_cast<size_t>(nSchedUe) * sizeof(uint16_t);
     const size_t allocBytes = static_cast<size_t>(nTotCell) * nPrg * sizeof(int16_t);
@@ -755,6 +715,17 @@ int main(int argc, char* argv[])
       queueAwarePfBaseline ? getEnvFloat("CUMAC_PFQ_BUFFER_COEFF", 0.25f) : 0.0f;
   const float pfQueueBufferScaleBytes = std::max(
       1.0f, getEnvFloat("CUMAC_PFQ_BUFFER_SCALE_BYTES", std::max(packetSizeBytes, 1.0f)));
+  const bool pfQueueDemandAwareCap =
+      queueAwarePfBaseline ? (getEnvInt("CUMAC_PFQ_DEMAND_CAP", 1) != 0) : false;
+  const float pfQueueDemandCapSlackBytes = queueAwarePfBaseline
+                                               ? std::max(0.0f,
+                                                          getEnvFloat("CUMAC_PFQ_DEMAND_CAP_SLACK_BYTES",
+                                                                      std::max(packetSizeBytes, 1.0f)))
+                                               : 0.0f;
+  const float pfQueueIntraTtiDecayCoeff = queueAwarePfBaseline
+                                              ? std::max(0.0f,
+                                                         getEnvFloat("CUMAC_PFQ_INTRA_TTI_DECAY_COEFF", 0.5f))
+                                              : 0.0f;
   if (compareTtiInterval < 0) {
       compareTtiInterval = 0;
   }
@@ -824,12 +795,21 @@ int main(int argc, char* argv[])
   net->createAPI();
   net->cellGrpPrmsGpu->pfQueueBufferCoeff = pfQueueBufferCoeff;
   net->cellGrpPrmsGpu->pfQueueBufferScaleBytes = pfQueueBufferScaleBytes;
+  net->cellGrpPrmsGpu->pfQueueDemandAwareCap = pfQueueDemandAwareCap ? 1 : 0;
+  net->cellGrpPrmsGpu->pfQueueDemandCapSlackBytes = pfQueueDemandCapSlackBytes;
+  net->cellGrpPrmsGpu->pfQueueIntraTtiDecayCoeff = pfQueueIntraTtiDecayCoeff;
   net->cellGrpPrmsCpu->pfQueueBufferCoeff = pfQueueBufferCoeff;
   net->cellGrpPrmsCpu->pfQueueBufferScaleBytes = pfQueueBufferScaleBytes;
+  net->cellGrpPrmsCpu->pfQueueDemandAwareCap = pfQueueDemandAwareCap ? 1 : 0;
+  net->cellGrpPrmsCpu->pfQueueDemandCapSlackBytes = pfQueueDemandCapSlackBytes;
+  net->cellGrpPrmsCpu->pfQueueIntraTtiDecayCoeff = pfQueueIntraTtiDecayCoeff;
   if (queueAwarePfBaseline) {
-    printf("Queue-aware PF weighting: buffer_coeff=%.3f buffer_scale_bytes=%.3f\n",
+    printf("Queue-aware PF weighting: buffer_coeff=%.3f buffer_scale_bytes=%.3f demand_cap=%s demand_cap_slack_bytes=%.3f intra_tti_decay_coeff=%.3f\n",
            pfQueueBufferCoeff,
-           pfQueueBufferScaleBytes);
+           pfQueueBufferScaleBytes,
+           pfQueueDemandAwareCap ? "on" : "off",
+           pfQueueDemandCapSlackBytes,
+           pfQueueIntraTtiDecayCoeff);
   }
 
 
@@ -1776,7 +1756,10 @@ int main(int argc, char* argv[])
     unsigned long long expired_packets = trafSvc->GetTotalExpiredPackets();
     PacketDelaySummary trafficPacketDelay;
     std::vector<PacketDelaySummary> perFlowPacketDelay;
+    PacketServiceRateSummary trafficPacketServiceRate;
+    std::vector<PacketServiceRateSummary> perFlowPacketServiceRate;
     trafSvc->GetPacketDelayStats(trafficPacketDelay, perFlowPacketDelay);
+    trafSvc->GetPacketServiceRateStats(trafficPacketServiceRate, perFlowPacketServiceRate);
 
     unsigned long long mac_buffer_bytes = 0;
     for (int uIdx = 0; uIdx < totNumActiveUesConst; uIdx++) {
@@ -1817,12 +1800,19 @@ int main(int argc, char* argv[])
            trafficPacketDelay.p90_delay_ms,
            trafficPacketDelay.p95_delay_ms,
            trafficPacketDelay.max_delay_ms);
+    printf("TRAFFIC_PKT_RATE delivered_pkt_count=%llu total_delivered_bits=%llu total_packet_system_time_ms=%.6f r_pkt_mbps=%.6f r_pkt_per_packet_mean_mbps=%.6f\n",
+           trafficPacketServiceRate.delivered_packets,
+           trafficPacketServiceRate.total_delivered_bits,
+           trafficPacketServiceRate.total_packet_system_time_ms,
+           trafficPacketServiceRate.packet_effective_service_rate_mbps,
+           trafficPacketServiceRate.packet_effective_service_rate_per_packet_mean_mbps);
   } else {
     printf("TRAFFIC_KPI flows=0 generated_pkts=0 generated_bytes=0 accepted_bytes=0 dropped_bytes=0 flow_queued_bytes=0 mac_buffer_bytes=0 served_bytes_est=0\n");
     printf("TRAFFIC_KPI offered_mbps=0.000000 served_mbps_est=0.000000 drop_rate=0.000000 queue_delay_est_ms=0.000000\n");
     printf("TRAFFIC_GOODPUT goodput_bytes=0 goodput_mbps=0.000000\n");
     printf("TRAFFIC_EXPIRY expired_bytes=0 expired_packets=0 expiry_drop_rate=0.000000\n");
     printf("TRAFFIC_PKT_DELAY served_pkt_count=0 pending_pkt_count=0 mean_ms=0.000000 p50_ms=0.000000 p90_ms=0.000000 p95_ms=0.000000 max_ms=0.000000\n");
+    printf("TRAFFIC_PKT_RATE delivered_pkt_count=0 total_delivered_bits=0 total_packet_system_time_ms=0.000000 r_pkt_mbps=0.000000 r_pkt_per_packet_mean_mbps=0.000000\n");
   }
 
   std::vector<unsigned long long> ueGeneratedBytes;

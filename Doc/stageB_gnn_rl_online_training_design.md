@@ -5,6 +5,7 @@
 - 本文档描述当前仓库里已经落地、并且仍与代码一致的 GNN+RL 实现。
 - 它已经吸收此前拆分的 offline、replay、RL I/O、online protocol 和 bridge 设计说明。
 - 当前基线场景请先看 [`Doc/current_stageB_effective_configuration.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/current_stageB_effective_configuration.md)。
+- `2026-04-08` 已重新对照 [`OnlineObservationTypes.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineObservationTypes.h)、[`OnlineFeatureCodec.cpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineFeatureCodec.cpp) 与 [`OnlineObservationExtrasBuilder.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineObservationExtrasBuilder.h) 复核当前输入特征文档；`cell/ue/prg/edge` 维度仍是 `5/12/8/2`，字段顺序与代码一致。
 
 ## 2. 当前代码地图
 
@@ -177,6 +178,15 @@
 
 - 当前是小区之间的完全有向图，不含 self-loop
 - 边数 `n_edges = n_cell * (n_cell - 1)`
+
+### 4.1.1 `2026-04-08` 输入特征复核结论
+
+- 当前文档记录与 bridge 代码一致，不需要改动 `obs_cell_features / obs_ue_features / obs_prg_features / obs_edge_attr` 的维度或顺序。
+- 当前最容易混淆的只有命名口径：
+  - 代码注释里第 `4` 个 PRG 特征写成 `reuseRatio`
+  - 本文与训练 README 里常写成 `prev_prg_reuse_ratio`
+  - 两者指的是同一个量，即“上一个 TTI 里，同一 `PRG` 被多少个 cell 同时使用的比例”
+- 因此当前这份文档仍可以继续作为训练、导出和部署输入接口的主参考。
 
 ### 4.2 训练和在线交互额外使用的字段
 

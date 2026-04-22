@@ -484,7 +484,22 @@ def main() -> int:
         best_row = ok_agg_rows[0]
         if int(args.promote_best) == 1:
             shutil.copy2(best_row["checkpoint_path"], best_eval_ckpt_path)
-            shutil.copy2(best_row["onnx_path"], best_eval_onnx_path)
+            best_export_cmd = [
+                "python3",
+                str(export_script),
+                "--checkpoint",
+                str(best_row["checkpoint_path"]),
+                "--out",
+                str(best_eval_onnx_path),
+                "--opset",
+                "18",
+            ]
+            best_export_rc, best_export_cmd_str = _run_cmd(best_export_cmd, repo_root)
+            if best_export_rc != 0:
+                raise RuntimeError(
+                    "failed to export promoted deployment-best onnx: "
+                    f"rc={best_export_rc} cmd={best_export_cmd_str}"
+                )
 
     summary = {
         "status": "ok" if best_row is not None else "failed",

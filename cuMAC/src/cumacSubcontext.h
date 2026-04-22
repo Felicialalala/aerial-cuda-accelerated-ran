@@ -162,6 +162,7 @@ namespace cumac {
     uint32_t hHalfSize;
     uint32_t gpuAllocSolSize;
     uint32_t pfMetricSize;
+    uint32_t pfPredBytesSize;
     uint32_t pfIdSize;
     uint32_t prioWeightActUeSize;
     uint32_t numUeSchdArrSize;

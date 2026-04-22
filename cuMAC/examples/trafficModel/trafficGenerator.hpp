@@ -49,6 +49,16 @@ struct PacketDelaySummary
     double max_delay_ms = 0.0;
 };
 
+struct PacketServiceRateSummary
+{
+    unsigned long long delivered_packets = 0;
+    unsigned long long pending_packets = 0;
+    unsigned long long total_delivered_bits = 0;
+    double total_packet_system_time_ms = 0.0;
+    double packet_effective_service_rate_mbps = 0.0;
+    double packet_effective_service_rate_per_packet_mean_mbps = 0.0;
+};
+
 struct PacketHeadSummary
 {
     unsigned long long pending_bytes = 0;
@@ -217,22 +227,79 @@ public:
 class RadioResource : public TrafficObserver
 {
 protected:
-    struct MacPacketRecord {
-        uint32_t remaining_bytes = 0;
+    struct PacketLifecycleRecord {
+        uint64_t packet_id = 0;
+        uint32_t packet_size_bytes = 0;
         int arrival_tti = 0;
+        int finish_tti = -1;
+        double arrival_time_ms = 0.0;
+        double finish_time_ms = 0.0;
+        bool delivered = false;
+    };
+
+    struct MacPacketQueueEntry {
+        size_t record_index = 0;
+        uint32_t remaining_bytes = 0;
     };
 
     cumac::cumacCellGrpUeStatus* api_ue_status;
-    std::vector<std::deque<MacPacketRecord>> mac_packet_queues;
+    std::vector<std::deque<MacPacketQueueEntry>> mac_packet_queues;
+    std::vector<std::vector<PacketLifecycleRecord>> packet_lifecycle_records;
     std::vector<std::vector<double>> served_packet_delay_ms;
+    std::vector<unsigned long long> delivered_packets_per_flow;
+    std::vector<unsigned long long> delivered_bits_per_flow;
+    std::vector<double> packet_system_time_ms_per_flow;
+    std::vector<double> packet_rate_mbps_sum_per_flow;
     double slot_duration_ms = 0.5;
     int max_packet_age_tti = 0;
+    uint64_t next_packet_id = 1ULL;
+    unsigned long long total_delivered_packets = 0ULL;
+    unsigned long long total_delivered_bits = 0ULL;
+    double total_packet_system_time_ms = 0.0;
+    double total_packet_rate_mbps_sum = 0.0;
     unsigned long long total_expired_bytes = 0;
     unsigned long long total_expired_packets = 0;
     unsigned long long last_expired_bytes = 0;
     unsigned long long last_expired_packets = 0;
     std::vector<unsigned long long> expired_bytes_per_flow;
     std::vector<unsigned long long> expired_packets_per_flow;
+
+    double arrivalTtiToTimeMs(int arrival_tti) const
+    {
+        return static_cast<double>(std::max(0, arrival_tti - 1)) * slot_duration_ms;
+    }
+
+    double finishTtiToTimeMs(int current_tti) const
+    {
+        return static_cast<double>(std::max(0, current_tti)) * slot_duration_ms;
+    }
+
+    double normalizePacketSystemTimeMs(double raw_system_time_ms) const
+    {
+        const double clamped_system_time_ms = std::max(0.0, raw_system_time_ms);
+        if (slot_duration_ms > 0.0) {
+            // Keep packet-level delay and R_pkt well-defined even when enqueue and
+            // completion collapse into the same slot under the current TTI timestamping.
+            return std::max(slot_duration_ms, clamped_system_time_ms);
+        }
+        return clamped_system_time_ms;
+    }
+
+    static double computePacketEffectiveRateMbps(unsigned long long delivered_bits, double total_system_time_ms)
+    {
+        if (total_system_time_ms <= 0.0) {
+            return 0.0;
+        }
+        return (static_cast<double>(delivered_bits) / (total_system_time_ms / 1.0e3)) / 1.0e6;
+    }
+
+    static double computeMeanPacketRateMbps(double packet_rate_mbps_sum, unsigned long long delivered_packets)
+    {
+        if (delivered_packets == 0ULL) {
+            return 0.0;
+        }
+        return packet_rate_mbps_sum / static_cast<double>(delivered_packets);
+    }
 
     static double percentile_ms(const std::vector<double>& values, double p)
     {
@@ -268,7 +335,17 @@ public:
     void Configure(std::vector<FlowData>& config) override{
         TrafficObserver::Configure(config);
         mac_packet_queues.assign(config.size(), {});
+        packet_lifecycle_records.assign(config.size(), {});
         served_packet_delay_ms.assign(config.size(), {});
+        delivered_packets_per_flow.assign(config.size(), 0ULL);
+        delivered_bits_per_flow.assign(config.size(), 0ULL);
+        packet_system_time_ms_per_flow.assign(config.size(), 0.0);
+        packet_rate_mbps_sum_per_flow.assign(config.size(), 0.0);
+        next_packet_id = 1ULL;
+        total_delivered_packets = 0ULL;
+        total_delivered_bits = 0ULL;
+        total_packet_system_time_ms = 0.0;
+        total_packet_rate_mbps_sum = 0.0;
         expired_bytes_per_flow.assign(config.size(), 0ULL);
         expired_packets_per_flow.assign(config.size(), 0ULL);
         total_expired_bytes = 0ULL;
@@ -302,13 +379,14 @@ public:
         for (size_t i = 0; i < mac_packet_queues.size(); ++i) {
             auto& queue = mac_packet_queues[i];
             while (!queue.empty()) {
-                const auto& pkt = queue.front();
+                const auto& entry = queue.front();
+                const auto& pkt = packet_lifecycle_records[i][entry.record_index];
                 const int packet_age_tti = std::max(1, current_tti - pkt.arrival_tti + 1);
                 if (packet_age_tti <= max_packet_age_tti) {
                     break;
                 }
 
-                const unsigned long long expired_bytes = static_cast<unsigned long long>(pkt.remaining_bytes);
+                const unsigned long long expired_bytes = static_cast<unsigned long long>(entry.remaining_bytes);
                 total_expired_packets += 1ULL;
                 last_expired_packets += 1ULL;
                 expired_packets_per_flow[i] += 1ULL;
@@ -361,7 +439,14 @@ public:
         {
             for (const auto& span : data[i].accepted_spans) {
                 if (span.num_bytes > 0) {
-                    mac_packet_queues[i].push_back({static_cast<uint32_t>(span.num_bytes), span.arrival_tti});
+                    PacketLifecycleRecord record {};
+                    record.packet_id = next_packet_id++;
+                    record.packet_size_bytes = static_cast<uint32_t>(span.num_bytes);
+                    record.arrival_tti = span.arrival_tti;
+                    record.arrival_time_ms = arrivalTtiToTimeMs(span.arrival_tti);
+                    packet_lifecycle_records[i].push_back(record);
+                    mac_packet_queues[i].push_back(
+                        {packet_lifecycle_records[i].size() - 1U, static_cast<uint32_t>(span.num_bytes)});
                 }
             }
             auto& idx_buffer_size = api_ue_status->bufferSize[i];
@@ -384,14 +469,31 @@ public:
             unsigned long long bytes_left = served_bytes[i];
             auto& queue = mac_packet_queues[i];
             while (bytes_left > 0 && !queue.empty()) {
-                auto& pkt = queue.front();
+                auto& entry = queue.front();
                 const unsigned long long consume =
-                    std::min(bytes_left, static_cast<unsigned long long>(pkt.remaining_bytes));
-                pkt.remaining_bytes -= static_cast<uint32_t>(consume);
+                    std::min(bytes_left, static_cast<unsigned long long>(entry.remaining_bytes));
+                entry.remaining_bytes -= static_cast<uint32_t>(consume);
                 bytes_left -= consume;
-                if (pkt.remaining_bytes == 0U) {
-                    const int delta_tti = std::max(0, current_tti - pkt.arrival_tti + 1);
-                    served_packet_delay_ms[i].push_back(static_cast<double>(delta_tti) * slot_duration_ms);
+                if (entry.remaining_bytes == 0U) {
+                    auto& record = packet_lifecycle_records[i][entry.record_index];
+                    record.finish_tti = current_tti;
+                    record.finish_time_ms = finishTtiToTimeMs(current_tti);
+                    record.delivered = true;
+                    const double packet_system_time_ms =
+                        normalizePacketSystemTimeMs(record.finish_time_ms - record.arrival_time_ms);
+                    served_packet_delay_ms[i].push_back(packet_system_time_ms);
+                    const unsigned long long delivered_bits =
+                        static_cast<unsigned long long>(record.packet_size_bytes) * 8ULL;
+                    const double packet_rate_mbps =
+                        computePacketEffectiveRateMbps(delivered_bits, packet_system_time_ms);
+                    delivered_packets_per_flow[i] += 1ULL;
+                    delivered_bits_per_flow[i] += delivered_bits;
+                    packet_system_time_ms_per_flow[i] += packet_system_time_ms;
+                    packet_rate_mbps_sum_per_flow[i] += packet_rate_mbps;
+                    total_delivered_packets += 1ULL;
+                    total_delivered_bits += delivered_bits;
+                    total_packet_system_time_ms += packet_system_time_ms;
+                    total_packet_rate_mbps_sum += packet_rate_mbps;
                     queue.pop_front();
                 }
             }
@@ -434,6 +536,35 @@ public:
             total.max_delay_ms = percentile_ms(all_delays, 100.0);
         }
     }
+    void GetPacketServiceRateStats(PacketServiceRateSummary& total,
+                                   std::vector<PacketServiceRateSummary>& per_flow) const
+    {
+        total = PacketServiceRateSummary {};
+        per_flow.assign(mac_packet_queues.size(), {});
+        for (size_t i = 0; i < mac_packet_queues.size(); ++i) {
+            auto& summary = per_flow[i];
+            summary.delivered_packets = delivered_packets_per_flow[i];
+            summary.pending_packets = static_cast<unsigned long long>(mac_packet_queues[i].size());
+            summary.total_delivered_bits = delivered_bits_per_flow[i];
+            summary.total_packet_system_time_ms = packet_system_time_ms_per_flow[i];
+            summary.packet_effective_service_rate_mbps =
+                computePacketEffectiveRateMbps(summary.total_delivered_bits, summary.total_packet_system_time_ms);
+            summary.packet_effective_service_rate_per_packet_mean_mbps =
+                computeMeanPacketRateMbps(packet_rate_mbps_sum_per_flow[i], summary.delivered_packets);
+
+            total.delivered_packets += summary.delivered_packets;
+            total.pending_packets += summary.pending_packets;
+            total.total_delivered_bits += summary.total_delivered_bits;
+            total.total_packet_system_time_ms += summary.total_packet_system_time_ms;
+        }
+        total.delivered_packets = total_delivered_packets;
+        total.total_delivered_bits = total_delivered_bits;
+        total.total_packet_system_time_ms = total_packet_system_time_ms;
+        total.packet_effective_service_rate_mbps =
+            computePacketEffectiveRateMbps(total.total_delivered_bits, total.total_packet_system_time_ms);
+        total.packet_effective_service_rate_per_packet_mean_mbps =
+            computeMeanPacketRateMbps(total_packet_rate_mbps_sum, total.delivered_packets);
+    }
     void GetPacketHeadStats(std::vector<PacketHeadSummary>& per_flow, int current_tti) const
     {
         per_flow.assign(mac_packet_queues.size(), {});
@@ -445,13 +576,14 @@ public:
             }
             if (!queue.empty()) {
                 const auto& pkt = queue.front();
+                const auto& record = packet_lifecycle_records[i][pkt.record_index];
                 summary.hol_bytes = static_cast<unsigned long long>(pkt.remaining_bytes);
                 if (current_tti > 0) {
-                    summary.hol_age_tti = std::max(1, current_tti - pkt.arrival_tti + 1);
+                    summary.hol_age_tti = std::max(1, current_tti - record.arrival_tti + 1);
                 }
                 if (max_packet_age_tti > 0 && current_tti > 0) {
                     summary.ttl_slack_tti =
-                        std::max(0, max_packet_age_tti - std::max(1, current_tti - pkt.arrival_tti + 1));
+                        std::max(0, max_packet_age_tti - std::max(1, current_tti - record.arrival_tti + 1));
                 }
             }
             per_flow[i] = summary;

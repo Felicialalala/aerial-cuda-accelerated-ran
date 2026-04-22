@@ -48,9 +48,12 @@ RESTORE_PARAMS=0
 EXEC_MODE="both"
 
 OUT_DIR="${ROOT_DIR}/training/gnnrl/checkpoints/m3_online_ppo"
+OUT_DIR_EXPLICIT=0
 INIT_POLICY_CHECKPOINT=""
+RESUME_TRAIN_CHECKPOINT=""
 ITERS=500
-ROLLOUT_STEPS=1024
+ROLLOUT_STEPS=2048
+ROLLOUT_STEPS_EXPLICIT=0
 PPO_EPOCHS=6
 MINIBATCH_SIZE=128
 GAMMA=0.99
@@ -75,15 +78,15 @@ NUM_CELL_MSG_LAYERS=2
 ACTION_MODE="joint"
 SEED=42
 SEED_LIST=""
-TOPOLOGY_SEED_MODE="auto"
+TOPOLOGY_SEED_MODE="fixed"
 DEVICE="auto"
 SOCKET_PATH="/tmp/cumac_stageb_online.sock"
 CONNECT_TIMEOUT_S=20.0
 SIM_WAIT_TIMEOUT=10.0
 SIM_LOG_MODE="file"
 ONLINE_PERSISTENT=1
-EPISODE_HORIZON=1024
-EPISODE_BOUNDARY_MODE="auto"
+EPISODE_HORIZON=2048
+EPISODE_BOUNDARY_MODE="trainer"
 REWARD_MODE="goodput_only"
 CANDIDATE_SAVE_EVERY_ITERS=0
 CANDIDATE_SAVE_START_ITER=1
@@ -145,6 +148,8 @@ Stage-B scenario options:
 
 Online PPO options:
   --out-dir <path>            PPO output directory (default: ${OUT_DIR})
+  --resume-train-checkpoint <path>
+                              Continue from full PPO train checkpoint (ppo_train_last.pt)
   --init-policy-checkpoint <path>
   --iters <n>                 PPO iterations (default: ${ITERS})
   --rollout-steps <n>         Rollout steps per iter (default: ${ROLLOUT_STEPS})
@@ -198,6 +203,122 @@ Online PPO options:
 EOF
 }
 
+load_resume_config() {
+    local ckpt_path="$1"
+    local py_bin="${ROOT_DIR}/.venv/bin/python"
+    if [[ ! -x "${py_bin}" ]]; then
+        py_bin="$(command -v python3)"
+    fi
+    "${py_bin}" - <<'PY' "$ckpt_path"
+import re
+import shlex
+import sys
+from pathlib import Path
+
+import torch
+
+
+def shell_quote(value):
+    text = "" if value is None else str(value)
+    return "'" + text.replace("'", "'\"'\"'") + "'"
+
+
+ckpt_path = Path(sys.argv[1]).resolve()
+ckpt = torch.load(ckpt_path, map_location="cpu")
+cfg = dict(ckpt.get("model_config", {}))
+args = dict(ckpt.get("args", {}))
+
+sim_env_entries = {}
+for entry in args.get("sim_env", []) or []:
+    if "=" in entry:
+        key, value = entry.split("=", 1)
+        sim_env_entries[key] = value
+
+sim_args_tokens = shlex.split(args.get("sim_args", "") or "")
+sim_args_map = {}
+idx = 0
+while idx < len(sim_args_tokens):
+    token = sim_args_tokens[idx]
+    if token.startswith("-") and idx + 1 < len(sim_args_tokens):
+        sim_args_map[token] = sim_args_tokens[idx + 1]
+        idx += 2
+    else:
+        idx += 1
+
+baseline_map = {"0": "pf", "1": "rr", "2": "pfq"}
+dl_ul_map = {"0": "ul", "1": "dl"}
+
+topology_scenario = ""
+n_cell = int(cfg.get("n_cell", 0) or 0)
+if n_cell == 3:
+    topology_scenario = "3cell"
+elif n_cell == 7:
+    topology_scenario = "7cell"
+
+prbs_per_group = ""
+n_prg = int(cfg.get("n_prg", 0) or 0)
+if n_prg > 0 and 272 % n_prg == 0:
+    prbs_per_group = str(272 // n_prg)
+
+ring_horizon = ""
+sim_log_path = ckpt_path.parent / "sim_runtime" / "online_bridge_sim.log"
+if sim_log_path.exists():
+    try:
+        for line in sim_log_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            match = re.search(r"ring_horizon=(\d+)", line)
+            if match:
+                ring_horizon = match.group(1)
+                break
+    except Exception:
+        pass
+
+payload = {
+    "RESUME_CFG_TOPOLOGY_SCENARIO": topology_scenario,
+    "RESUME_CFG_TOTAL_UE_COUNT": str(int(cfg.get("n_active_ue", 0) or 0)),
+    "RESUME_CFG_PRBS_PER_GROUP": prbs_per_group,
+    "RESUME_CFG_ACTION_MODE": cfg.get("action_mode", ""),
+    "RESUME_CFG_HIDDEN_DIM": str(int(cfg.get("hidden_dim", 0) or 0)),
+    "RESUME_CFG_NUM_CELL_MSG_LAYERS": str(int(cfg.get("num_cell_msg_layers", 0) or 0)),
+    "RESUME_CFG_SEED": str(int(args.get("seed", 0) or 0)),
+    "RESUME_CFG_REWARD_MODE": args.get("reward_mode", ""),
+    "RESUME_CFG_TOPOLOGY_SEED_MODE": args.get("resolved_topology_seed_mode", args.get("topology_seed_mode", "")),
+    "RESUME_CFG_ONLINE_PERSISTENT": str(int(args.get("online_persistent", 0) or 0)),
+    "RESUME_CFG_EPISODE_BOUNDARY_MODE": args.get(
+        "resolved_episode_boundary_mode",
+        args.get("episode_boundary_mode", ""),
+    ),
+    "RESUME_CFG_EPISODE_HORIZON": str(int(args.get("episode_horizon", 0) or 0)),
+    "RESUME_CFG_ROLLOUT_STEPS": str(int(args.get("rollout_steps", 0) or 0)),
+    "RESUME_CFG_SIM_LOG_MODE": args.get("sim_log_mode", ""),
+    "RESUME_CFG_TOPOLOGY_SEED": sim_env_entries.get("CUMAC_TOPOLOGY_SEED", ""),
+    "RESUME_CFG_UE_PLACEMENT": sim_env_entries.get("CUMAC_UE_PLACEMENT_MODE", ""),
+    "RESUME_CFG_UE_RADIUS_SPLITS": sim_env_entries.get("CUMAC_UE_RADIUS_SPLITS", ""),
+    "RESUME_CFG_UE_STRATA_COUNTS": sim_env_entries.get("CUMAC_UE_STRATA_COUNTS", ""),
+    "RESUME_CFG_UE_VORONOI_CLIP": sim_env_entries.get("CUMAC_UE_VORONOI_CLIP", ""),
+    "RESUME_CFG_BS_TX_PATTERN": sim_env_entries.get("CUMAC_BS_TX_PATTERN", ""),
+    "RESUME_CFG_COMPACT_TTI_LOG": sim_env_entries.get("CUMAC_COMPACT_TTI_LOG", ""),
+    "RESUME_CFG_PROGRESS_TTI_INTERVAL": sim_env_entries.get("CUMAC_PROGRESS_TTI_INTERVAL", ""),
+    "RESUME_CFG_KPI_TTI_LOG_INTERVAL": sim_env_entries.get("CUMAC_TTI_KPI_LOG_INTERVAL", ""),
+    "RESUME_CFG_COMPARE_TTI_INTERVAL": sim_env_entries.get("CUMAC_COMPARE_TTI_INTERVAL", ""),
+    "RESUME_CFG_TRAFFIC_ARRIVAL_RATE": sim_env_entries.get("CUMAC_TRAFFIC_ARRIVAL_RATE", ""),
+    "RESUME_CFG_PACKET_TTL_TTI": sim_env_entries.get("CUMAC_PACKET_TTL_TTI", ""),
+    "RESUME_CFG_PACKET_TTL_MS": sim_env_entries.get("CUMAC_PACKET_TTL_MS", ""),
+    "RESUME_CFG_REPLAY_DUMP": sim_env_entries.get("CUMAC_RL_REPLAY_DUMP", ""),
+    "RESUME_CFG_REPLAY_DIR": sim_env_entries.get("CUMAC_RL_REPLAY_DIR", ""),
+    "RESUME_CFG_DL_UL": dl_ul_map.get(sim_args_map.get("-d", ""), ""),
+    "RESUME_CFG_BASELINE_SCHEDULER": baseline_map.get(sim_args_map.get("-b", ""), ""),
+    "RESUME_CFG_FADING_MODE": sim_args_map.get("-f", ""),
+    "RESUME_CFG_CUSTOM_UE_PRG": sim_args_map.get("-x", ""),
+    "RESUME_CFG_TRAFFIC_PERCENT": sim_args_map.get("-g", ""),
+    "RESUME_CFG_PACKET_SIZE_BYTES": sim_args_map.get("-r", ""),
+    "RESUME_CFG_TTI_COUNT": ring_horizon,
+}
+
+for key, value in payload.items():
+    print(f"{key}={shell_quote(value)}")
+PY
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
@@ -235,10 +356,11 @@ while [[ $# -gt 0 ]]; do
         --exec-mode) EXEC_MODE="$2"; shift 2 ;;
         --tag) TAG="$2"; shift 2 ;;
         --restore-params) RESTORE_PARAMS="$2"; shift 2 ;;
-        --out-dir) OUT_DIR="$2"; shift 2 ;;
+        --out-dir) OUT_DIR="$2"; OUT_DIR_EXPLICIT=1; shift 2 ;;
+        --resume-train-checkpoint) RESUME_TRAIN_CHECKPOINT="$2"; shift 2 ;;
         --init-policy-checkpoint) INIT_POLICY_CHECKPOINT="$2"; shift 2 ;;
         --iters) ITERS="$2"; shift 2 ;;
-        --rollout-steps) ROLLOUT_STEPS="$2"; shift 2 ;;
+        --rollout-steps) ROLLOUT_STEPS="$2"; ROLLOUT_STEPS_EXPLICIT=1; shift 2 ;;
         --ppo-epochs) PPO_EPOCHS="$2"; shift 2 ;;
         --minibatch-size) MINIBATCH_SIZE="$2"; shift 2 ;;
         --gamma) GAMMA="$2"; shift 2 ;;
@@ -295,6 +417,126 @@ fi
 if [[ ! -f "${TRAIN_SCRIPT}" ]]; then
     echo "Missing training script: ${TRAIN_SCRIPT}" >&2
     exit 1
+fi
+if [[ -n "${INIT_POLICY_CHECKPOINT}" && -n "${RESUME_TRAIN_CHECKPOINT}" ]]; then
+    echo "--init-policy-checkpoint and --resume-train-checkpoint are mutually exclusive" >&2
+    exit 1
+fi
+if [[ -n "${RESUME_TRAIN_CHECKPOINT}" && "${RESUME_TRAIN_CHECKPOINT}" != /* ]]; then
+    RESUME_TRAIN_CHECKPOINT="${ROOT_DIR}/${RESUME_TRAIN_CHECKPOINT}"
+fi
+if [[ -n "${RESUME_TRAIN_CHECKPOINT}" ]]; then
+    if [[ ! -f "${RESUME_TRAIN_CHECKPOINT}" ]]; then
+        echo "Missing resume checkpoint: ${RESUME_TRAIN_CHECKPOINT}" >&2
+        exit 1
+    fi
+    eval "$(load_resume_config "${RESUME_TRAIN_CHECKPOINT}")"
+    if [[ "${TOPOLOGY_SCENARIO}" == "7cell" && -n "${RESUME_CFG_TOPOLOGY_SCENARIO}" ]]; then
+        TOPOLOGY_SCENARIO="${RESUME_CFG_TOPOLOGY_SCENARIO}"
+    fi
+    if [[ -z "${TOTAL_UE_COUNT}" && -n "${RESUME_CFG_TOTAL_UE_COUNT}" && "${RESUME_CFG_TOTAL_UE_COUNT}" != "0" ]]; then
+        TOTAL_UE_COUNT="${RESUME_CFG_TOTAL_UE_COUNT}"
+    fi
+    if [[ "${TTI_COUNT}" == "2000" && -n "${RESUME_CFG_TTI_COUNT}" ]]; then
+        TTI_COUNT="${RESUME_CFG_TTI_COUNT}"
+    fi
+    if [[ "${DL_UL}" == "dl" && -n "${RESUME_CFG_DL_UL}" ]]; then
+        DL_UL="${RESUME_CFG_DL_UL}"
+    fi
+    if [[ "${FADING_MODE}" == "0" && -n "${RESUME_CFG_FADING_MODE}" ]]; then
+        FADING_MODE="${RESUME_CFG_FADING_MODE}"
+    fi
+    if [[ "${PRBS_PER_GROUP}" == "16" && -n "${RESUME_CFG_PRBS_PER_GROUP}" ]]; then
+        PRBS_PER_GROUP="${RESUME_CFG_PRBS_PER_GROUP}"
+    fi
+    if [[ "${BASELINE_SCHEDULER}" == "pf" && -n "${RESUME_CFG_BASELINE_SCHEDULER}" ]]; then
+        BASELINE_SCHEDULER="${RESUME_CFG_BASELINE_SCHEDULER}"
+    fi
+    if [[ "${TRAFFIC_PERCENT}" == "100" && -n "${RESUME_CFG_TRAFFIC_PERCENT}" ]]; then
+        TRAFFIC_PERCENT="${RESUME_CFG_TRAFFIC_PERCENT}"
+    fi
+    if [[ "${PACKET_SIZE_BYTES}" == "5000" && -n "${RESUME_CFG_PACKET_SIZE_BYTES}" ]]; then
+        PACKET_SIZE_BYTES="${RESUME_CFG_PACKET_SIZE_BYTES}"
+    fi
+    if [[ "${TRAFFIC_ARRIVAL_RATE}" == "0.2" && -n "${RESUME_CFG_TRAFFIC_ARRIVAL_RATE}" ]]; then
+        TRAFFIC_ARRIVAL_RATE="${RESUME_CFG_TRAFFIC_ARRIVAL_RATE}"
+    fi
+    if [[ "${PACKET_TTL_TTI}" == "0" && -n "${RESUME_CFG_PACKET_TTL_TTI}" ]]; then
+        PACKET_TTL_TTI="${RESUME_CFG_PACKET_TTL_TTI}"
+    fi
+    if [[ "${PACKET_TTL_MS}" == "0" && -n "${RESUME_CFG_PACKET_TTL_MS}" ]]; then
+        PACKET_TTL_MS="${RESUME_CFG_PACKET_TTL_MS}"
+    fi
+    if [[ "${TOPOLOGY_SEED}" == "0" && -n "${RESUME_CFG_TOPOLOGY_SEED}" ]]; then
+        TOPOLOGY_SEED="${RESUME_CFG_TOPOLOGY_SEED}"
+    fi
+    if [[ "${UE_PLACEMENT}" == "uniform" && -n "${RESUME_CFG_UE_PLACEMENT}" ]]; then
+        UE_PLACEMENT="${RESUME_CFG_UE_PLACEMENT}"
+    fi
+    if [[ "${UE_RADIUS_SPLITS}" == "0.33,0.66" && -n "${RESUME_CFG_UE_RADIUS_SPLITS}" ]]; then
+        UE_RADIUS_SPLITS="${RESUME_CFG_UE_RADIUS_SPLITS}"
+    fi
+    if [[ -z "${UE_STRATA_COUNTS}" && -n "${RESUME_CFG_UE_STRATA_COUNTS}" ]]; then
+        UE_STRATA_COUNTS="${RESUME_CFG_UE_STRATA_COUNTS}"
+    fi
+    if [[ "${UE_VORONOI_CLIP}" == "1" && -n "${RESUME_CFG_UE_VORONOI_CLIP}" ]]; then
+        UE_VORONOI_CLIP="${RESUME_CFG_UE_VORONOI_CLIP}"
+    fi
+    if [[ "${BS_TX_PATTERN}" == "omni" && -n "${RESUME_CFG_BS_TX_PATTERN}" ]]; then
+        BS_TX_PATTERN="${RESUME_CFG_BS_TX_PATTERN}"
+    fi
+    if [[ "${COMPACT_TTI_LOG}" == "1" && -n "${RESUME_CFG_COMPACT_TTI_LOG}" ]]; then
+        COMPACT_TTI_LOG="${RESUME_CFG_COMPACT_TTI_LOG}"
+    fi
+    if [[ "${PROGRESS_TTI_INTERVAL}" == "0" && -n "${RESUME_CFG_PROGRESS_TTI_INTERVAL}" ]]; then
+        PROGRESS_TTI_INTERVAL="${RESUME_CFG_PROGRESS_TTI_INTERVAL}"
+    fi
+    if [[ "${KPI_TTI_LOG_INTERVAL}" == "100" && -n "${RESUME_CFG_KPI_TTI_LOG_INTERVAL}" ]]; then
+        KPI_TTI_LOG_INTERVAL="${RESUME_CFG_KPI_TTI_LOG_INTERVAL}"
+    fi
+    if [[ "${COMPARE_TTI_INTERVAL}" == "0" && -n "${RESUME_CFG_COMPARE_TTI_INTERVAL}" ]]; then
+        COMPARE_TTI_INTERVAL="${RESUME_CFG_COMPARE_TTI_INTERVAL}"
+    fi
+    if [[ "${REPLAY_DUMP}" == "0" && -n "${RESUME_CFG_REPLAY_DUMP}" ]]; then
+        REPLAY_DUMP="${RESUME_CFG_REPLAY_DUMP}"
+    fi
+    if [[ -z "${REPLAY_DIR}" && -n "${RESUME_CFG_REPLAY_DIR}" ]]; then
+        REPLAY_DIR="${RESUME_CFG_REPLAY_DIR}"
+    fi
+    if [[ "${ACTION_MODE}" == "joint" && -n "${RESUME_CFG_ACTION_MODE}" ]]; then
+        ACTION_MODE="${RESUME_CFG_ACTION_MODE}"
+    fi
+    if [[ "${HIDDEN_DIM}" == "128" && -n "${RESUME_CFG_HIDDEN_DIM}" && "${RESUME_CFG_HIDDEN_DIM}" != "0" ]]; then
+        HIDDEN_DIM="${RESUME_CFG_HIDDEN_DIM}"
+    fi
+    if [[ "${NUM_CELL_MSG_LAYERS}" == "2" && -n "${RESUME_CFG_NUM_CELL_MSG_LAYERS}" && "${RESUME_CFG_NUM_CELL_MSG_LAYERS}" != "0" ]]; then
+        NUM_CELL_MSG_LAYERS="${RESUME_CFG_NUM_CELL_MSG_LAYERS}"
+    fi
+    if [[ "${SEED}" == "42" && -n "${RESUME_CFG_SEED}" && "${RESUME_CFG_SEED}" != "0" ]]; then
+        SEED="${RESUME_CFG_SEED}"
+    fi
+    if [[ "${TOPOLOGY_SEED_MODE}" == "fixed" && -n "${RESUME_CFG_TOPOLOGY_SEED_MODE}" ]]; then
+        TOPOLOGY_SEED_MODE="${RESUME_CFG_TOPOLOGY_SEED_MODE}"
+    fi
+    if [[ "${ONLINE_PERSISTENT}" == "1" && -n "${RESUME_CFG_ONLINE_PERSISTENT}" ]]; then
+        ONLINE_PERSISTENT="${RESUME_CFG_ONLINE_PERSISTENT}"
+    fi
+    if [[ "${EPISODE_BOUNDARY_MODE}" == "trainer" && -n "${RESUME_CFG_EPISODE_BOUNDARY_MODE}" ]]; then
+        EPISODE_BOUNDARY_MODE="${RESUME_CFG_EPISODE_BOUNDARY_MODE}"
+    fi
+    if [[ "${EPISODE_HORIZON_EXPLICIT}" != "1" && -n "${RESUME_CFG_EPISODE_HORIZON}" && "${RESUME_CFG_EPISODE_HORIZON}" != "0" ]]; then
+        EPISODE_HORIZON="${RESUME_CFG_EPISODE_HORIZON}"
+    fi
+    if [[ "${ROLLOUT_STEPS_EXPLICIT}" != "1" && -n "${RESUME_CFG_ROLLOUT_STEPS}" && "${RESUME_CFG_ROLLOUT_STEPS}" != "0" ]]; then
+        ROLLOUT_STEPS="${RESUME_CFG_ROLLOUT_STEPS}"
+    fi
+    if [[ "${REWARD_MODE}" == "goodput_only" && -n "${RESUME_CFG_REWARD_MODE}" ]]; then
+        REWARD_MODE="${RESUME_CFG_REWARD_MODE}"
+    fi
+    if [[ "${SIM_LOG_MODE}" == "file" && -n "${RESUME_CFG_SIM_LOG_MODE}" ]]; then
+        SIM_LOG_MODE="${RESUME_CFG_SIM_LOG_MODE}"
+    fi
+    echo "[Stage-B Online] resume config restored from checkpoint: topology=${TOPOLOGY_SCENARIO} total_ue_count=${TOTAL_UE_COUNT:-auto} tti=${TTI_COUNT} action_mode=${ACTION_MODE} rollout_steps=${ROLLOUT_STEPS} episode_horizon=${EPISODE_HORIZON} reward_mode=${REWARD_MODE} topology_seed=${TOPOLOGY_SEED}"
 fi
 
 EXEC_MODE="$(echo "${EXEC_MODE}" | tr '[:upper:]' '[:lower:]')"
@@ -370,6 +612,9 @@ if ! [[ "${ITERS}" =~ ^[0-9]+$ ]] || [[ "${ITERS}" -lt 1 ]]; then
     echo "--iters must be a positive integer" >&2
     exit 1
 fi
+if [[ "${ROLLOUT_STEPS_EXPLICIT}" != "1" ]] && [[ "${TTI_COUNT}" =~ ^[0-9]+$ ]] && [[ "${ROLLOUT_STEPS}" -gt "${TTI_COUNT}" ]]; then
+    ROLLOUT_STEPS="${TTI_COUNT}"
+fi
 if ! [[ "${ROLLOUT_STEPS}" =~ ^[0-9]+$ ]] || [[ "${ROLLOUT_STEPS}" -lt 1 ]]; then
     echo "--rollout-steps must be a positive integer" >&2
     exit 1
@@ -412,6 +657,12 @@ if [[ "${OUT_DIR}" != /* ]]; then
 fi
 if [[ -n "${INIT_POLICY_CHECKPOINT}" && "${INIT_POLICY_CHECKPOINT}" != /* ]]; then
     INIT_POLICY_CHECKPOINT="${ROOT_DIR}/${INIT_POLICY_CHECKPOINT}"
+fi
+if [[ -n "${RESUME_TRAIN_CHECKPOINT}" && "${RESUME_TRAIN_CHECKPOINT}" != /* ]]; then
+    RESUME_TRAIN_CHECKPOINT="${ROOT_DIR}/${RESUME_TRAIN_CHECKPOINT}"
+fi
+if [[ -n "${RESUME_TRAIN_CHECKPOINT}" && "${OUT_DIR_EXPLICIT}" != "1" ]]; then
+    OUT_DIR="$(cd "$(dirname "${RESUME_TRAIN_CHECKPOINT}")" && pwd)"
 fi
 if [[ -n "${REPLAY_DIR}" && "${REPLAY_DIR}" != /* ]]; then
     REPLAY_DIR="${ROOT_DIR}/${REPLAY_DIR}"
@@ -550,6 +801,9 @@ echo "[Stage-B Online] sim_log_mode=${SIM_LOG_MODE}"
 echo "[Stage-B Online] prbs_per_group=${PRBS_PER_GROUP} prg_count=${PRG_COUNT}"
 echo "[Stage-B Online] ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
 echo "[Stage-B Online] rollout_steps=${ROLLOUT_STEPS} episode_horizon=${EPISODE_HORIZON} iters=${ITERS} total_train_tti=$((ITERS * ROLLOUT_STEPS))"
+if [[ -n "${RESUME_TRAIN_CHECKPOINT}" ]]; then
+    echo "[Stage-B Online] resume_train_checkpoint=${RESUME_TRAIN_CHECKPOINT}"
+fi
 echo "[Stage-B Online] packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS}"
 echo "[Stage-B Online] candidate_save_every_iters=${CANDIDATE_SAVE_EVERY_ITERS} candidate_save_start_iter=${CANDIDATE_SAVE_START_ITER} auto_main_eval=${AUTO_MAIN_EVAL}"
 if [[ -n "${SEED_LIST}" ]]; then
@@ -604,6 +858,9 @@ TRAIN_CMD=(
     --episode-boundary-mode "${EPISODE_BOUNDARY_MODE}"
     --device "${DEVICE}"
 )
+if [[ -n "${RESUME_TRAIN_CHECKPOINT}" ]]; then
+    TRAIN_CMD+=(--resume-train-checkpoint "${RESUME_TRAIN_CHECKPOINT}")
+fi
 if [[ -n "${INIT_POLICY_CHECKPOINT}" ]]; then
     TRAIN_CMD+=(--init-policy-checkpoint "${INIT_POLICY_CHECKPOINT}")
 fi
