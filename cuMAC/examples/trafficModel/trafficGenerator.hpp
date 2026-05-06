@@ -261,6 +261,8 @@ protected:
     unsigned long long total_expired_packets = 0;
     unsigned long long last_expired_bytes = 0;
     unsigned long long last_expired_packets = 0;
+    PacketServiceRateSummary last_packet_service_rate;
+    double last_packet_rate_mbps_sum = 0.0;
     std::vector<unsigned long long> expired_bytes_per_flow;
     std::vector<unsigned long long> expired_packets_per_flow;
 
@@ -352,6 +354,8 @@ public:
         total_expired_packets = 0ULL;
         last_expired_bytes = 0ULL;
         last_expired_packets = 0ULL;
+        last_packet_service_rate = PacketServiceRateSummary {};
+        last_packet_rate_mbps_sum = 0.0;
     }
     void SetSlotDurationMs(double value_ms)
     {
@@ -464,6 +468,8 @@ public:
     }
     void RecordServedBytes(const std::vector<unsigned long long>& served_bytes, int current_tti)
     {
+        last_packet_service_rate = PacketServiceRateSummary {};
+        last_packet_rate_mbps_sum = 0.0;
         const size_t n = std::min(served_bytes.size(), mac_packet_queues.size());
         for (size_t i = 0; i < n; ++i) {
             unsigned long long bytes_left = served_bytes[i];
@@ -494,10 +500,22 @@ public:
                     total_delivered_bits += delivered_bits;
                     total_packet_system_time_ms += packet_system_time_ms;
                     total_packet_rate_mbps_sum += packet_rate_mbps;
+                    last_packet_service_rate.delivered_packets += 1ULL;
+                    last_packet_service_rate.total_delivered_bits += delivered_bits;
+                    last_packet_service_rate.total_packet_system_time_ms += packet_system_time_ms;
+                    last_packet_rate_mbps_sum += packet_rate_mbps;
                     queue.pop_front();
                 }
             }
         }
+        for (const auto& queue : mac_packet_queues) {
+            last_packet_service_rate.pending_packets += static_cast<unsigned long long>(queue.size());
+        }
+        last_packet_service_rate.packet_effective_service_rate_mbps =
+            computePacketEffectiveRateMbps(last_packet_service_rate.total_delivered_bits,
+                                           last_packet_service_rate.total_packet_system_time_ms);
+        last_packet_service_rate.packet_effective_service_rate_per_packet_mean_mbps =
+            computeMeanPacketRateMbps(last_packet_rate_mbps_sum, last_packet_service_rate.delivered_packets);
     }
     void GetPacketDelayStats(PacketDelaySummary& total, std::vector<PacketDelaySummary>& per_flow) const
     {
@@ -564,6 +582,10 @@ public:
             computePacketEffectiveRateMbps(total.total_delivered_bits, total.total_packet_system_time_ms);
         total.packet_effective_service_rate_per_packet_mean_mbps =
             computeMeanPacketRateMbps(total_packet_rate_mbps_sum, total.delivered_packets);
+    }
+    PacketServiceRateSummary GetLastPacketServiceRateStats() const
+    {
+        return last_packet_service_rate;
     }
     void GetPacketHeadStats(std::vector<PacketHeadSummary>& per_flow, int current_tti) const
     {

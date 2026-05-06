@@ -14,9 +14,14 @@ from typing import Dict, Iterable, List, Optional, Sequence
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Aggregate multi-seed Stage-B RR vs PF/PFQ compare outputs.")
+    p = argparse.ArgumentParser(description="Aggregate multi-seed Stage-B RR/RRQ vs PF/PFQ compare outputs.")
     p.add_argument("--manifest", required=True, help="CSV manifest produced by run_stageB_rr_pf_multi_seed_compare.sh")
     p.add_argument("--output-dir", required=True, help="Directory to write aggregated scenario compare outputs")
+    p.add_argument(
+        "--reference-baseline",
+        default="",
+        help="Optional label for the first/reference baseline (default: infer from manifest / compare JSON)",
+    )
     p.add_argument(
         "--compare-baseline",
         default="",
@@ -35,6 +40,10 @@ def normalize_compare_baseline(value: str) -> str:
 
 def compare_display_name(compare_baseline: str) -> str:
     return compare_baseline.upper()
+
+
+def comparison_stem(reference_baseline: str, compare_baseline: str) -> str:
+    return f"{reference_baseline}_vs_{compare_baseline}_compare"
 
 
 def load_manifest_rows(path: Path) -> List[Dict[str, str]]:
@@ -92,22 +101,24 @@ def format_value(v: Optional[float], unit: Optional[str] = None) -> str:
 
 
 def winner_by_direction(
-    rr_mean: Optional[float],
+    reference_mean: Optional[float],
     other_mean: Optional[float],
     direction: str,
+    reference_baseline: str,
     compare_baseline: str,
 ) -> str:
-    if rr_mean is None or other_mean is None:
+    if reference_mean is None or other_mean is None:
         return "unknown"
-    if abs(other_mean - rr_mean) <= 1.0e-12:
+    if abs(other_mean - reference_mean) <= 1.0e-12:
         return "tie"
     if direction == "higher_better":
-        return compare_baseline if other_mean > rr_mean else "rr"
-    return compare_baseline if other_mean < rr_mean else "rr"
+        return compare_baseline if other_mean > reference_mean else reference_baseline
+    return compare_baseline if other_mean < reference_mean else reference_baseline
 
 
 def aggregate_metric_rows(
     metric_rows_by_seed: Dict[str, List[Dict]],
+    reference_baseline: str,
     compare_baseline: str,
 ) -> List[Dict]:
     ordered_metric_names: List[str] = []
@@ -124,19 +135,19 @@ def aggregate_metric_rows(
     aggregated: List[Dict] = []
     for metric_name in ordered_metric_names:
         rows = grouped[metric_name]
-        rr_values = {
-            str(row["seed"]): float(row["rr"])
+        reference_values = {
+            str(row["seed"]): float(row.get("reference", row.get("rr")))
             for row in rows
-            if row.get("rr") is not None and row.get("rr") != ""
+            if row.get("reference", row.get("rr")) is not None and row.get("reference", row.get("rr")) != ""
         }
         other_values = {
-            str(row["seed"]): float(row["pf"])
+            str(row["seed"]): float(row.get("compare", row.get("pf")))
             for row in rows
-            if row.get("pf") is not None and row.get("pf") != ""
+            if row.get("compare", row.get("pf")) is not None and row.get("compare", row.get("pf")) != ""
         }
-        rr_list = list(rr_values.values())
+        reference_list = list(reference_values.values())
         other_list = list(other_values.values())
-        rr_mean = _mean(rr_list)
+        reference_mean = _mean(reference_list)
         other_mean = _mean(other_list)
         direction = str(rows[0].get("direction", "higher_better"))
         unit = rows[0].get("unit")
@@ -144,45 +155,47 @@ def aggregate_metric_rows(
         aggregated.append(
             {
                 "metric": metric_name,
-                "rr_mean": rr_mean,
-                "rr_std": _std(rr_list),
-                "rr_min": _min(rr_list),
-                "rr_max": _max(rr_list),
+                f"{reference_baseline}_mean": reference_mean,
+                f"{reference_baseline}_std": _std(reference_list),
+                f"{reference_baseline}_min": _min(reference_list),
+                f"{reference_baseline}_max": _max(reference_list),
                 f"{compare_baseline}_mean": other_mean,
                 f"{compare_baseline}_std": _std(other_list),
                 f"{compare_baseline}_min": _min(other_list),
                 f"{compare_baseline}_max": _max(other_list),
-                f"{compare_baseline}_minus_rr_mean": None
-                if rr_mean is None or other_mean is None
-                else float(other_mean - rr_mean),
-                f"{compare_baseline}_over_rr_mean_ratio": safe_ratio(other_mean, rr_mean),
+                f"{compare_baseline}_minus_{reference_baseline}_mean": None
+                if reference_mean is None or other_mean is None
+                else float(other_mean - reference_mean),
+                f"{compare_baseline}_over_{reference_baseline}_mean_ratio": safe_ratio(other_mean, reference_mean),
                 "direction": direction,
-                "winner_by_mean": winner_by_direction(rr_mean, other_mean, direction, compare_baseline),
+                "winner_by_mean": winner_by_direction(
+                    reference_mean, other_mean, direction, reference_baseline, compare_baseline
+                ),
                 "unit": unit,
-                "seed_count": len(sorted(set(rr_values) | set(other_values))),
-                "seeds": "|".join(sorted(set(rr_values) | set(other_values), key=lambda s: int(s))),
+                "seed_count": len(sorted(set(reference_values) | set(other_values))),
+                "seeds": "|".join(sorted(set(reference_values) | set(other_values), key=lambda s: int(s))),
                 "note": note,
-                "rr_values_by_seed": rr_values,
+                f"{reference_baseline}_values_by_seed": reference_values,
                 f"{compare_baseline}_values_by_seed": other_values,
             }
         )
     return aggregated
 
 
-def write_csv(out_dir: Path, compare_baseline: str, aggregated_metrics: List[Dict]) -> Path:
-    path = out_dir / f"rr_vs_{compare_baseline}_compare_mean.csv"
+def write_csv(out_dir: Path, reference_baseline: str, compare_baseline: str, aggregated_metrics: List[Dict]) -> Path:
+    path = out_dir / f"{comparison_stem(reference_baseline, compare_baseline)}_mean.csv"
     fieldnames = [
         "metric",
-        "rr_mean",
-        "rr_std",
-        "rr_min",
-        "rr_max",
+        f"{reference_baseline}_mean",
+        f"{reference_baseline}_std",
+        f"{reference_baseline}_min",
+        f"{reference_baseline}_max",
         f"{compare_baseline}_mean",
         f"{compare_baseline}_std",
         f"{compare_baseline}_min",
         f"{compare_baseline}_max",
-        f"{compare_baseline}_minus_rr_mean",
-        f"{compare_baseline}_over_rr_mean_ratio",
+        f"{compare_baseline}_minus_{reference_baseline}_mean",
+        f"{compare_baseline}_over_{reference_baseline}_mean_ratio",
         "direction",
         "winner_by_mean",
         "unit",
@@ -201,13 +214,16 @@ def write_csv(out_dir: Path, compare_baseline: str, aggregated_metrics: List[Dic
 def write_json(
     out_dir: Path,
     scenario: str,
+    reference_baseline: str,
     compare_baseline: str,
     source_rows: List[Dict[str, str]],
     aggregated_metrics: List[Dict],
 ) -> Path:
-    path = out_dir / f"rr_vs_{compare_baseline}_compare_mean.json"
+    path = out_dir / f"{comparison_stem(reference_baseline, compare_baseline)}_mean.json"
     payload = {
         "scenario": scenario,
+        "reference_baseline": reference_baseline,
+        "reference_display_name": compare_display_name(reference_baseline),
         "compare_baseline": compare_baseline,
         "compare_display_name": compare_display_name(compare_baseline),
         "seed_count": len(source_rows),
@@ -222,14 +238,17 @@ def write_json(
 def write_text(
     out_dir: Path,
     scenario: str,
+    reference_baseline: str,
     compare_baseline: str,
     source_rows: List[Dict[str, str]],
     aggregated_metrics: List[Dict],
 ) -> Path:
-    path = out_dir / f"rr_vs_{compare_baseline}_compare_mean.txt"
+    path = out_dir / f"{comparison_stem(reference_baseline, compare_baseline)}_mean.txt"
+    reference_display_name = compare_display_name(reference_baseline)
     display_name = compare_display_name(compare_baseline)
     lines = [
         f"scenario: {scenario}",
+        f"reference_baseline: {reference_baseline}",
         f"compare_baseline: {compare_baseline}",
         f"seed_count: {len(source_rows)}",
         "seeds: " + ", ".join(row["seed"] for row in sorted(source_rows, key=lambda r: int(r["seed"]))),
@@ -242,23 +261,38 @@ def write_text(
     lines.extend(
         [
             "",
-            f"[RR vs {display_name} Mean Metrics]",
+            f"[{reference_display_name} vs {display_name} Mean Metrics]",
         ]
     )
     for row in aggregated_metrics:
         lines.append(
             f"{row['metric']}: "
-            f"rr_mean={format_value(row.get('rr_mean'), row.get('unit'))} "
-            f"rr_std={format_value(row.get('rr_std'), row.get('unit'))} "
+            f"{reference_baseline}_mean={format_value(row.get(f'{reference_baseline}_mean'), row.get('unit'))} "
+            f"{reference_baseline}_std={format_value(row.get(f'{reference_baseline}_std'), row.get('unit'))} "
             f"{compare_baseline}_mean={format_value(row.get(f'{compare_baseline}_mean'), row.get('unit'))} "
             f"{compare_baseline}_std={format_value(row.get(f'{compare_baseline}_std'), row.get('unit'))} "
-            f"{compare_baseline}_minus_rr_mean={format_value(row.get(f'{compare_baseline}_minus_rr_mean'), row.get('unit'))} "
-            f"{compare_baseline}_over_rr_mean_ratio={format_value(row.get(f'{compare_baseline}_over_rr_mean_ratio'))} "
+            f"{compare_baseline}_minus_{reference_baseline}_mean={format_value(row.get(f'{compare_baseline}_minus_{reference_baseline}_mean'), row.get('unit'))} "
+            f"{compare_baseline}_over_{reference_baseline}_mean_ratio={format_value(row.get(f'{compare_baseline}_over_{reference_baseline}_mean_ratio'))} "
             f"winner_by_mean={row['winner_by_mean']}"
             + (f" | {row['note']}" if row.get("note") else "")
         )
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
+
+
+def infer_reference_baseline(rows: Sequence[Dict[str, str]], preferred: str) -> str:
+    if preferred:
+        return normalize_compare_baseline(preferred)
+    for row in rows:
+        baseline = row.get("reference_baseline", "")
+        if baseline:
+            return normalize_compare_baseline(baseline)
+    for row in rows:
+        payload = load_json(Path(row["compare_json"]))
+        baseline = payload.get("reference_baseline", "")
+        if baseline:
+            return normalize_compare_baseline(str(baseline))
+    return "rr"
 
 
 def infer_compare_baseline(rows: Sequence[Dict[str, str]], preferred: str) -> str:
@@ -286,6 +320,7 @@ def main() -> None:
     if not manifest_rows:
         raise RuntimeError(f"manifest is empty: {manifest_path}")
 
+    reference_baseline = infer_reference_baseline(manifest_rows, args.reference_baseline)
     compare_baseline = infer_compare_baseline(manifest_rows, args.compare_baseline)
     grouped: Dict[str, List[Dict[str, str]]] = defaultdict(list)
     for row in manifest_rows:
@@ -301,12 +336,12 @@ def main() -> None:
             metric_rows = payload.get("rr_vs_pf_metrics") or payload.get("rr_vs_compare_metrics") or []
             metric_rows_by_seed[str(row["seed"])] = list(metric_rows)
 
-        aggregated_metrics = aggregate_metric_rows(metric_rows_by_seed, compare_baseline)
+        aggregated_metrics = aggregate_metric_rows(metric_rows_by_seed, reference_baseline, compare_baseline)
         scenario_out_dir = out_root / scenario
         scenario_out_dir.mkdir(parents=True, exist_ok=True)
-        csv_path = write_csv(scenario_out_dir, compare_baseline, aggregated_metrics)
-        json_path = write_json(scenario_out_dir, scenario, compare_baseline, rows, aggregated_metrics)
-        txt_path = write_text(scenario_out_dir, scenario, compare_baseline, rows, aggregated_metrics)
+        csv_path = write_csv(scenario_out_dir, reference_baseline, compare_baseline, aggregated_metrics)
+        json_path = write_json(scenario_out_dir, scenario, reference_baseline, compare_baseline, rows, aggregated_metrics)
+        txt_path = write_text(scenario_out_dir, scenario, reference_baseline, compare_baseline, rows, aggregated_metrics)
         aggregate_manifest_rows.append(
             {
                 "scenario": scenario,
@@ -342,6 +377,7 @@ def main() -> None:
         "\n".join(
             [
                 f"manifest={manifest_path}",
+                f"reference_baseline={reference_baseline}",
                 f"compare_baseline={compare_baseline}",
                 f"scenario_count={len(aggregate_manifest_rows)}",
                 f"aggregate_manifest={aggregate_manifest_path}",
@@ -351,8 +387,14 @@ def main() -> None:
         encoding="utf-8",
     )
 
-    print(f"Aggregated RR vs {compare_display_name(compare_baseline)} compare manifest: {aggregate_manifest_path}")
-    print(f"Aggregated RR vs {compare_display_name(compare_baseline)} compare summary: {aggregate_summary_path}")
+    print(
+        f"Aggregated {compare_display_name(reference_baseline)} vs "
+        f"{compare_display_name(compare_baseline)} compare manifest: {aggregate_manifest_path}"
+    )
+    print(
+        f"Aggregated {compare_display_name(reference_baseline)} vs "
+        f"{compare_display_name(compare_baseline)} compare summary: {aggregate_summary_path}"
+    )
 
 
 if __name__ == "__main__":

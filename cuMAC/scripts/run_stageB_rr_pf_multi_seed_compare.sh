@@ -14,6 +14,7 @@ USER_TAG=""
 CUSTOM_UE_PRG="0"
 COMPARE_TOP_N=10
 COMPARE_OUTPUT_DIR=""
+REFERENCE_BASELINE="rr"
 PF_BASELINE="pf"
 SEED_LIST="41,42,43"
 IGNORED_TOPOLOGY_SEED=""
@@ -21,19 +22,20 @@ FORWARD_ARGS=()
 
 usage() {
     cat <<EOF
-Run Stage-B native RR and PF/PFQ across multiple topology seeds, then aggregate mean metrics.
+Run Stage-B native RR/RRQ and PF/PFQ across multiple topology seeds, then aggregate mean metrics.
 
 Usage:
   $(basename "$0") [options]
 
 Behavior:
   1) For each topology seed in --seed-list, run ${PER_SEED_SCRIPT##*/}
-  2) Collect per-seed RR vs PF/PFQ compare JSON outputs
-  3) Aggregate mean/std/min/max per scenario into rr_vs_<pf-baseline>_compare_mean.*
+  2) Collect per-seed reference vs PF/PFQ compare JSON outputs
+  3) Aggregate mean/std/min/max per scenario into <reference-baseline>_vs_<pf-baseline>_compare_mean.*
 
 Wrapper-specific options:
   --seed-list <csv>          Topology seeds to run, e.g. 41,42,43 (default: ${SEED_LIST})
-  --pf-baseline <m>          Second baseline to compare against RR: pf | pfq (default: ${PF_BASELINE})
+  --reference-baseline <m>   First baseline: rr | rrq (default: ${REFERENCE_BASELINE})
+  --pf-baseline <m>          Second baseline to compare against reference: pf | pfq (default: ${PF_BASELINE})
   --compare-top-n <n>        Forwarded to per-seed compare runs (default: ${COMPARE_TOP_N})
   --compare-output-dir <dir> Base output directory for all per-seed and aggregated artifacts
   --build-method <m>         Build method for the first seed; later seeds use skip
@@ -70,6 +72,10 @@ parse_seed_list() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --baseline-scheduler)
+            shift 2
+            ;;
+        --reference-baseline)
+            REFERENCE_BASELINE="$2"
             shift 2
             ;;
         --pf-baseline)
@@ -140,6 +146,11 @@ if ! [[ "${COMPARE_TOP_N}" =~ ^[0-9]+$ ]]; then
     echo "--compare-top-n must be a non-negative integer" >&2
     exit 1
 fi
+REFERENCE_BASELINE="$(echo "${REFERENCE_BASELINE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${REFERENCE_BASELINE}" != "rr" && "${REFERENCE_BASELINE}" != "rrq" ]]; then
+    echo "--reference-baseline must be rr or rrq" >&2
+    exit 1
+fi
 PF_BASELINE="$(echo "${PF_BASELINE}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${PF_BASELINE}" != "pf" && "${PF_BASELINE}" != "pfq" ]]; then
     echo "--pf-baseline must be pf or pfq" >&2
@@ -149,11 +160,11 @@ fi
 mapfile -t SEEDS < <(parse_seed_list "${SEED_LIST}")
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
-default_base_tag="rr_${PF_BASELINE}_multi_seed_compare"
+default_base_tag="${REFERENCE_BASELINE}_${PF_BASELINE}_multi_seed_compare"
 base_tag="${USER_TAG:-${default_base_tag}}"
 
 if [[ -z "${COMPARE_OUTPUT_DIR}" ]]; then
-    COMPARE_OUTPUT_DIR="${ROOT_DIR}/output/stageB_rr_${PF_BASELINE}_multiseed_compare_${base_tag}_${timestamp}"
+    COMPARE_OUTPUT_DIR="${ROOT_DIR}/output/stageB_${REFERENCE_BASELINE}_${PF_BASELINE}_multiseed_compare_${base_tag}_${timestamp}"
 elif [[ "${COMPARE_OUTPUT_DIR}" != /* ]]; then
     COMPARE_OUTPUT_DIR="${ROOT_DIR}/${COMPARE_OUTPUT_DIR}"
 fi
@@ -163,11 +174,11 @@ seed_runs_manifest="${COMPARE_OUTPUT_DIR}/seed_runs.csv"
 scenario_seed_manifest="${COMPARE_OUTPUT_DIR}/scenario_seed_manifest.csv"
 summary_file="${COMPARE_OUTPUT_DIR}/aggregate_summary.txt"
 
-echo "seed,compare_output_dir,compare_manifest,compare_summary,rr_wrapper_log,other_wrapper_log" > "${seed_runs_manifest}"
-echo "scenario,seed,rr_dir,other_dir,other_baseline,compare_dir,compare_csv,compare_json,compare_txt" > "${scenario_seed_manifest}"
+echo "seed,compare_output_dir,compare_manifest,compare_summary,reference_wrapper_log,other_wrapper_log" > "${seed_runs_manifest}"
+echo "scenario,seed,reference_dir,other_dir,reference_baseline,other_baseline,compare_dir,compare_csv,compare_json,compare_txt" > "${scenario_seed_manifest}"
 
 if [[ -n "${IGNORED_TOPOLOGY_SEED}" ]]; then
-    echo "[RR/${PF_BASELINE} multi-seed] ignoring --topology-seed=${IGNORED_TOPOLOGY_SEED}; using --seed-list=${SEED_LIST}" >&2
+    echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^} multi-seed] ignoring --topology-seed=${IGNORED_TOPOLOGY_SEED}; using --seed-list=${SEED_LIST}" >&2
 fi
 
 seed_index=0
@@ -181,11 +192,12 @@ for seed in "${SEEDS[@]}"; do
     seed_tag="${base_tag}_s${seed}"
     mkdir -p "${seed_out_dir}"
 
-    echo "[RR/${PF_BASELINE} multi-seed] start seed=${seed} build_method=${seed_build_method} tag=${seed_tag}" >&2
+    echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^} multi-seed] start seed=${seed} build_method=${seed_build_method} tag=${seed_tag}" >&2
     "${PER_SEED_SCRIPT}" \
         "${FORWARD_ARGS[@]}" \
         --topology-seed "${seed}" \
         --build-method "${seed_build_method}" \
+        --reference-baseline "${REFERENCE_BASELINE}" \
         --pf-baseline "${PF_BASELINE}" \
         --compare-top-n "${COMPARE_TOP_N}" \
         --compare-output-dir "${seed_out_dir}" \
@@ -193,7 +205,7 @@ for seed in "${SEEDS[@]}"; do
 
     seed_manifest="${seed_out_dir}/compare_manifest.csv"
     seed_summary="${seed_out_dir}/compare_summary.txt"
-    rr_log="${seed_out_dir}/rr_wrapper_run.log"
+    reference_log="${seed_out_dir}/${REFERENCE_BASELINE}_wrapper_run.log"
     other_log="${seed_out_dir}/${PF_BASELINE}_wrapper_run.log"
 
     if [[ ! -f "${seed_manifest}" ]]; then
@@ -206,19 +218,20 @@ for seed in "${SEEDS[@]}"; do
         "${seed_out_dir}" \
         "${seed_manifest}" \
         "${seed_summary}" \
-        "${rr_log}" \
+        "${reference_log}" \
         "${other_log}" >> "${seed_runs_manifest}"
 
-    while IFS=, read -r scenario rr_dir other_dir other_baseline compare_dir; do
+    while IFS=, read -r scenario reference_dir other_dir reference_baseline other_baseline compare_dir; do
         [[ -z "${scenario}" || "${scenario}" == "scenario" ]] && continue
-        compare_csv="${compare_dir}/rr_vs_${PF_BASELINE}_compare.csv"
-        compare_json="${compare_dir}/rr_vs_${PF_BASELINE}_compare.json"
-        compare_txt="${compare_dir}/rr_vs_${PF_BASELINE}_compare.txt"
-        printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        compare_csv="${compare_dir}/${REFERENCE_BASELINE}_vs_${PF_BASELINE}_compare.csv"
+        compare_json="${compare_dir}/${REFERENCE_BASELINE}_vs_${PF_BASELINE}_compare.json"
+        compare_txt="${compare_dir}/${REFERENCE_BASELINE}_vs_${PF_BASELINE}_compare.txt"
+        printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
             "${scenario}" \
             "${seed}" \
-            "${rr_dir}" \
+            "${reference_dir}" \
             "${other_dir}" \
+            "${reference_baseline}" \
             "${other_baseline}" \
             "${compare_dir}" \
             "${compare_csv}" \
@@ -232,9 +245,11 @@ done
 python3 "${AGGREGATE_SCRIPT}" \
     --manifest "${scenario_seed_manifest}" \
     --output-dir "${COMPARE_OUTPUT_DIR}" \
+    --reference-baseline "${REFERENCE_BASELINE}" \
     --compare-baseline "${PF_BASELINE}"
 
 {
+    echo "reference_baseline=${REFERENCE_BASELINE}"
     echo "compare_baseline=${PF_BASELINE}"
     echo "seed_list=${SEED_LIST}"
     echo "seed_count=${#SEEDS[@]}"
@@ -243,6 +258,6 @@ python3 "${AGGREGATE_SCRIPT}" \
     echo "aggregate_manifest=${COMPARE_OUTPUT_DIR}/aggregate_manifest.csv"
 } > "${summary_file}"
 
-echo "[RR/${PF_BASELINE} multi-seed] output_dir=${COMPARE_OUTPUT_DIR}"
-echo "[RR/${PF_BASELINE} multi-seed] seed_runs_manifest=${seed_runs_manifest}"
-echo "[RR/${PF_BASELINE} multi-seed] aggregate_manifest=${COMPARE_OUTPUT_DIR}/aggregate_manifest.csv"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^} multi-seed] output_dir=${COMPARE_OUTPUT_DIR}"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^} multi-seed] seed_runs_manifest=${seed_runs_manifest}"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^} multi-seed] aggregate_manifest=${COMPARE_OUTPUT_DIR}/aggregate_manifest.csv"

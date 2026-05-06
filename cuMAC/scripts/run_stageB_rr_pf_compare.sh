@@ -14,27 +14,29 @@ USER_TAG=""
 CUSTOM_UE_PRG="0"
 COMPARE_TOP_N=10
 COMPARE_OUTPUT_DIR=""
+REFERENCE_BASELINE="rr"
 PF_BASELINE="pf"
 FORWARD_ARGS=()
 
 usage() {
     cat <<EOF
-Run Stage-B native RR and PF/PFQ back-to-back, then compare the results.
+Run Stage-B native RR/RRQ and PF/PFQ back-to-back, then compare the results.
 
 Usage:
   $(basename "$0") [options]
 
 Behavior:
-  1) Runs ${RUN_SCRIPT##*/} once with --baseline-scheduler rr
+  1) Runs ${RUN_SCRIPT##*/} once with --baseline-scheduler <reference-baseline>
   2) Runs ${RUN_SCRIPT##*/} once with --baseline-scheduler <pf-baseline>
   3) Runs ${COMPARE_SCRIPT##*/} on every common passing scenario directory
 
 Wrapper-specific options:
-  --pf-baseline <m>          Second baseline to compare against RR: pf | pfq (default: ${PF_BASELINE})
+  --reference-baseline <m>   First baseline: rr | rrq (default: ${REFERENCE_BASELINE})
+  --pf-baseline <m>          Second baseline to compare against reference: pf | pfq (default: ${PF_BASELINE})
   --compare-top-n <n>         Top-N UE deltas in compare text output (default: ${COMPARE_TOP_N})
   --compare-output-dir <dir>  Base output directory for compare artifacts
-  --tag <name>                Optional base tag; wrapper expands it to <tag>_rr and <tag>_<pf-baseline>
-  --baseline-scheduler <m>    Ignored by this wrapper; RR and the selected --pf-baseline are always executed
+  --tag <name>                Optional base tag; wrapper expands it to <tag>_<reference-baseline> and <tag>_<pf-baseline>
+  --baseline-scheduler <m>    Ignored by this wrapper; reference and selected --pf-baseline are always executed
   -h, --help                  Show this help
 
 All other options are forwarded to ${RUN_SCRIPT##*/}.
@@ -63,6 +65,10 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --baseline-scheduler)
+            shift 2
+            ;;
+        --reference-baseline)
+            REFERENCE_BASELINE="$2"
             shift 2
             ;;
         --pf-baseline)
@@ -125,6 +131,11 @@ if ! [[ "${COMPARE_TOP_N}" =~ ^[0-9]+$ ]]; then
     echo "--compare-top-n must be a non-negative integer" >&2
     exit 1
 fi
+REFERENCE_BASELINE="$(echo "${REFERENCE_BASELINE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${REFERENCE_BASELINE}" != "rr" && "${REFERENCE_BASELINE}" != "rrq" ]]; then
+    echo "--reference-baseline must be rr or rrq" >&2
+    exit 1
+fi
 PF_BASELINE="$(echo "${PF_BASELINE}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${PF_BASELINE}" != "pf" && "${PF_BASELINE}" != "pfq" ]]; then
     echo "--pf-baseline must be pf or pfq" >&2
@@ -132,19 +143,19 @@ if [[ "${PF_BASELINE}" != "pf" && "${PF_BASELINE}" != "pfq" ]]; then
 fi
 
 timestamp="$(date +%Y%m%d_%H%M%S)"
-default_base_tag="rr_${PF_BASELINE}_compare"
+default_base_tag="${REFERENCE_BASELINE}_${PF_BASELINE}_compare"
 base_tag="${USER_TAG:-${default_base_tag}}"
-rr_tag="${base_tag}_rr"
+reference_tag="${base_tag}_${REFERENCE_BASELINE}"
 pf_tag="${base_tag}_${PF_BASELINE}"
 
 if [[ -z "${COMPARE_OUTPUT_DIR}" ]]; then
-    COMPARE_OUTPUT_DIR="${ROOT_DIR}/output/stageB_rr_${PF_BASELINE}_compare_${base_tag}_${timestamp}"
+    COMPARE_OUTPUT_DIR="${ROOT_DIR}/output/stageB_${REFERENCE_BASELINE}_${PF_BASELINE}_compare_${base_tag}_${timestamp}"
 elif [[ "${COMPARE_OUTPUT_DIR}" != /* ]]; then
     COMPARE_OUTPUT_DIR="${ROOT_DIR}/${COMPARE_OUTPUT_DIR}"
 fi
 mkdir -p "${COMPARE_OUTPUT_DIR}"
 
-rr_wrapper_log="${COMPARE_OUTPUT_DIR}/rr_wrapper_run.log"
+reference_wrapper_log="${COMPARE_OUTPUT_DIR}/${REFERENCE_BASELINE}_wrapper_run.log"
 pf_wrapper_log="${COMPARE_OUTPUT_DIR}/${PF_BASELINE}_wrapper_run.log"
 manifest_file="${COMPARE_OUTPUT_DIR}/compare_manifest.csv"
 summary_file="${COMPARE_OUTPUT_DIR}/compare_summary.txt"
@@ -156,14 +167,14 @@ run_one() {
     local wrapper_log="$4"
     local out_base
 
-    echo "[RR/${PF_BASELINE}] start baseline=${baseline} build_method=${build_method} tag=${tag}" | tee "${wrapper_log}" >&2
+    echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^}] start baseline=${baseline} build_method=${build_method} tag=${tag}" | tee "${wrapper_log}" >&2
     set +e
     "${RUN_SCRIPT}" "${FORWARD_ARGS[@]}" --build-method "${build_method}" --baseline-scheduler "${baseline}" --tag "${tag}" \
         2>&1 | tee -a "${wrapper_log}" >&2
     local rc=${PIPESTATUS[0]}
     set -e
     if [[ ${rc} -ne 0 ]]; then
-        echo "[RR/${PF_BASELINE}] run failed baseline=${baseline} rc=${rc}" | tee -a "${wrapper_log}" >&2
+        echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^}] run failed baseline=${baseline} rc=${rc}" | tee -a "${wrapper_log}" >&2
         return ${rc}
     fi
     out_base="$(sed -n 's/^\[Stage-B\] Done\. Output base: //p' "${wrapper_log}" | tail -n 1)"
@@ -179,40 +190,42 @@ if [[ "${BUILD_METHOD}" == "skip" ]]; then
     second_build_method="skip"
 fi
 
-rr_out_base="$(run_one rr "${BUILD_METHOD}" "${rr_tag}" "${rr_wrapper_log}")"
+reference_out_base="$(run_one "${REFERENCE_BASELINE}" "${BUILD_METHOD}" "${reference_tag}" "${reference_wrapper_log}")"
 other_out_base="$(run_one "${PF_BASELINE}" "${second_build_method}" "${pf_tag}" "${pf_wrapper_log}")"
 
-echo "scenario,rr_dir,other_dir,other_baseline,compare_dir" > "${manifest_file}"
+echo "scenario,reference_dir,other_dir,reference_baseline,other_baseline,compare_dir" > "${manifest_file}"
 
 compare_count=0
 while IFS= read -r scenario_dir; do
     scenario="$(basename "${scenario_dir}")"
-    rr_dir="${rr_out_base}/${scenario}"
+    reference_dir="${reference_out_base}/${scenario}"
     other_dir="${other_out_base}/${scenario}"
-    if [[ ! -f "${rr_dir}/kpi_summary.json" || ! -f "${other_dir}/kpi_summary.json" ]]; then
+    if [[ ! -f "${reference_dir}/kpi_summary.json" || ! -f "${other_dir}/kpi_summary.json" ]]; then
         continue
     fi
     out_dir="${COMPARE_OUTPUT_DIR}/${scenario}"
     mkdir -p "${out_dir}"
     python3 "${COMPARE_SCRIPT}" \
-        --rr "${rr_dir}" \
+        --rr "${reference_dir}" \
         --pf "${other_dir}" \
+        --reference-baseline "${REFERENCE_BASELINE}" \
         --compare-baseline "${PF_BASELINE}" \
         --output-dir "${out_dir}" \
         --top-n "${COMPARE_TOP_N}"
-    echo "${scenario},${rr_dir},${other_dir},${PF_BASELINE},${out_dir}" >> "${manifest_file}"
+    echo "${scenario},${reference_dir},${other_dir},${REFERENCE_BASELINE},${PF_BASELINE},${out_dir}" >> "${manifest_file}"
     compare_count=$((compare_count + 1))
-done < <(find "${rr_out_base}" -mindepth 1 -maxdepth 1 -type d | sort)
+done < <(find "${reference_out_base}" -mindepth 1 -maxdepth 1 -type d | sort)
 
 if [[ ${compare_count} -eq 0 ]]; then
     echo "No common scenario directories with kpi_summary.json were found between:" >&2
-    echo "  RR: ${rr_out_base}" >&2
+    echo "  ${REFERENCE_BASELINE^^}: ${reference_out_base}" >&2
     echo "  ${PF_BASELINE^^}: ${other_out_base}" >&2
     exit 1
 fi
 
 {
-    echo "rr_out_base=${rr_out_base}"
+    echo "reference_baseline=${REFERENCE_BASELINE}"
+    echo "reference_out_base=${reference_out_base}"
     echo "other_out_base=${other_out_base}"
     echo "compare_baseline=${PF_BASELINE}"
     echo "compare_output_dir=${COMPARE_OUTPUT_DIR}"
@@ -221,7 +234,7 @@ fi
     echo "manifest=${manifest_file}"
 } > "${summary_file}"
 
-echo "[RR/${PF_BASELINE}] rr_out_base=${rr_out_base}"
-echo "[RR/${PF_BASELINE}] other_out_base=${other_out_base}"
-echo "[RR/${PF_BASELINE}] compare_output_dir=${COMPARE_OUTPUT_DIR}"
-echo "[RR/${PF_BASELINE}] manifest=${manifest_file}"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^}] reference_out_base=${reference_out_base}"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^}] other_out_base=${other_out_base}"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^}] compare_output_dir=${COMPARE_OUTPUT_DIR}"
+echo "[${REFERENCE_BASELINE^^}/${PF_BASELINE^^}] manifest=${manifest_file}"

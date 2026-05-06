@@ -141,6 +141,10 @@ public:
     {
         radio_rsrc->GetPacketServiceRateStats(total, per_flow);
     }
+    PacketServiceRateSummary GetLastPacketServiceRateStats() const
+    {
+        return radio_rsrc->GetLastPacketServiceRateStats();
+    }
     void GetPacketHeadStats(std::vector<PacketHeadSummary>& per_flow) const
     {
         radio_rsrc->GetPacketHeadStats(per_flow, generator->GetLastTti());

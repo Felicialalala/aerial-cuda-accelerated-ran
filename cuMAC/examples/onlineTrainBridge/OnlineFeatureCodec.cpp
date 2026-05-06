@@ -361,7 +361,12 @@ OnlineFeatureCodec::RewardTerms OnlineFeatureCodec::buildReward(const cumacCellG
                                                                 float prgUtilizationRatio,
                                                                 float goodputSpectralEfficiencyBpsHz,
                                                                 float prgReuseRatio,
-                                                                float expiryDropRate) const
+                                                                float expiryDropRate,
+                                                                float packetCompletedCount,
+                                                                float packetDeliveredBits,
+                                                                float packetSystemTimeMs,
+                                                                float packetEffectiveServiceRateMbps,
+                                                                float packetEffectiveServiceRatePerPacketMeanMbps) const
 {
     RewardTerms terms;
     if (cellGrpUeStatusCpu == nullptr) {
@@ -399,6 +404,11 @@ OnlineFeatureCodec::RewardTerms OnlineFeatureCodec::buildReward(const cumacCellG
     terms.expiredBytes = clampNonNeg(static_cast<float>(expiredBytesThisTti));
     terms.expiredPackets = clampNonNeg(static_cast<float>(expiredPacketsThisTti));
     terms.expiryDropRate = std::max(0.0F, std::min(1.0F, expiryDropRate));
+    terms.packetCompletedCount = clampNonNeg(packetCompletedCount);
+    terms.packetDeliveredBits = clampNonNeg(packetDeliveredBits);
+    terms.packetSystemTimeMs = clampNonNeg(packetSystemTimeMs);
+    terms.packetEffectiveServiceRateMbps = clampNonNeg(packetEffectiveServiceRateMbps);
+    terms.packetEffectiveServiceRatePerPacketMeanMbps = clampNonNeg(packetEffectiveServiceRatePerPacketMeanMbps);
     terms.fairnessJain = (sumGoodputBytesSq > 0.0)
                              ? static_cast<float>(
                                    (sumGoodputBytes * sumGoodputBytes) /

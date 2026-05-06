@@ -71,6 +71,7 @@ namespace {
 constexpr uint8_t kBaselinePf = 0;
 constexpr uint8_t kBaselineRr = 1;
 constexpr uint8_t kBaselinePfQueueAware = 2;
+constexpr uint8_t kBaselineRrQueueAware = 3;
 
 enum class ExecMode {
     Both,
@@ -100,6 +101,8 @@ const char* baselineModeLabel(uint8_t baseline)
             return "RR baseline";
         case kBaselinePfQueueAware:
             return "queue-aware PF reference check";
+        case kBaselineRrQueueAware:
+            return "queue-aware RR baseline";
         case kBaselinePf:
         default:
             return "PF reference check";
@@ -211,6 +214,30 @@ std::vector<uint32_t> countAssignedPrgsPerSchedSlot(const cumacSchdSol* schdSol,
         }
     }
     return slotPrgCount;
+}
+
+std::vector<int32_t> countAssignedPrgsPerActiveUe(const cumacSchdSol* schdSol, const cumacCellGrpPrms* cellGrpPrms)
+{
+    std::vector<int32_t> uePrgCount;
+    if (schdSol == nullptr || cellGrpPrms == nullptr || schdSol->setSchdUePerCellTTI == nullptr) {
+        return uePrgCount;
+    }
+
+    uePrgCount.assign(cellGrpPrms->nActiveUe, 0);
+    const std::vector<uint32_t> slotPrgCount = countAssignedPrgsPerSchedSlot(schdSol, cellGrpPrms);
+    for (uint32_t schdUidx = 0; schdUidx < cellGrpPrms->nUe; ++schdUidx) {
+        const uint16_t activeUeId = schdSol->setSchdUePerCellTTI[schdUidx];
+        if (activeUeId == 0xFFFF || activeUeId >= static_cast<uint16_t>(cellGrpPrms->nActiveUe)) {
+            continue;
+        }
+        const uint32_t prgCnt = (static_cast<size_t>(schdUidx) < slotPrgCount.size())
+                                    ? slotPrgCount[schdUidx]
+                                    : 0U;
+        if (prgCnt > 0U) {
+            uePrgCount[activeUeId] += static_cast<int32_t>(prgCnt);
+        }
+    }
+    return uePrgCount;
 }
 
 PrgUsageStats computePrgUsageStats(const cumacSchdSol* schdSol, const cumacCellGrpPrms* cellGrpPrms)
@@ -368,7 +395,8 @@ void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
                                  cumacSchdSol* schdSolCpu,
                                  cumacSchdSol* schdSolGpu,
                                  cumacCellGrpPrms* cellGrpPrmsCpu,
-                                 cudaStream_t stream)
+                                 cudaStream_t stream,
+                                 cumac::Type0RejectDiagnostics* rejectDiag = nullptr)
 {
     const uint32_t nCell = cellGrpPrmsCpu->nCell;
     const uint32_t nSchedUe = cellGrpPrmsCpu->nUe;
@@ -395,7 +423,8 @@ void applyOnlineActionToSchedule(const cumac::online::StepAction& action,
         nTotCell,
         cellGrpPrmsCpu,
         schdSolCpu,
-        [&](uint32_t cIdx, uint32_t ueIdx) -> bool { return assocToCellOnline(cellGrpPrmsCpu, cIdx, ueIdx); });
+        [&](uint32_t cIdx, uint32_t ueIdx) -> bool { return assocToCellOnline(cellGrpPrmsCpu, cIdx, ueIdx); },
+        rejectDiag);
 
     const size_t ueSelBytes = static_cast<size_t>(nSchedUe) * sizeof(uint16_t);
     const size_t allocBytes = static_cast<size_t>(nTotCell) * nPrg * sizeof(int16_t);
@@ -416,7 +445,25 @@ cumac::online::StepState buildOnlineState(int tti,
                                           const std::vector<uint8_t>& maskUe,
                                           const std::vector<uint8_t>& maskCellUe,
                                           const std::vector<uint8_t>& maskPrg,
-                                          const cumac::online::OnlineFeatureCodec::RewardTerms& reward)
+                                          const std::vector<float>& postEqSinr,
+                                          const cumac::online::OnlineFeatureCodec::RewardTerms& reward,
+                                          const std::vector<int32_t>& teacherActionUe,
+                                          const std::vector<int16_t>& teacherActionPrg,
+                                          const std::vector<int32_t>& acceptedPrePdschUePrgCount,
+                                          const std::vector<int32_t>& nativeRejectWrongCellSlotCount,
+                                          const std::vector<int32_t>& nativeRejectEmptySlotCount,
+                                          const std::vector<int32_t>& nativeRejectPrgMaskCount,
+                                          const std::vector<int32_t>& nativeRejectOobSlotCount,
+                                          const std::vector<int32_t>& nativeRejectDuplicateUeCount,
+                                          const std::vector<int32_t>& nativeSlotCountPerCell,
+                                          const std::vector<int32_t>& nativeCellSlotStart,
+                                          const std::vector<int32_t>& nativeSlotToCell,
+                                          const std::vector<int32_t>& nativeSlotValid,
+                                          const std::vector<int32_t>& actualUePrgCount,
+                                          const std::vector<float>& actualUeServedBytes,
+                                          const std::vector<float>& actualUeGoodputBytes,
+                                          const std::vector<int32_t>& actualUeTbTxCount,
+                                          const std::vector<int32_t>& actualUeTbErrCount)
 {
     cumac::online::StepState state;
     state.header.tti = tti;
@@ -434,6 +481,11 @@ cumac::online::StepState buildOnlineState(int tti,
     state.header.rewardTerms[9] = reward.expiredBytes;
     state.header.rewardTerms[10] = reward.expiredPackets;
     state.header.rewardTerms[11] = reward.expiryDropRate;
+    state.header.rewardTerms[12] = reward.packetCompletedCount;
+    state.header.rewardTerms[13] = reward.packetDeliveredBits;
+    state.header.rewardTerms[14] = reward.packetSystemTimeMs;
+    state.header.rewardTerms[15] = reward.packetEffectiveServiceRateMbps;
+    state.header.rewardTerms[16] = reward.packetEffectiveServiceRatePerPacketMeanMbps;
     state.header.dims.nCell = codec.nCell();
     state.header.dims.nActiveUe = codec.nActiveUe();
     state.header.dims.nSchedUe = codec.nSchedUe();
@@ -446,6 +498,50 @@ cumac::online::StepState buildOnlineState(int tti,
     state.header.dims.ueFeatDim = codec.ueFeatDim();
     state.header.dims.edgeFeatDim = codec.edgeFeatDim();
     state.header.dims.prgFeatDim = codec.prgFeatDim();
+    state.header.dims.postEqLayerDim =
+        (codec.nActiveUe() > 0U && codec.nPrg() > 0U)
+            ? static_cast<uint32_t>(
+                  postEqSinr.size() /
+                  (static_cast<size_t>(codec.nActiveUe()) * static_cast<size_t>(codec.nPrg())))
+            : 0U;
+    state.header.stateFlags = 0U;
+    if (!postEqSinr.empty()) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasPostEqSinr;
+    }
+    if (!teacherActionUe.empty() && !teacherActionPrg.empty()) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasTeacherAction;
+    }
+    const bool hasAcceptedPrePdschUeDiagnostics =
+        acceptedPrePdschUePrgCount.size() == codec.nActiveUe();
+    if (hasAcceptedPrePdschUeDiagnostics) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasAcceptedPrePdschUeDiagnostics;
+    }
+    const bool hasNativeRejectDiagnostics =
+        nativeRejectWrongCellSlotCount.size() == codec.nCell() &&
+        nativeRejectEmptySlotCount.size() == codec.nCell() &&
+        nativeRejectPrgMaskCount.size() == codec.nCell() &&
+        nativeRejectOobSlotCount.size() == codec.nCell() &&
+        nativeRejectDuplicateUeCount.size() == codec.nCell();
+    if (hasNativeRejectDiagnostics) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasNativeRejectDiagnostics;
+    }
+    const bool hasNativeSlotLayoutDiagnostics =
+        nativeSlotCountPerCell.size() == codec.nCell() &&
+        nativeCellSlotStart.size() == codec.nCell() &&
+        nativeSlotToCell.size() == codec.nSchedUe() &&
+        nativeSlotValid.size() == codec.nSchedUe();
+    if (hasNativeSlotLayoutDiagnostics) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasNativeSlotLayoutDiagnostics;
+    }
+    const bool hasActualUeDiagnostics =
+        actualUePrgCount.size() == codec.nActiveUe() &&
+        actualUeServedBytes.size() == codec.nActiveUe() &&
+        actualUeGoodputBytes.size() == codec.nActiveUe() &&
+        actualUeTbTxCount.size() == codec.nActiveUe() &&
+        actualUeTbErrCount.size() == codec.nActiveUe();
+    if (hasActualUeDiagnostics) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasActualUeDiagnostics;
+    }
 
     state.obsCellFeatures = obsCell;
     state.obsUeFeatures = obsUe;
@@ -455,7 +551,72 @@ cumac::online::StepState buildOnlineState(int tti,
     state.actionMaskUe = maskUe;
     state.actionMaskCellUe = maskCellUe;
     state.actionMaskPrgCell = maskPrg;
+    state.postEqSinr = postEqSinr;
+    state.teacherActionUe = teacherActionUe;
+    state.teacherActionPrg = teacherActionPrg;
+    if (hasAcceptedPrePdschUeDiagnostics) {
+        state.acceptedPrePdschUePrgCount = acceptedPrePdschUePrgCount;
+    }
+    if (hasNativeRejectDiagnostics) {
+        state.nativeRejectWrongCellSlotCount = nativeRejectWrongCellSlotCount;
+        state.nativeRejectEmptySlotCount = nativeRejectEmptySlotCount;
+        state.nativeRejectPrgMaskCount = nativeRejectPrgMaskCount;
+        state.nativeRejectOobSlotCount = nativeRejectOobSlotCount;
+        state.nativeRejectDuplicateUeCount = nativeRejectDuplicateUeCount;
+    }
+    if (hasNativeSlotLayoutDiagnostics) {
+        state.nativeSlotCountPerCell = nativeSlotCountPerCell;
+        state.nativeCellSlotStart = nativeCellSlotStart;
+        state.nativeSlotToCell = nativeSlotToCell;
+        state.nativeSlotValid = nativeSlotValid;
+    }
+    if (hasActualUeDiagnostics) {
+        state.actualUePrgCount = actualUePrgCount;
+        state.actualUeServedBytes = actualUeServedBytes;
+        state.actualUeGoodputBytes = actualUeGoodputBytes;
+        state.actualUeTbTxCount = actualUeTbTxCount;
+        state.actualUeTbErrCount = actualUeTbErrCount;
+    }
     return state;
+}
+
+std::vector<float> buildOnlinePostEqSinr(const cumacCellGrpPrms* cellGrpPrmsCpu, bool enabled)
+{
+    if (!enabled || cellGrpPrmsCpu == nullptr || cellGrpPrmsCpu->postEqSinr == nullptr) {
+        return {};
+    }
+    const uint32_t nLayer = cellGrpPrmsCpu->nUeAnt > 0U ? cellGrpPrmsCpu->nUeAnt : 0U;
+    if (cellGrpPrmsCpu->nActiveUe == 0U || cellGrpPrmsCpu->nPrbGrp == 0U || nLayer == 0U) {
+        return {};
+    }
+    const size_t count = static_cast<size_t>(cellGrpPrmsCpu->nActiveUe) *
+                         static_cast<size_t>(cellGrpPrmsCpu->nPrbGrp) *
+                         static_cast<size_t>(nLayer);
+    return std::vector<float>(cellGrpPrmsCpu->postEqSinr, cellGrpPrmsCpu->postEqSinr + count);
+}
+
+std::vector<int32_t> buildOnlineTeacherUeAction(const cumacSchdSol* schdSolCpu, const cumacCellGrpPrms* cellGrpPrmsCpu)
+{
+    if (schdSolCpu == nullptr || cellGrpPrmsCpu == nullptr || schdSolCpu->setSchdUePerCellTTI == nullptr) {
+        return {};
+    }
+    std::vector<int32_t> out(cellGrpPrmsCpu->nUe, -1);
+    for (uint32_t slotIdx = 0; slotIdx < cellGrpPrmsCpu->nUe; ++slotIdx) {
+        const uint16_t activeUeId = schdSolCpu->setSchdUePerCellTTI[slotIdx];
+        if (activeUeId != 0xFFFF && activeUeId < cellGrpPrmsCpu->nActiveUe) {
+            out[slotIdx] = static_cast<int32_t>(activeUeId);
+        }
+    }
+    return out;
+}
+
+std::vector<int16_t> buildOnlineTeacherPrgAction(const cumacSchdSol* schdSolCpu, const cumacCellGrpPrms* cellGrpPrmsCpu)
+{
+    if (schdSolCpu == nullptr || cellGrpPrmsCpu == nullptr || schdSolCpu->allocSol == nullptr) {
+        return {};
+    }
+    const size_t count = allocSolBytes(cellGrpPrmsCpu) / sizeof(int16_t);
+    return std::vector<int16_t>(schdSolCpu->allocSol, schdSolCpu->allocSol + count);
 }
 
 } // namespace
@@ -625,15 +786,17 @@ int main(int argc, char* argv[])
       int parsedBaseline = -1;
       if (1 != sscanf(cpuRrRefIndStr.c_str(), "%d", &parsedBaseline) ||
           parsedBaseline < static_cast<int>(kBaselinePf) ||
-          parsedBaseline > static_cast<int>(kBaselinePfQueueAware)) {
-          fprintf(stderr, "ERROR: -b must be 0 (PF), 1 (RR), or 2 (queue-aware PF).\n");
+          parsedBaseline > static_cast<int>(kBaselineRrQueueAware)) {
+          fprintf(stderr, "ERROR: -b must be 0 (PF), 1 (RR), 2 (queue-aware PF), or 3 (queue-aware RR).\n");
           exit(1);
       }
       baseline = static_cast<uint8_t>(parsedBaseline);
   }
-  const bool rrBaseline = baseline == kBaselineRr;
+  const bool rrQueueAwareBaseline = baseline == kBaselineRrQueueAware;
+  const bool rrBaseline = baseline == kBaselineRr || rrQueueAwareBaseline;
   const bool queueAwarePfBaseline = baseline == kBaselinePfQueueAware;
   const char* pfModeLabel = nativePfLabel(baseline);
+  const char* rrModeLabel = rrQueueAwareBaseline ? "RRQ" : "RR";
   printf("cuMAC scheduler pipeline test: %s on CPU and GPU paths\n", baselineModeLabel(baseline));
 
   switch (fastFadingMode)
@@ -708,6 +871,10 @@ int main(int argc, char* argv[])
   const bool onlineBridgeEnabled = getEnvInt("CUMAC_ONLINE_BRIDGE", 0) != 0;
   const std::string onlineSocketPath = getEnvString("CUMAC_ONLINE_SOCKET", "/tmp/cumac_stageb_online.sock");
   const bool onlinePersistentMode = onlineBridgeEnabled && (getEnvInt("CUMAC_ONLINE_PERSISTENT", 1) != 0);
+  const bool onlineExportPostEqSinr =
+      onlineBridgeEnabled && (getEnvInt("CUMAC_ONLINE_EXPORT_POST_EQ_SINR", 0) != 0);
+  const bool onlineExportTeacher =
+      onlineBridgeEnabled && (getEnvInt("CUMAC_ONLINE_EXPORT_TEACHER_ACTION", 0) != 0);
   const std::string onlineRewardModeStr = getEnvString("CUMAC_ONLINE_REWARD_MODE", "goodput_only");
   const cumac::online::OnlineFeatureCodec::RewardMode onlineRewardMode =
       cumac::online::OnlineFeatureCodec::parseRewardMode(onlineRewardModeStr);
@@ -726,6 +893,17 @@ int main(int argc, char* argv[])
                                               ? std::max(0.0f,
                                                          getEnvFloat("CUMAC_PFQ_INTRA_TTI_DECAY_COEFF", 0.5f))
                                               : 0.0f;
+  const bool rrQueueDemandAwareCap =
+      rrQueueAwareBaseline ? (getEnvInt("CUMAC_RRQ_DEMAND_CAP", 1) != 0) : false;
+  const float rrQueueDemandCapSlackBytes = rrQueueAwareBaseline
+                                               ? std::max(0.0f,
+                                                          getEnvFloat("CUMAC_RRQ_DEMAND_CAP_SLACK_BYTES", 0.0f))
+                                               : 0.0f;
+  const float rrQueueEstimatedBytesPerPrg = rrQueueAwareBaseline
+                                                ? std::max(1.0f,
+                                                           getEnvFloat("CUMAC_RRQ_EST_BYTES_PER_PRG",
+                                                                       std::max(packetSizeBytes, 1.0f)))
+                                                : 1.0f;
   if (compareTtiInterval < 0) {
       compareTtiInterval = 0;
   }
@@ -736,6 +914,10 @@ int main(int argc, char* argv[])
       compareTtiInterval = 0;
       printf("cuMAC scheduler pipeline test: online bridge enabled, socket=%s\n", onlineSocketPath.c_str());
       printf("cuMAC scheduler pipeline test: online persistent mode=%s\n", onlinePersistentMode ? "on" : "off");
+      printf("cuMAC scheduler pipeline test: online raw postEqSinr export=%s\n",
+             onlineExportPostEqSinr ? "on" : "off");
+      printf("cuMAC scheduler pipeline test: online teacher action export=%s\n",
+             onlineExportTeacher ? "on" : "off");
       printf("cuMAC scheduler pipeline test: online reward mode=%s\n",
              cumac::online::OnlineFeatureCodec::rewardModeToString(onlineRewardMode));
   }
@@ -798,11 +980,17 @@ int main(int argc, char* argv[])
   net->cellGrpPrmsGpu->pfQueueDemandAwareCap = pfQueueDemandAwareCap ? 1 : 0;
   net->cellGrpPrmsGpu->pfQueueDemandCapSlackBytes = pfQueueDemandCapSlackBytes;
   net->cellGrpPrmsGpu->pfQueueIntraTtiDecayCoeff = pfQueueIntraTtiDecayCoeff;
+  net->cellGrpPrmsGpu->rrQueueDemandAwareCap = rrQueueDemandAwareCap ? 1 : 0;
+  net->cellGrpPrmsGpu->rrQueueDemandCapSlackBytes = rrQueueDemandCapSlackBytes;
+  net->cellGrpPrmsGpu->rrQueueEstimatedBytesPerPrg = rrQueueEstimatedBytesPerPrg;
   net->cellGrpPrmsCpu->pfQueueBufferCoeff = pfQueueBufferCoeff;
   net->cellGrpPrmsCpu->pfQueueBufferScaleBytes = pfQueueBufferScaleBytes;
   net->cellGrpPrmsCpu->pfQueueDemandAwareCap = pfQueueDemandAwareCap ? 1 : 0;
   net->cellGrpPrmsCpu->pfQueueDemandCapSlackBytes = pfQueueDemandCapSlackBytes;
   net->cellGrpPrmsCpu->pfQueueIntraTtiDecayCoeff = pfQueueIntraTtiDecayCoeff;
+  net->cellGrpPrmsCpu->rrQueueDemandAwareCap = rrQueueDemandAwareCap ? 1 : 0;
+  net->cellGrpPrmsCpu->rrQueueDemandCapSlackBytes = rrQueueDemandCapSlackBytes;
+  net->cellGrpPrmsCpu->rrQueueEstimatedBytesPerPrg = rrQueueEstimatedBytesPerPrg;
   if (queueAwarePfBaseline) {
     printf("Queue-aware PF weighting: buffer_coeff=%.3f buffer_scale_bytes=%.3f demand_cap=%s demand_cap_slack_bytes=%.3f intra_tti_decay_coeff=%.3f\n",
            pfQueueBufferCoeff,
@@ -810,6 +998,12 @@ int main(int argc, char* argv[])
            pfQueueDemandAwareCap ? "on" : "off",
            pfQueueDemandCapSlackBytes,
            pfQueueIntraTtiDecayCoeff);
+  }
+  if (rrQueueAwareBaseline) {
+    printf("Queue-aware RR cap: demand_cap=%s demand_cap_slack_bytes=%.3f est_bytes_per_prg=%.3f\n",
+           rrQueueDemandAwareCap ? "on" : "off",
+           rrQueueDemandCapSlackBytes,
+           rrQueueEstimatedBytesPerPrg);
   }
 
 
@@ -861,10 +1055,10 @@ int main(int argc, char* argv[])
   if (onlineBridgeEnabled) {
     printf("Online bridge enabled: skipping native GPU RR/PFQ UE/scheduler handle creation\n");
   } else if (rrBaseline) {
-    printf("Using GPU RR UE selection\n");
+    printf("Using GPU %s UE selection\n", rrModeLabel);
     rrUeSelGpu = new cumac::multiCellRRUeSel(net->cellGrpPrmsGpu.get());
 
-    printf("Using GPU RR UE scheduler\n");
+    printf("Using GPU %s UE scheduler\n", rrModeLabel);
     rrSchGpu = new cumac::multiCellRRScheduler(net->cellGrpPrmsGpu.get());
   } else {
     printf("Using GPU multi-cell %s UE selection\n", pfModeLabel);
@@ -968,13 +1162,13 @@ int main(int argc, char* argv[])
   mcUeSelCpuHndl_t  mcUeSelCpu  = nullptr;
   mcSchdCpuHndl_t   mcSchCpu    = nullptr;
   if (runCpuReferencePath) {
-    if (onlineBridgeEnabled) {
+    if (onlineBridgeEnabled && !onlineExportTeacher) {
       printf("Online bridge enabled: skipping native CPU RR/PFQ UE/scheduler handle creation\n");
-    } else if (rrBaseline) { // RR baseline
-      printf("Using CPU RR UE selection\n");
+    } else if (rrBaseline) { // RR/RRQ baseline
+      printf("Using CPU %s UE selection\n", rrModeLabel);
       rrUeSelCpu = new roundRobinUeSelCpu(net->cellGrpPrmsCpu.get());
 
-      printf("Using CPU RR UE scheduler\n");
+      printf("Using CPU %s UE scheduler\n", rrModeLabel);
       rrSchCpu = new roundRobinSchedulerCpu(net->cellGrpPrmsCpu.get());
     } else { // CPU reference check
       printf("Using CPU multi-cell %s UE selection\n", pfModeLabel);
@@ -1022,6 +1216,61 @@ int main(int argc, char* argv[])
   bool onlineResetSent = false;
   bool onlineCloseRequested = false;
   bool inlineTtiProgressPrinted = false;
+  std::vector<int32_t> onlineTeacherActionUe;
+  std::vector<int16_t> onlineTeacherActionPrg;
+  // Actions must be decoded with the UE mask that was sent with their observation.
+  std::vector<uint8_t> onlinePendingActionMaskUe;
+  auto captureOnlineTeacherAction = [&]() {
+    onlineTeacherActionUe.clear();
+    onlineTeacherActionPrg.clear();
+    if (!onlineExportTeacher) {
+      return;
+    }
+    if (type0AllUeScheduling) {
+      populateType0AllUeSelection(
+          net->schdSolCpu.get(),
+          net->schdSolGpu.get(),
+          net->cellGrpPrmsCpu.get(),
+          net->cellGrpUeStatusCpu.get(),
+          cuStrmMain);
+    } else if (rrBaseline) {
+      if (rrUeSelCpu == nullptr || rrSchCpu == nullptr) {
+        return;
+      }
+      rrUeSelCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+      rrUeSelCpu->run();
+    } else {
+      if (mcSchCpu == nullptr) {
+        return;
+      }
+      if (mcUeSelCpu != nullptr) {
+        mcUeSelCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+        mcUeSelCpu->run();
+      }
+    }
+
+    net->ueDownSelectCpu();
+    if (rrBaseline) {
+      if (rrSchCpu == nullptr) {
+        return;
+      }
+      rrSchCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+      rrSchCpu->run();
+    } else {
+      if (mcSchCpu == nullptr) {
+        return;
+      }
+      mcSchCpu->setup(
+          net->cellGrpUeStatusCpu.get(),
+          net->schdSolCpu.get(),
+          net->cellGrpPrmsCpu.get(),
+          net->simParam.get(),
+          columnMajor);
+      mcSchCpu->run();
+    }
+    onlineTeacherActionUe = buildOnlineTeacherUeAction(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+    onlineTeacherActionPrg = buildOnlineTeacherPrgAction(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+  };
   const bool stageTraceEnabled = getEnvInt("CUMAC_TTI_STAGE_TRACE", 0) != 0;
   auto stageTrace = [&](int tti, const char* stage) {
     if (stageTraceEnabled) {
@@ -1182,6 +1431,7 @@ int main(int argc, char* argv[])
     std::vector<float> onlineObsUe;
     std::vector<float> onlineObsPrg;
     std::vector<float> onlineObsEdgeAttr;
+    std::vector<float> onlinePostEqSinr;
     std::vector<uint8_t> onlineMaskUe;
     std::vector<uint8_t> onlineMaskCellUe;
     std::vector<uint8_t> onlineMaskPrg;
@@ -1200,8 +1450,10 @@ int main(int argc, char* argv[])
           onlineObsUe,
           onlineObsPrg,
           onlineObsEdgeAttr);
+      onlinePostEqSinr = buildOnlinePostEqSinr(net->cellGrpPrmsCpu.get(), onlineExportPostEqSinr);
       onlineCodec.buildActionMask(
           net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), onlineMaskUe, onlineMaskCellUe, onlineMaskPrg);
+      captureOnlineTeacherAction();
 
       if (!onlineResetSent) {
         const cumac::online::OnlineFeatureCodec::RewardTerms zeroReward {};
@@ -1216,11 +1468,30 @@ int main(int argc, char* argv[])
             onlineMaskUe,
             onlineMaskCellUe,
             onlineMaskPrg,
-            zeroReward);
+            onlinePostEqSinr,
+            zeroReward,
+            onlineTeacherActionUe,
+            onlineTeacherActionPrg,
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<float>{},
+            std::vector<float>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{});
         if (!onlineBridge->sendResetRsp(resetState)) {
           fprintf(stderr, "ERROR: Failed to send online reset response.\n");
           return 1;
         }
+        onlinePendingActionMaskUe = onlineMaskUe;
         onlineResetSent = true;
       }
     }
@@ -1229,6 +1500,7 @@ int main(int argc, char* argv[])
       replayWriter->capturePreActionObs(net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), slotIdx);
     }
 
+    cumac::Type0RejectDiagnostics nativeRejectDiag;
     if (onlineBridgeEnabled) {
       cumac::online::StepAction actionReq;
       bool closeReq = false;
@@ -1240,8 +1512,18 @@ int main(int argc, char* argv[])
         onlineCloseRequested = true;
         break;
       }
+      const std::vector<uint8_t>& actionMaskUeForThisRequest =
+          (onlinePendingActionMaskUe.size() == static_cast<size_t>(net->cellGrpPrmsCpu.get()->nActiveUe))
+              ? onlinePendingActionMaskUe
+              : onlineMaskUe;
       applyOnlineActionToSchedule(
-          actionReq, onlineMaskUe, net->schdSolCpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsCpu.get(), cuStrmMain);
+          actionReq,
+          actionMaskUeForThisRequest,
+          net->schdSolCpu.get(),
+          net->schdSolGpu.get(),
+          net->cellGrpPrmsCpu.get(),
+          cuStrmMain,
+          &nativeRejectDiag);
       std::cout << "Online action applied" << std::endl;
     } else if (useCustomUePrg == 1) {
       std::cout << "GPU PF UE selection setup completed [custom]" << std::endl;
@@ -1268,13 +1550,13 @@ int main(int argc, char* argv[])
         rrUeSelGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_rr_ue_sel_setup");
-        std::cout<<"GPU RR UE selection setup completed"<<std::endl;
+        std::cout<<"GPU "<<rrModeLabel<<" UE selection setup completed"<<std::endl;
 
         stageTrace(t, "before_gpu_rr_ue_sel_run");
         rrUeSelGpu->run(cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_rr_ue_sel_run");
-        std::cout<<"GPU RR UE selection run completed"<<std::endl;
+        std::cout<<"GPU "<<rrModeLabel<<" UE selection run completed"<<std::endl;
       } else {
         stageTrace(t, "before_gpu_ue_sel_setup");
         mcUeSelGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
@@ -1293,7 +1575,7 @@ int main(int argc, char* argv[])
         if (rrBaseline) {
           rrUeSelCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
           rrUeSelCpu->run();
-          std::cout<<"CPU RR UE selection completed"<<std::endl;
+          std::cout<<"CPU "<<rrModeLabel<<" UE selection completed"<<std::endl;
         } else {
           stageTrace(t, "before_cpu_ue_sel_setup");
           mcUeSelCpu->setup(net->cellGrpUeStatusCpu.get(), net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
@@ -1336,7 +1618,7 @@ int main(int argc, char* argv[])
         rrSchGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_rr_sch_setup");
-        std::cout<<"GPU RR scheduler setup completed"<<std::endl;
+        std::cout<<"GPU "<<rrModeLabel<<" scheduler setup completed"<<std::endl;
       } else {
         stageTrace(t, "before_gpu_sch_setup");
         mcSchGpu->setup(net->cellGrpUeStatusGpu.get(), net->schdSolGpu.get(), net->cellGrpPrmsGpu.get(), net->simParam.get(), columnMajor, halfPrecision, lightWeight, percSmNumThrdBlk, cuStrmMain);
@@ -1389,7 +1671,7 @@ int main(int argc, char* argv[])
         rrSchGpu->run(cuStrmMain);
         CUDA_CHECK_ERR(cudaStreamSynchronize(cuStrmMain));
         stageTrace(t, "after_gpu_rr_sch_run");
-        std::cout<<"GPU RR scheduler run completed"<<std::endl;
+        std::cout<<"GPU "<<rrModeLabel<<" scheduler run completed"<<std::endl;
       } else {
         stageTrace(t, "before_gpu_sch_run");
         mcSchGpu->run(cuStrmMain);
@@ -1413,6 +1695,13 @@ int main(int argc, char* argv[])
       }
     }
     std::cout<<"PRB scheduling solution computed"<<std::endl;
+
+    std::vector<int32_t> acceptedPrePdschUePrgCount;
+    if (onlineBridgeEnabled) {
+      acceptedPrePdschUePrgCount =
+          countAssignedPrgsPerActiveUe(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+    }
+    std::vector<int32_t> actualUePrgCount(static_cast<size_t>(nActiveUe), 0);
 
 #ifdef PDSCH_
     // run GPU layer selection
@@ -1447,6 +1736,7 @@ int main(int argc, char* argv[])
     ttiPrgUsage = computePrgUsageStats(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
     totalAllocatedPrgCount += ttiPrgUsage.allocatedPrgCount;
     prgCountPerSchedSlot = countAssignedPrgsPerSchedSlot(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
+    actualUePrgCount = countAssignedPrgsPerActiveUe(net->schdSolCpu.get(), net->cellGrpPrmsCpu.get());
     totalPrgCapacity += static_cast<unsigned long long>(net->cellGrpPrmsCpu.get()->totNumCell) *
                         static_cast<unsigned long long>(net->cellGrpPrmsCpu.get()->nPrbGrp);
 
@@ -1536,6 +1826,8 @@ int main(int argc, char* argv[])
     uint32_t onlineTbErr = 0U;
     double onlineSchedWbSinrLinSum = 0.0;
     uint32_t onlineSchedWbSinrCount = 0U;
+    std::vector<int32_t> actualUeTbTxCount(static_cast<size_t>(nActiveUe), 0);
+    std::vector<int32_t> actualUeTbErrCount(static_cast<size_t>(nActiveUe), 0);
     std::fill(goodputBytesThisTti.begin(), goodputBytesThisTti.end(), 0ULL);
     for (int schdUidx = 0; schdUidx < nUeSched; ++schdUidx) {
       const uint16_t activeUeId = net->schdSolCpu.get()->setSchdUePerCellTTI[schdUidx];
@@ -1552,6 +1844,7 @@ int main(int argc, char* argv[])
         continue;
       }
       ueTbTxPkts[activeUeId] += 1ULL;
+      actualUeTbTxCount[activeUeId] += 1;
       const int8_t tbErr = net->cellGrpUeStatusCpu.get()->tbErrLast != nullptr
                                ? net->cellGrpUeStatusCpu.get()->tbErrLast[schdUidx]
                                : -1;
@@ -1570,6 +1863,7 @@ int main(int argc, char* argv[])
       }
       if (tbErr == 1) {
         ueTbErrCount[activeUeId] += 1ULL;
+        actualUeTbErrCount[activeUeId] += 1;
       }
       const float predBler = net->getPredictedBlerCpu(schdUidx, slotIdx);
       if (predBler >= 0.0f) {
@@ -1599,6 +1893,7 @@ int main(int argc, char* argv[])
       std::vector<float> nextObsUe;
       std::vector<float> nextObsPrg;
       std::vector<float> nextObsEdgeAttr;
+      std::vector<float> nextPostEqSinr;
       std::vector<uint8_t> nextMaskUe;
       std::vector<uint8_t> nextMaskCellUe;
       std::vector<uint8_t> nextMaskPrg;
@@ -1612,8 +1907,10 @@ int main(int argc, char* argv[])
           nextObsUe,
           nextObsPrg,
           nextObsEdgeAttr);
+      nextPostEqSinr = buildOnlinePostEqSinr(net->cellGrpPrmsCpu.get(), onlineExportPostEqSinr);
       onlineCodec.buildActionMask(
           net->cellGrpUeStatusCpu.get(), net->cellGrpPrmsCpu.get(), nextMaskUe, nextMaskCellUe, nextMaskPrg);
+      captureOnlineTeacherAction();
       const unsigned long long flowQueuedBytes = trafSvc->GetTotalFlowQueuedBytes();
       const unsigned long long expiredBytesThisTti = trafSvc->GetLastExpiredBytes();
       const unsigned long long expiredPacketsThisTti = trafSvc->GetLastExpiredPackets();
@@ -1651,6 +1948,7 @@ int main(int argc, char* argv[])
               ? static_cast<float>(
                     std::max(0.0, std::min(1.0, static_cast<double>(totalExpiredBytes) / static_cast<double>(totalGeneratedBytes))))
               : 0.0f;
+      const PacketServiceRateSummary packetServiceRateThisTti = trafSvc->GetLastPacketServiceRateStats();
       const cumac::online::OnlineFeatureCodec::RewardTerms reward = onlineCodec.buildReward(
           net->cellGrpUeStatusCpu.get(),
           servedBytesThisTti,
@@ -1664,7 +1962,18 @@ int main(int argc, char* argv[])
           onlinePrgUtilizationRatio,
           onlineGoodputSpectralEfficiencyBpsHz,
           onlinePrgReuseRatio,
-          onlineExpiryDropRate);
+          onlineExpiryDropRate,
+          static_cast<float>(packetServiceRateThisTti.delivered_packets),
+          static_cast<float>(packetServiceRateThisTti.total_delivered_bits),
+          static_cast<float>(packetServiceRateThisTti.total_packet_system_time_ms),
+          static_cast<float>(packetServiceRateThisTti.packet_effective_service_rate_mbps),
+          static_cast<float>(packetServiceRateThisTti.packet_effective_service_rate_per_packet_mean_mbps));
+      std::vector<float> actualUeServedBytes(static_cast<size_t>(nActiveUe), 0.0F);
+      std::vector<float> actualUeGoodputBytes(static_cast<size_t>(nActiveUe), 0.0F);
+      for (int ueId = 0; ueId < nActiveUe; ++ueId) {
+        actualUeServedBytes[ueId] = static_cast<float>(servedBytesThisTti[ueId]);
+        actualUeGoodputBytes[ueId] = static_cast<float>(goodputBytesThisTti[ueId]);
+      }
       const cumac::online::StepState stepState = buildOnlineState(
           t + 1,
           onlineDone,
@@ -1676,11 +1985,30 @@ int main(int argc, char* argv[])
           nextMaskUe,
           nextMaskCellUe,
           nextMaskPrg,
-          reward);
+          nextPostEqSinr,
+          reward,
+          onlineTeacherActionUe,
+          onlineTeacherActionPrg,
+          acceptedPrePdschUePrgCount,
+          nativeRejectDiag.rejectWrongCellSlotCount,
+          nativeRejectDiag.rejectEmptySlotCount,
+          nativeRejectDiag.rejectPrgMaskCount,
+          nativeRejectDiag.rejectOobSlotCount,
+          nativeRejectDiag.rejectDuplicateUeCount,
+          nativeRejectDiag.nativeSlotCountPerCell,
+          nativeRejectDiag.nativeCellSlotStart,
+          nativeRejectDiag.nativeSlotToCell,
+          nativeRejectDiag.nativeSlotValid,
+          actualUePrgCount,
+          actualUeServedBytes,
+          actualUeGoodputBytes,
+          actualUeTbTxCount,
+          actualUeTbErrCount);
       if (!onlineBridge->sendStepRsp(stepState)) {
         fprintf(stderr, "ERROR: Failed to send online step response.\n");
         return 1;
       }
+      onlinePendingActionMaskUe = nextMaskUe;
       if (onlineDone) {
         break;
       }
@@ -1823,9 +2151,12 @@ int main(int argc, char* argv[])
   std::vector<unsigned long long> ueExpiredPackets;
   PacketDelaySummary trafficPacketDelaySummary;
   std::vector<PacketDelaySummary> uePacketDelay;
+  PacketServiceRateSummary trafficPacketServiceRateSummary;
+  std::vector<PacketServiceRateSummary> uePacketServiceRate;
   trafSvc->GetPerFlowStats(ueGeneratedBytes, ueAcceptedBytes, ueDroppedBytes, ueFlowQueuedBytes);
   trafSvc->GetPerFlowExpiryStats(ueExpiredBytes, ueExpiredPackets);
   trafSvc->GetPacketDelayStats(trafficPacketDelaySummary, uePacketDelay);
+  trafSvc->GetPacketServiceRateStats(trafficPacketServiceRateSummary, uePacketServiceRate);
 
   std::vector<int> ueCellId(nActiveUe, -1);
   std::vector<int> ueLocalId(nActiveUe, -1);
@@ -1857,6 +2188,7 @@ int main(int argc, char* argv[])
   printf("UE_KPI_HEADER cell_id ue_local_id ue_id avg_thr_mbps avg_mcs_tx_only avg_mcs_all_tti0 avg_selected_layers_tx_only avg_selected_layers_all_tti scheduled_tti_count no_tx_tti_count scheduled_ratio avg_wb_sinr_db avg_sched_wb_sinr_db avg_predicted_bler tb_err_count tb_bler flow_drop_rate tx_success_rate tx_drop_rate tx_total_pkts tx_success_pkts queue_delay_est_ms generated_bytes accepted_bytes dropped_bytes flow_queued_bytes mac_buffer_bytes mcs_samples\n");
   printf("UE_GOODPUT_HEADER ue_id goodput_bytes goodput_mbps\n");
   printf("UE_PKT_DELAY_HEADER ue_id served_pkt_count pending_pkt_count packet_delay_mean_ms packet_delay_p50_ms packet_delay_p90_ms packet_delay_p95_ms packet_delay_max_ms\n");
+  printf("UE_PKT_RATE_HEADER ue_id delivered_pkt_count pending_pkt_count total_delivered_bits total_packet_system_time_ms packet_effective_service_rate_mbps packet_effective_service_rate_per_packet_mean_mbps\n");
   for (int ueId = 0; ueId < nActiveUe; ++ueId) {
     const double avgMcsTxOnly = ueMcsCnt[ueId] > 0 ? (ueMcsSum[ueId] / static_cast<double>(ueMcsCnt[ueId])) : -1.0;
     const int kpiTtiCount = std::max(1, executedTtiCount);
@@ -1946,6 +2278,16 @@ int main(int argc, char* argv[])
            pktSummary.p90_delay_ms,
            pktSummary.p95_delay_ms,
            pktSummary.max_delay_ms);
+    const PacketServiceRateSummary pktRateSummary =
+        ueId < static_cast<int>(uePacketServiceRate.size()) ? uePacketServiceRate[ueId] : PacketServiceRateSummary{};
+    printf("UE_PKT_RATE ue_id=%d delivered_pkt_count=%llu pending_pkt_count=%llu total_delivered_bits=%llu total_packet_system_time_ms=%.6f packet_effective_service_rate_mbps=%.6f packet_effective_service_rate_per_packet_mean_mbps=%.6f\n",
+           ueId,
+           pktRateSummary.delivered_packets,
+           pktRateSummary.pending_packets,
+           pktRateSummary.total_delivered_bits,
+           pktRateSummary.total_packet_system_time_ms,
+           pktRateSummary.packet_effective_service_rate_mbps,
+           pktRateSummary.packet_effective_service_rate_per_packet_mean_mbps);
   }
 
   if (saveTv == 1) {

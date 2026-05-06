@@ -1,0 +1,31 @@
+
+===== [2026-05-04 14:42:42] episode=1 episode_seed=42 topology_seed=42 socket=/tmp/cumac_stageb_hgraph_ppo.sock.145089.1 =====
+[ONLINE_BRIDGE] waiting client on /tmp/cumac_stageb_hgraph_ppo.sock.145089.1
+[ONLINE_BRIDGE] client connected
+ERROR: Failed to receive online step request.
+cuMAC multi-cell scheduler: Running on GPU device 0 (total devices: 1)
+cuMAC scheduler pipeline test: Downlink
+cuMAC scheduler pipeline test: FP32 kernels
+cuMAC scheduler pipeline test: queue-aware PF reference check on CPU and GPU paths
+cuMAC scheduler pipeline test: use Rayleigh fading
+cuMAC scheduler pipeline test: native UE selection + PRG allocation
+cuMAC scheduler pipeline test: online bridge enabled, socket=/tmp/cumac_stageb_hgraph_ppo.sock.145089.1
+cuMAC scheduler pipeline test: online persistent mode=on
+cuMAC scheduler pipeline test: online raw postEqSinr export=on
+cuMAC scheduler pipeline test: online teacher action export=on
+cuMAC scheduler pipeline test: online reward mode=goodput_reliability_blankaware
+cuMAC scheduler pipeline test: execution mode=both
+cuMAC scheduler pipeline test: compact per-TTI logging enabled
+cuMAC scheduler pipeline test: progress interval=0, compare interval=0 (TTI)
+Multi-cell scheduler, Type-0 allocate
+SVD precoding + MMSE-IRC
+nBsAnt X nUeAnt = 4 X 4
+Topology configuration: cluster_layout=3cell_triangle, seed=42, ue_placement=uniform, tx_pattern=omni, radius_splits=(0.33, 0.66), strata_counts=(0,0,0), voronoi_clip=on
+Queue-aware PF weighting: buffer_coeff=0.250 buffer_scale_bytes=3000.000 demand_cap=on demand_cap_slack_bytes=3000.000 intra_tti_decay_coeff=0.500
+Traffic configuration: active_ue_percent=100.000 packet_bytes=3000.000 arrival_rate_pkt_per_tti=1.000
+Traffic packet TTL: enabled ttl_tti=400 ttl_ms=200.000
+Cluster configuration: coordinated cells=3, interferer cells=0, total cells=3
+Online bridge enabled: skipping native GPU RR/PFQ UE/scheduler handle creation
+Online bridge reset: seed=42 requested_horizon=1024 ignored (persistent), ring_horizon=4000
+Using CPU multi-cell queue-aware PF UE selection
+Using CPU multi-cell queue-aware PF scheduler

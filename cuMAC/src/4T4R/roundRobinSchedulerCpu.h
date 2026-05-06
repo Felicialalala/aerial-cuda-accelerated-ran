@@ -30,6 +30,7 @@ typedef struct rrDynDescrCpu {
     uint8_t*    cellAssoc;
     uint16_t*   setSchdUePerCellTTI; // set of global IDs of the schedule UEs per cell per TTI
     uint16_t*   prioWeightActUe;
+    uint32_t*   bufferSize;
     
     // HARQ related buffers
     int8_t*     newDataActUe; 
@@ -40,9 +41,13 @@ typedef struct rrDynDescrCpu {
 
     //----------------- parameters (common for both DL and UL) -----------------
     uint16_t    nUe;
+    uint16_t    nActiveUe;
     uint16_t    nCell;
     uint16_t    nPrbGrp;
     uint16_t    prioWeightStep;
+    uint8_t     rrQueueDemandAwareCap;
+    float       rrQueueDemandCapSlackBytes;
+    float       rrQueueEstimatedBytesPerPrg;
 } rrDynDescrCpu_t;
 
 class roundRobinSchedulerCpu {

@@ -17,6 +17,7 @@ ARCH="$(uname -m)"
 BUILD_DIR="${ROOT_DIR}/build.${ARCH}"
 BUILD_METHOD="phase4"   # phase4 | cmake | skip
 BUILD_ONLY=0            # 1=apply params + build only, skip scenario execution
+SKIP_COMPILE_PARAM_UPDATE=0 # 1 reuse already-applied parameters.h, useful for parallel skip runs
 RESTORE_PARAMS=0        # 0=keep applied compile-time params, 1=restore on exit
 
 GPU_ID=0
@@ -46,7 +47,7 @@ KILL_AFTER_SEC=30
 RUN_TAG=""
 COMPACT_OUTPUT=1        # 1=regular profile, 0=keep full artifacts
 CUSTOM_UE_PRG=0         # 1=use CustomUePrgScheduler for UE+PRG, 0=native
-BASELINE_SCHEDULER="pf" # pf | pfq | rr (effective for native path; maps to binary -b)
+BASELINE_SCHEDULER="pf" # pf | pfq | rr | rrq (effective for native path; maps to binary -b)
 CUSTOM_POLICY="gnnrl"   # gnnrl | legacy (effective only when --custom-ue-prg=1)
 GNNRL_ACTION_MODE="joint" # joint | prg_only_type0
 MODEL_PATH=""          # used when --custom-policy gnnrl_model
@@ -82,6 +83,10 @@ Options:
   --build-dir <path>          Build directory (default: ${BUILD_DIR})
   --build-method <m>          phase4 | cmake | skip (default: ${BUILD_METHOD})
   --build-only <0|1>          1 only applies params/builds binary, skips scenario run (default: ${BUILD_ONLY})
+  --skip-compile-param-update <0|1>
+                              1 reuses current parameters.h without rewriting it; intended for
+                              parallel --build-method skip runs after a matching build-only pass
+                              (default: ${SKIP_COMPILE_PARAM_UPDATE})
   --gpu <id>                  GPU device id (default: ${GPU_ID})
   --tti <count>               Number of simulated TTIs (default: ${TTI_COUNT})
   --mode <dl|ul>              Downlink or uplink (default: ${DL_UL})
@@ -109,7 +114,7 @@ Options:
   --kill-after-sec <sec>      Extra grace period after timeout TERM (default: ${KILL_AFTER_SEC})
   --compact-output <0|1>      1 keeps regular artifacts only (default: ${COMPACT_OUTPUT})
   --custom-ue-prg <0|1>       1 use custom UE+PRG scheduler (default: ${CUSTOM_UE_PRG})
-  --baseline-scheduler <m>    pf | pfq | rr for native baseline/reference path (default: ${BASELINE_SCHEDULER})
+  --baseline-scheduler <m>    pf | pfq | rr | rrq for native baseline/reference path (default: ${BASELINE_SCHEDULER})
   --custom-policy <name>      gnnrl | legacy | gnnrl_model (default: ${CUSTOM_POLICY})
   --gnnrl-action-mode <m>     joint | prg_only_type0 for gnnrl_model decode (default: ${GNNRL_ACTION_MODE})
   --model-path <path>         ONNX model path for gnnrl_model policy (default: empty)
@@ -151,6 +156,7 @@ while [[ $# -gt 0 ]]; do
         --build-dir) BUILD_DIR="$2"; shift 2 ;;
         --build-method) BUILD_METHOD="$2"; shift 2 ;;
         --build-only) BUILD_ONLY="$2"; shift 2 ;;
+        --skip-compile-param-update) SKIP_COMPILE_PARAM_UPDATE="$2"; shift 2 ;;
         --gpu) GPU_ID="$2"; shift 2 ;;
         --tti) TTI_COUNT="$2"; shift 2 ;;
         --mode) DL_UL="$2"; shift 2 ;;
@@ -236,6 +242,14 @@ fi
 PRG_COUNT=$((272 / PRBS_PER_GROUP))
 if ! [[ "${BUILD_ONLY}" =~ ^[01]$ ]]; then
     echo "--build-only must be 0 or 1" >&2
+    exit 1
+fi
+if ! [[ "${SKIP_COMPILE_PARAM_UPDATE}" =~ ^[01]$ ]]; then
+    echo "--skip-compile-param-update must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "${SKIP_COMPILE_PARAM_UPDATE}" == "1" && "${BUILD_METHOD}" != "skip" ]]; then
+    echo "--skip-compile-param-update=1 requires --build-method skip" >&2
     exit 1
 fi
 TOPOLOGY_SCENARIO="$(echo "${TOPOLOGY_SCENARIO}" | tr '[:upper:]' '[:lower:]')"
@@ -338,8 +352,8 @@ if ! [[ "${CUSTOM_UE_PRG}" =~ ^[01]$ ]]; then
     exit 1
 fi
 BASELINE_SCHEDULER="$(echo "${BASELINE_SCHEDULER}" | tr '[:upper:]' '[:lower:]')"
-if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "pfq" && "${BASELINE_SCHEDULER}" != "rr" ]]; then
-    echo "--baseline-scheduler must be pf, pfq, or rr" >&2
+if [[ "${BASELINE_SCHEDULER}" != "pf" && "${BASELINE_SCHEDULER}" != "pfq" && "${BASELINE_SCHEDULER}" != "rr" && "${BASELINE_SCHEDULER}" != "rrq" ]]; then
+    echo "--baseline-scheduler must be pf, pfq, rr, or rrq" >&2
     exit 1
 fi
 CUSTOM_POLICY="$(echo "${CUSTOM_POLICY}" | tr '[:upper:]' '[:lower:]')"
@@ -756,26 +770,30 @@ compact_pass_outputs() {
 
 echo "[Stage-B] Apply main experiment parameters (${TOPOLOGY_DESC}, no outer interferer ring, 4T4R, 30kHz, Type-0 bitmap allocation, precoding=${PRECODING})..."
 echo "[Stage-B] Scenario UE config: ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
-set_param gpuDeviceIdx "${GPU_ID}"
-set_param numSimChnRlz "${TTI_COUNT}"
-set_param seedConst "${TOPOLOGY_SEED}"
-set_param slotDurationConst "0.5e-3"
-set_param scsConst "30000.0"
-set_param cellRadiusConst "500"
-set_param numCellConst "${TOPOLOGY_NUM_CELLS}"
-set_param numCoorCellConst "${TOPOLOGY_NUM_CELLS}"
-set_param numUePerCellConst "${UE_PER_CELL}"
-set_param numUeForGrpConst "${UE_PER_CELL}"
-set_param numActiveUePerCellConst "${UE_PER_CELL}"
-set_param totNumUesConst "numCoorCellConst*numUePerCellConst"
-set_param totNumActiveUesConst "numCoorCellConst*numActiveUePerCellConst"
-set_param nBsAntConst "4"
-set_param nUeAntConst "4"
-set_param nPrbsPerGrpConst "${PRBS_PER_GROUP}"
-set_param nPrbGrpsConst "${PRG_COUNT}"
-set_param gpuAllocTypeConst "0"
-set_param cpuAllocTypeConst "0"
-set_param prdSchemeConst "${PRECODING_CONST}"
+if [[ "${SKIP_COMPILE_PARAM_UPDATE}" == "0" ]]; then
+    set_param gpuDeviceIdx "${GPU_ID}"
+    set_param numSimChnRlz "${TTI_COUNT}"
+    set_param seedConst "${TOPOLOGY_SEED}"
+    set_param slotDurationConst "0.5e-3"
+    set_param scsConst "30000.0"
+    set_param cellRadiusConst "500"
+    set_param numCellConst "${TOPOLOGY_NUM_CELLS}"
+    set_param numCoorCellConst "${TOPOLOGY_NUM_CELLS}"
+    set_param numUePerCellConst "${UE_PER_CELL}"
+    set_param numUeForGrpConst "${UE_PER_CELL}"
+    set_param numActiveUePerCellConst "${UE_PER_CELL}"
+    set_param totNumUesConst "numCoorCellConst*numUePerCellConst"
+    set_param totNumActiveUesConst "numCoorCellConst*numActiveUePerCellConst"
+    set_param nBsAntConst "4"
+    set_param nUeAntConst "4"
+    set_param nPrbsPerGrpConst "${PRBS_PER_GROUP}"
+    set_param nPrbGrpsConst "${PRG_COUNT}"
+    set_param gpuAllocTypeConst "0"
+    set_param cpuAllocTypeConst "0"
+    set_param prdSchemeConst "${PRECODING_CONST}"
+else
+    echo "[Stage-B] Reusing existing compile-time parameters; skip parameters.h update."
+fi
 print_effective_compile_params
 if [[ "${RESTORE_PARAMS}" == "0" ]]; then
     echo "[Stage-B] parameters.h will be kept after run so external rebuilds use the same Stage-B config."
@@ -878,6 +896,8 @@ if [[ "${BASELINE_SCHEDULER}" == "rr" ]]; then
     BASELINE_IND=1
 elif [[ "${BASELINE_SCHEDULER}" == "pfq" ]]; then
     BASELINE_IND=2
+elif [[ "${BASELINE_SCHEDULER}" == "rrq" ]]; then
+    BASELINE_IND=3
 fi
 
 TS="$(date +%Y%m%d_%H%M%S)"

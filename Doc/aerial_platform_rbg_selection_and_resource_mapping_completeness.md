@@ -67,10 +67,14 @@
 
 典型配置：
 
-- [`cuMAC/examples/parameters.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/parameters.h) 里当前 `Stage-B` 固定为：
+- 通用 7-cell `Stage-B` 默认值：
   - `nPrbsPerGrpConst = 4`
   - `nPrbGrpsConst = 68`
   - 即总调度栅格为 `68 × 4 = 272 PRB`
+- 当前代表性 3-cell/36UE/RBG16 baseline 通过脚本注入为：
+  - `nPrbsPerGrpConst = 16`
+  - `nPrbGrpsConst = 17`
+  - 即总调度栅格同样为 `17 × 16 = 272 PRB`
 
 这也意味着在当前 `30 kHz + 100 MHz` 的 `273 PRB` 载波语境下，现有 `Stage-B` 样例并不是把 273 个 PRB 全部按组建模，而是使用了一个 `272 PRB` 的规则分组网格。
 
@@ -695,13 +699,14 @@
 
 ## 8.1 当前 Stage-B 实际使用的是哪一支
 
-当前 `Stage-B` 基线实际使用的是：
+当前代表性 `Stage-B` RRQ/PFQ baseline 实际使用的是：
 
 1. `4T4R`
 2. `DL`
-3. `nPrbPerGrp = 4`
-4. `nPrbGrp = 68`
-5. `allocType = 0`
+3. `SVD precoding`
+4. `nPrbPerGrp = 16`
+5. `nPrbGrp = 17`
+6. `allocType = 0`
 
 参考文档：
 
@@ -714,7 +719,7 @@
 1. `setSchdUePerCellTTI` 先被填成“所有 active UE”
 2. 真正可比的差异主要落在 `PRG bitmap allocation`
 
-因此当前 `RR vs PF` 在 `Stage-B` 中比较的本质是：
+因此当前 `RRQ/PFQ` 在 `Stage-B` 中比较的本质是：
 
 - “PRG bitmap 分配策略”
 

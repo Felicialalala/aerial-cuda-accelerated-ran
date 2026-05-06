@@ -8,11 +8,16 @@ from pathlib import Path
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="Compare Stage-B RR and PF-like KPI summaries.")
-    p.add_argument("--rr", required=True, help="RR run directory or RR kpi_summary.json path")
-    p.add_argument("--pf", required=True, help="PF run directory or PF kpi_summary.json path")
+    p = argparse.ArgumentParser(description="Compare Stage-B RR/RRQ and PF/PFQ KPI summaries.")
+    p.add_argument("--rr", required=True, help="Reference RR/RRQ run directory or kpi_summary.json path")
+    p.add_argument("--pf", required=True, help="Compare PF/PFQ run directory or kpi_summary.json path")
     p.add_argument("--output-dir", required=True, help="Directory to write comparison outputs")
     p.add_argument("--top-n", type=int, default=10, help="Top-N UE deltas to include in the text summary")
+    p.add_argument(
+        "--reference-baseline",
+        default="rr",
+        help="Label for the first/reference baseline in output file names and columns (default: rr)",
+    )
     p.add_argument(
         "--compare-baseline",
         default="pf",
@@ -31,6 +36,10 @@ def normalize_compare_baseline(value):
 
 def compare_display_name(compare_baseline):
     return compare_baseline.upper()
+
+
+def comparison_stem(reference_baseline, compare_baseline):
+    return f"{reference_baseline}_vs_{compare_baseline}_compare"
 
 
 def resolve_summary_path(path_str):
@@ -89,7 +98,7 @@ def format_value(v, unit=None):
     return f"{v:.10f}" if isinstance(v, float) else str(v)
 
 
-def build_metric_rows(rr, pf, compare_baseline):
+def build_metric_rows(rr, pf, reference_baseline, compare_baseline):
     metrics = [
         {
             "name": "traffic.served_mbps_est",
@@ -302,6 +311,20 @@ def build_metric_rows(rr, pf, compare_baseline):
             "pf": safe_get(pf, "traffic", "packet_effective_service_rate_per_packet_mean_mbps"),
         },
         {
+            "name": "traffic.ue_macro_packet_effective_service_rate_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "traffic", "ue_macro_packet_effective_service_rate_mbps"),
+            "pf": safe_get(pf, "traffic", "ue_macro_packet_effective_service_rate_mbps"),
+        },
+        {
+            "name": "traffic.ue_macro_packet_effective_service_rate_per_packet_mean_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "traffic", "ue_macro_packet_effective_service_rate_per_packet_mean_mbps"),
+            "pf": safe_get(pf, "traffic", "ue_macro_packet_effective_service_rate_per_packet_mean_mbps"),
+        },
+        {
             "name": "traffic.packet_delay_served_pkt_count",
             "unit": None,
             "direction": "higher_better",
@@ -407,14 +430,18 @@ def build_metric_rows(rr, pf, compare_baseline):
         row["note"] = row.get("note") or metric_note(rr, row["name"]) or metric_note(pf, row["name"])
         row["pf_minus_rr"] = None if rr_val is None or pf_val is None else pf_val - rr_val
         row["pf_over_rr_ratio"] = None if rr_val is None or pf_val is None else safe_ratio(pf_val, rr_val)
+        row["reference"] = rr_val
+        row["compare"] = pf_val
+        row["compare_minus_reference"] = row["pf_minus_rr"]
+        row["compare_over_reference_ratio"] = row["pf_over_rr_ratio"]
         if rr_val is None or pf_val is None:
             row["winner"] = "unknown"
         elif abs(pf_val - rr_val) <= 1.0e-12:
             row["winner"] = "tie"
         elif row["direction"] == "higher_better":
-            row["winner"] = compare_baseline if pf_val > rr_val else "rr"
+            row["winner"] = compare_baseline if pf_val > rr_val else reference_baseline
         else:
-            row["winner"] = compare_baseline if pf_val < rr_val else "rr"
+            row["winner"] = compare_baseline if pf_val < rr_val else reference_baseline
     return metrics
 
 
@@ -515,34 +542,43 @@ def build_per_cell_delta(rr, pf):
     return rows
 
 
-def build_summary(rr, pf, top_n, compare_baseline):
+def build_summary(rr, pf, top_n, reference_baseline, compare_baseline):
+    reference_display_name = compare_display_name(reference_baseline)
     display_name = compare_display_name(compare_baseline)
-    metric_rows = build_metric_rows(rr, pf, compare_baseline)
+    metric_rows = build_metric_rows(rr, pf, reference_baseline, compare_baseline)
     compare_consistency = build_consistency_rows(pf, compare_baseline)
     per_cell_delta = build_per_cell_delta(rr, pf)
     per_ue_delta = build_per_ue_delta(rr, pf, top_n)
     return {
+        "reference_baseline": reference_baseline,
+        "reference_display_name": reference_display_name,
         "compare_baseline": compare_baseline,
         "compare_display_name": display_name,
+        "comparison_stem": comparison_stem(reference_baseline, compare_baseline),
         "rr_summary_path": rr["_summary_path"],
+        "reference_summary_path": rr["_summary_path"],
         "pf_summary_path": pf["_summary_path"],
         "other_summary_path": pf["_summary_path"],
         "rr_run_dir": rr.get("run_dir"),
+        "reference_run_dir": rr.get("run_dir"),
         "pf_run_dir": pf.get("run_dir"),
         "other_run_dir": pf.get("run_dir"),
         "rr_tti_count": rr.get("tti_count"),
+        "reference_tti_count": rr.get("tti_count"),
         "pf_tti_count": pf.get("tti_count"),
         "rr_ue_count": rr.get("ue_count"),
+        "reference_ue_count": rr.get("ue_count"),
         "pf_ue_count": pf.get("ue_count"),
         "metric_source_note": (
-            f"RR vs {display_name} should be judged mainly by traffic/global_kpi. "
+            f"{reference_display_name} vs {display_name} should be judged mainly by traffic/global_kpi. "
             "CPU/GPU compare fields are per-run consistency checks, not baseline winners. "
             "served_buffer_ratio should be interpreted as served_bytes_est / generated_bytes on summaries produced by the current summarizer."
         ),
         "metric_definitions": rr.get("metric_definitions") or pf.get("metric_definitions") or {},
         "rr_vs_pf_metrics": metric_rows,
         "rr_vs_compare_metrics": metric_rows,
-        "rr_cpu_gpu_consistency": build_consistency_rows(rr, "rr"),
+        "rr_cpu_gpu_consistency": build_consistency_rows(rr, reference_baseline),
+        "reference_cpu_gpu_consistency": build_consistency_rows(rr, reference_baseline),
         "pf_cpu_gpu_consistency": compare_consistency,
         "compare_cpu_gpu_consistency": compare_consistency,
         "per_cell_delta": per_cell_delta,
@@ -551,16 +587,17 @@ def build_summary(rr, pf, top_n, compare_baseline):
 
 
 def write_json(out_dir, summary):
-    path = out_dir / f"rr_vs_{summary['compare_baseline']}_compare.json"
+    path = out_dir / f"{summary['comparison_stem']}.json"
     path.write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     return path
 
 
 def write_csv(out_dir, summary):
+    reference_baseline = summary["reference_baseline"]
     compare_baseline = summary["compare_baseline"]
-    path = out_dir / f"rr_vs_{compare_baseline}_compare.csv"
+    path = out_dir / f"{summary['comparison_stem']}.csv"
     lines = [
-        f"metric,rr,{compare_baseline},{compare_baseline}_minus_rr,{compare_baseline}_over_rr_ratio,direction,winner,unit,note"
+        f"metric,{reference_baseline},{compare_baseline},{compare_baseline}_minus_{reference_baseline},{compare_baseline}_over_{reference_baseline}_ratio,direction,winner,unit,note"
     ]
     for row in summary["rr_vs_pf_metrics"]:
         lines.append(
@@ -583,37 +620,39 @@ def write_csv(out_dir, summary):
 
 
 def write_text(out_dir, summary):
+    reference_baseline = summary["reference_baseline"]
+    reference_display_name = summary["reference_display_name"]
     compare_baseline = summary["compare_baseline"]
     display_name = summary["compare_display_name"]
-    path = out_dir / f"rr_vs_{compare_baseline}_compare.txt"
+    path = out_dir / f"{summary['comparison_stem']}.txt"
     lines = [
-        f"rr_summary_path: {summary['rr_summary_path']}",
+        f"{reference_baseline}_summary_path: {summary['reference_summary_path']}",
         f"{compare_baseline}_summary_path: {summary['other_summary_path']}",
-        f"rr_run_dir: {summary['rr_run_dir']}",
+        f"{reference_baseline}_run_dir: {summary['reference_run_dir']}",
         f"{compare_baseline}_run_dir: {summary['other_run_dir']}",
-        f"rr_tti_count: {summary['rr_tti_count']}",
+        f"{reference_baseline}_tti_count: {summary['reference_tti_count']}",
         f"{compare_baseline}_tti_count: {summary['pf_tti_count']}",
-        f"rr_ue_count: {summary['rr_ue_count']}",
+        f"{reference_baseline}_ue_count: {summary['reference_ue_count']}",
         f"{compare_baseline}_ue_count: {summary['pf_ue_count']}",
         "",
         "[Interpretation]",
         summary["metric_source_note"],
         "",
-        f"[RR vs {display_name} Metrics]",
+        f"[{reference_display_name} vs {display_name} Metrics]",
     ]
     for row in summary["rr_vs_pf_metrics"]:
         lines.append(
-            f"{row['name']}: rr={format_value(row['rr'], row['unit'])} "
+            f"{row['name']}: {reference_baseline}={format_value(row['rr'], row['unit'])} "
             f"{compare_baseline}={format_value(row['pf'], row['unit'])} "
-            f"{compare_baseline}_minus_rr={format_value(row['pf_minus_rr'], row['unit'])} "
-            f"{compare_baseline}_over_rr_ratio={format_value(row['pf_over_rr_ratio'])} "
+            f"{compare_baseline}_minus_{reference_baseline}={format_value(row['pf_minus_rr'], row['unit'])} "
+            f"{compare_baseline}_over_{reference_baseline}_ratio={format_value(row['pf_over_rr_ratio'])} "
             f"winner={row['winner']}"
             + (f" | {row['note']}" if row.get("note") else "")
         )
     lines.extend(
         [
             "",
-            "[RR CPU-GPU Consistency]",
+            f"[{reference_display_name} CPU-GPU Consistency]",
         ]
     )
     for key, value in summary["rr_cpu_gpu_consistency"].items():
@@ -640,10 +679,10 @@ def write_text(out_dir, summary):
     for row in summary["per_cell_delta"]:
         lines.append(
             f"cell_id={row['cell_id']} "
-            f"rr_cell_sum_thr_mbps={format_value(row['rr_cell_sum_thr_mbps'], 'Mbps')} "
+            f"{reference_baseline}_cell_sum_thr_mbps={format_value(row['rr_cell_sum_thr_mbps'], 'Mbps')} "
             f"{compare_baseline}_cell_sum_thr_mbps={format_value(row['pf_cell_sum_thr_mbps'], 'Mbps')} "
-            f"{compare_baseline}_minus_rr_cell_sum_thr_mbps={format_value(row['pf_minus_rr_cell_sum_thr_mbps'], 'Mbps')} "
-            f"rr_cell_avg_queue_delay_est_ms={format_value(row['rr_cell_avg_queue_delay_est_ms'], 'ms')} "
+            f"{compare_baseline}_minus_{reference_baseline}_cell_sum_thr_mbps={format_value(row['pf_minus_rr_cell_sum_thr_mbps'], 'Mbps')} "
+            f"{reference_baseline}_cell_avg_queue_delay_est_ms={format_value(row['rr_cell_avg_queue_delay_est_ms'], 'ms')} "
             f"{compare_baseline}_cell_avg_queue_delay_est_ms={format_value(row['pf_cell_avg_queue_delay_est_ms'], 'ms')}"
         )
 
@@ -656,10 +695,10 @@ def write_text(out_dir, summary):
     for row in summary["per_ue_delta"]["top_abs_throughput_delta"]:
         lines.append(
             f"ue_id={row['ue_id']} "
-            f"rr_avg_thr_mbps={format_value(row['rr_avg_thr_mbps'], 'Mbps')} "
+            f"{reference_baseline}_avg_thr_mbps={format_value(row['rr_avg_thr_mbps'], 'Mbps')} "
             f"{compare_baseline}_avg_thr_mbps={format_value(row['pf_avg_thr_mbps'], 'Mbps')} "
-            f"{compare_baseline}_minus_rr_avg_thr_mbps={format_value(row['pf_minus_rr_avg_thr_mbps'], 'Mbps')} "
-            f"{compare_baseline}_over_rr_avg_thr_ratio={format_value(row['pf_over_rr_avg_thr_ratio'])}"
+            f"{compare_baseline}_minus_{reference_baseline}_avg_thr_mbps={format_value(row['pf_minus_rr_avg_thr_mbps'], 'Mbps')} "
+            f"{compare_baseline}_over_{reference_baseline}_avg_thr_ratio={format_value(row['pf_over_rr_avg_thr_ratio'])}"
         )
 
     lines.extend(
@@ -671,10 +710,10 @@ def write_text(out_dir, summary):
     for row in summary["per_ue_delta"]["top_abs_queue_delay_delta"]:
         lines.append(
             f"ue_id={row['ue_id']} "
-            f"rr_queue_delay_est_ms={format_value(row['rr_queue_delay_est_ms'], 'ms')} "
+            f"{reference_baseline}_queue_delay_est_ms={format_value(row['rr_queue_delay_est_ms'], 'ms')} "
             f"{compare_baseline}_queue_delay_est_ms={format_value(row['pf_queue_delay_est_ms'], 'ms')} "
-            f"{compare_baseline}_minus_rr_queue_delay_est_ms={format_value(row['pf_minus_rr_queue_delay_est_ms'], 'ms')} "
-            f"rr_scheduled_ratio={format_value(row['rr_scheduled_ratio'])} "
+            f"{compare_baseline}_minus_{reference_baseline}_queue_delay_est_ms={format_value(row['pf_minus_rr_queue_delay_est_ms'], 'ms')} "
+            f"{reference_baseline}_scheduled_ratio={format_value(row['rr_scheduled_ratio'])} "
             f"{compare_baseline}_scheduled_ratio={format_value(row['pf_scheduled_ratio'])}"
         )
 
@@ -684,21 +723,23 @@ def write_text(out_dir, summary):
 
 def main():
     args = parse_args()
+    reference_baseline = normalize_compare_baseline(args.reference_baseline)
     compare_baseline = normalize_compare_baseline(args.compare_baseline)
     rr = load_summary(args.rr)
     pf = load_summary(args.pf)
     out_dir = Path(args.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    summary = build_summary(rr, pf, args.top_n, compare_baseline)
+    summary = build_summary(rr, pf, args.top_n, reference_baseline, compare_baseline)
     json_path = write_json(out_dir, summary)
     txt_path = write_text(out_dir, summary)
     csv_path = write_csv(out_dir, summary)
 
     display_name = compare_display_name(compare_baseline)
-    print(f"RR vs {display_name} comparison written: {json_path}")
-    print(f"RR vs {display_name} comparison written: {txt_path}")
-    print(f"RR vs {display_name} comparison written: {csv_path}")
+    reference_display_name = compare_display_name(reference_baseline)
+    print(f"{reference_display_name} vs {display_name} comparison written: {json_path}")
+    print(f"{reference_display_name} vs {display_name} comparison written: {txt_path}")
+    print(f"{reference_display_name} vs {display_name} comparison written: {csv_path}")
 
 
 if __name__ == "__main__":

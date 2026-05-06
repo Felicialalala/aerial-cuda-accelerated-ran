@@ -442,6 +442,9 @@ namespace cumac {
         float       pfQueueDemandCapSlackBytes = 0.0; // slack added to UE buffer demand before Type-0 PFQ caps further PRG grants
         float       pfQueueIntraTtiDecayCoeff = 0.0; // per-PRG decay coefficient applied to repeated grants for the same UE within one TTI
         float       pfSlotDurationSec = 0.0; // slot duration used by PFQ to convert instantaneous rate to estimated bytes per PRG
+        uint8_t     rrQueueDemandAwareCap = 0; // enable demand-aware cap for Type-0 RRQ scheduling
+        float       rrQueueDemandCapSlackBytes = 0.0; // slack added to UE buffer demand before Type-0 RRQ caps further PRG grants
+        float       rrQueueEstimatedBytesPerPrg = 1.0; // RRQ byte estimate per PRG used to convert buffer demand into a PRG cap
         float       sinValThr = 0.1; // (For 4TR SU-MIMO only) singular value threshold for layer selection, value is in (0, 1). Default value is 0.1
         float       corrThr = 0.5; // channel vector correlation value threshold for layer selection,  value is in (0, 1). Default value is 0.5
         uint16_t    prioWeightStep = 100; // step size for UE priority weight increment per TTI if UE does not get scheduled. Default is 100

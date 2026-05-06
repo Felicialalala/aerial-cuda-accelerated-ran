@@ -203,7 +203,25 @@ std::vector<uint8_t> OnlineBridgeServer::buildStatePayload(const StepState& stat
         sizeof(float) * state.obsEdgeAttr.size() +
         sizeof(uint8_t) * state.actionMaskUe.size() +
         sizeof(uint8_t) * state.actionMaskCellUe.size() +
-        sizeof(uint8_t) * state.actionMaskPrgCell.size());
+        sizeof(uint8_t) * state.actionMaskPrgCell.size() +
+        sizeof(float) * state.postEqSinr.size() +
+        sizeof(int32_t) * state.teacherActionUe.size() +
+        sizeof(int16_t) * state.teacherActionPrg.size() +
+        sizeof(int32_t) * state.acceptedPrePdschUePrgCount.size() +
+        sizeof(int32_t) * state.nativeRejectWrongCellSlotCount.size() +
+        sizeof(int32_t) * state.nativeRejectEmptySlotCount.size() +
+        sizeof(int32_t) * state.nativeRejectPrgMaskCount.size() +
+        sizeof(int32_t) * state.nativeRejectOobSlotCount.size() +
+        sizeof(int32_t) * state.nativeRejectDuplicateUeCount.size() +
+        sizeof(int32_t) * state.nativeSlotCountPerCell.size() +
+        sizeof(int32_t) * state.nativeCellSlotStart.size() +
+        sizeof(int32_t) * state.nativeSlotToCell.size() +
+        sizeof(int32_t) * state.nativeSlotValid.size() +
+        sizeof(int32_t) * state.actualUePrgCount.size() +
+        sizeof(float) * state.actualUeServedBytes.size() +
+        sizeof(float) * state.actualUeGoodputBytes.size() +
+        sizeof(int32_t) * state.actualUeTbTxCount.size() +
+        sizeof(int32_t) * state.actualUeTbErrCount.size());
 
     appendPod(out, state.header);
 
@@ -236,6 +254,72 @@ std::vector<uint8_t> OnlineBridgeServer::buildStatePayload(const StepState& stat
     }
     if (!state.actionMaskPrgCell.empty()) {
         appendRaw(state.actionMaskPrgCell.data(), sizeof(uint8_t) * state.actionMaskPrgCell.size());
+    }
+    if (!state.postEqSinr.empty()) {
+        appendRaw(state.postEqSinr.data(), sizeof(float) * state.postEqSinr.size());
+    }
+    if (!state.teacherActionUe.empty()) {
+        appendRaw(state.teacherActionUe.data(), sizeof(int32_t) * state.teacherActionUe.size());
+    }
+    if (!state.teacherActionPrg.empty()) {
+        appendRaw(state.teacherActionPrg.data(), sizeof(int16_t) * state.teacherActionPrg.size());
+    }
+    if (!state.acceptedPrePdschUePrgCount.empty()) {
+        appendRaw(
+            state.acceptedPrePdschUePrgCount.data(),
+            sizeof(int32_t) * state.acceptedPrePdschUePrgCount.size());
+    }
+    if (!state.nativeRejectWrongCellSlotCount.empty()) {
+        appendRaw(
+            state.nativeRejectWrongCellSlotCount.data(),
+            sizeof(int32_t) * state.nativeRejectWrongCellSlotCount.size());
+    }
+    if (!state.nativeRejectEmptySlotCount.empty()) {
+        appendRaw(
+            state.nativeRejectEmptySlotCount.data(),
+            sizeof(int32_t) * state.nativeRejectEmptySlotCount.size());
+    }
+    if (!state.nativeRejectPrgMaskCount.empty()) {
+        appendRaw(
+            state.nativeRejectPrgMaskCount.data(),
+            sizeof(int32_t) * state.nativeRejectPrgMaskCount.size());
+    }
+    if (!state.nativeRejectOobSlotCount.empty()) {
+        appendRaw(
+            state.nativeRejectOobSlotCount.data(),
+            sizeof(int32_t) * state.nativeRejectOobSlotCount.size());
+    }
+    if (!state.nativeRejectDuplicateUeCount.empty()) {
+        appendRaw(
+            state.nativeRejectDuplicateUeCount.data(),
+            sizeof(int32_t) * state.nativeRejectDuplicateUeCount.size());
+    }
+    if (!state.nativeSlotCountPerCell.empty()) {
+        appendRaw(state.nativeSlotCountPerCell.data(), sizeof(int32_t) * state.nativeSlotCountPerCell.size());
+    }
+    if (!state.nativeCellSlotStart.empty()) {
+        appendRaw(state.nativeCellSlotStart.data(), sizeof(int32_t) * state.nativeCellSlotStart.size());
+    }
+    if (!state.nativeSlotToCell.empty()) {
+        appendRaw(state.nativeSlotToCell.data(), sizeof(int32_t) * state.nativeSlotToCell.size());
+    }
+    if (!state.nativeSlotValid.empty()) {
+        appendRaw(state.nativeSlotValid.data(), sizeof(int32_t) * state.nativeSlotValid.size());
+    }
+    if (!state.actualUePrgCount.empty()) {
+        appendRaw(state.actualUePrgCount.data(), sizeof(int32_t) * state.actualUePrgCount.size());
+    }
+    if (!state.actualUeServedBytes.empty()) {
+        appendRaw(state.actualUeServedBytes.data(), sizeof(float) * state.actualUeServedBytes.size());
+    }
+    if (!state.actualUeGoodputBytes.empty()) {
+        appendRaw(state.actualUeGoodputBytes.data(), sizeof(float) * state.actualUeGoodputBytes.size());
+    }
+    if (!state.actualUeTbTxCount.empty()) {
+        appendRaw(state.actualUeTbTxCount.data(), sizeof(int32_t) * state.actualUeTbTxCount.size());
+    }
+    if (!state.actualUeTbErrCount.empty()) {
+        appendRaw(state.actualUeTbErrCount.data(), sizeof(int32_t) * state.actualUeTbErrCount.size());
     }
 
     return out;

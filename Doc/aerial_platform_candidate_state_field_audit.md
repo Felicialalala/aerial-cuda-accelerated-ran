@@ -10,7 +10,12 @@
 
 混成同一类。
 
-结论优先以当前仓库代码为准，时间点为 `2026-04-07`。
+结论优先以当前仓库代码为准，最近一次整理时间点为 `2026-05-06`。
+
+口径提醒：
+
+- 本文最初面向 GNNRL/online bridge 字段核对；HGraph 主线已经有独立的图特征编码，详见 [`stageB_hybrid_scheduler_graph_variable_plan.md`](./stageB_hybrid_scheduler_graph_variable_plan.md)。
+- 当前代表性 baseline 已切换到 `3cell + 36UE + RBG16 + TTL200ms + 4T4R + SVD + 10 topology seeds`，详见 [`current_stageB_effective_configuration.md`](./current_stageB_effective_configuration.md)。
 
 ## 2. 统一 shape 口径
 
@@ -30,7 +35,7 @@
 
 ### 2.2 当前 Stage-B 主线已验证事实
 
-1. `M_sched` 当前是 `PRG/RBG`，不是 `RB`。默认 `68 PRG × 4 PRB`，对应 [`cuMAC/examples/parameters.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/parameters.h) 与 [`Doc/current_stageB_effective_configuration.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/current_stageB_effective_configuration.md)。
+1. `M_sched` 当前是 `PRG/RBG`，不是 `RB`。通用 7-cell 默认是 `68 PRG × 4 PRB`；当前代表性 3-cell baseline 使用 `17 PRG × 16 PRB`，对应 [`cuMAC/examples/parameters.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/parameters.h) 与 [`Doc/current_stageB_effective_configuration.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/current_stageB_effective_configuration.md)。
 2. 平台 API 支持 `B_total != B_coord`，但当前 online PPO / BC 主线要求 `n_tot_cell == n_cell`，见 [`training/gnnrl/ppo_online_train.py`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/ppo_online_train.py) 与 [`training/gnnrl/bc_train.py`](/home/oai2/aerial-cuda-accelerated-ran/training/gnnrl/bc_train.py)。
 3. 当前 online bridge 实际维度是：
    - `cellFeatDim = 5`
@@ -38,7 +43,7 @@
    - `edgeFeatDim = 2`
    - `prgFeatDim = 8`
    见 [`cuMAC/examples/onlineTrainBridge/OnlineObservationTypes.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/onlineTrainBridge/OnlineObservationTypes.h)。
-4. 当前 Stage-B 默认 `4T4R`，且 [`cuMAC/examples/parameters.h`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/parameters.h) 里 `prdSchemeConst = 0`，即默认 `no precoding`；平台能力上仍支持 `SVD precoding`。
+4. 当前代表性 Stage-B baseline 使用 `4T4R + SVD precoding`；早期 no-SVD 口径已经不再作为当前主参考。平台能力上仍支持 `no precoding` 与 `SVD precoding` 两种 4T4R 路径。
 5. 当前 `4T4R Type-0` 主线每个 `cell × PRG` 只落一个 slot/UE，不存在“同小区同 PRG 多用户复用”的原生语义。
 
 ### 2.3 原生内存布局提醒

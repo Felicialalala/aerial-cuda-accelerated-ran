@@ -46,6 +46,8 @@ METRIC_DEFINITIONS = {
     "traffic.packet_effective_total_system_time_ms": "Sum over MAC-queue-completed packets of packet system time in milliseconds under the current tracker implementation; includes queueing, scheduling wait, and retransmissions, with each served packet contributing at least one slot.",
     "traffic.packet_effective_service_rate_mbps": "Packet-based average effective service rate R_pkt = total_delivered_bits / total_packet_system_time, reported in Mbps over MAC-queue-completed packets under the current tracker implementation, with each served packet contributing at least one slot of system time. This is a packet-centric rate, not a system aggregate goodput metric.",
     "traffic.packet_effective_service_rate_per_packet_mean_mbps": "Arithmetic mean over MAC-queue-completed packets of each packet's effective service rate r_p = L_p / system_time_p, reported in Mbps. This is typically greater than or equal to traffic.packet_effective_service_rate_mbps when packet rates vary.",
+    "traffic.ue_macro_packet_effective_service_rate_mbps": "UE-macro packet effective service rate: arithmetic mean over UEs of each UE's packet_effective_service_rate_mbps. UEs with no delivered packets contribute 0 when UE packet-rate logs are available.",
+    "traffic.ue_macro_packet_effective_service_rate_per_packet_mean_mbps": "UE-macro per-packet mean effective service rate: arithmetic mean over UEs of each UE's packet_effective_service_rate_per_packet_mean_mbps. UEs with no delivered packets contribute 0 when UE packet-rate logs are available.",
     "global_kpi.cluster_sum_throughput_mbps": "Cluster served throughput used for RR/PF comparison. When TRAFFIC_KPI is available, this matches traffic.served_mbps_est.",
     "global_kpi.cluster_goodput_mbps": "Cluster goodput computed from successfully decoded bytes. When TRAFFIC_GOODPUT is available, this matches traffic.goodput_mbps.",
     "global_kpi.cluster_spectral_efficiency_bps_per_hz": "Cluster served throughput divided by the configured carrier bandwidth in Hz. Because throughput is summed across cells while bandwidth is per carrier, this is a cluster-level spectral-efficiency indicator rather than a single-link Shannon efficiency.",
@@ -99,6 +101,8 @@ METRIC_DEFINITIONS = {
     "global_kpi.packet_effective_total_system_time_ms": "Sum of packet system time over MAC-queue-completed packets only under the current tracker implementation, with each served packet contributing at least one slot.",
     "global_kpi.packet_effective_service_rate_mbps": "Alias of traffic.packet_effective_service_rate_mbps for global KPI comparison tables; each served packet contributes at least one slot of system time under the current MAC queue tracker completion semantics, and the metric should not be interpreted as system aggregate goodput.",
     "global_kpi.packet_effective_service_rate_per_packet_mean_mbps": "Alias of traffic.packet_effective_service_rate_per_packet_mean_mbps for global KPI comparison tables.",
+    "global_kpi.ue_macro_packet_effective_service_rate_mbps": "Mean over UEs of per-UE packet_effective_service_rate_mbps; this is UE-weighted rather than packet-weighted.",
+    "global_kpi.ue_macro_packet_effective_service_rate_per_packet_mean_mbps": "Mean over UEs of per-UE packet_effective_service_rate_per_packet_mean_mbps; this is UE-weighted rather than packet-weighted.",
     "global_kpi.ue_count": "Number of UEs included in KPI aggregation.",
     "per_ue_kpi.cell_id": "Serving cell identifier inferred from UE-cell association.",
     "per_ue_kpi.ue_local_id": "UE index within its serving cell.",
@@ -131,6 +135,12 @@ METRIC_DEFINITIONS = {
     "per_ue_kpi.packet_delay_p90_ms": "90th percentile packet-level delay over fully served packets for this UE.",
     "per_ue_kpi.packet_delay_p95_ms": "95th percentile packet-level delay over fully served packets for this UE.",
     "per_ue_kpi.packet_delay_max_ms": "Maximum packet-level delay over fully served packets for this UE.",
+    "per_ue_kpi.packet_effective_delivered_pkt_count": "Number of MAC-queue-completed packets contributing to this UE's packet effective service-rate statistics.",
+    "per_ue_kpi.packet_effective_pending_pkt_count": "Number of residual packets or fragments pending for this UE in the MAC packet queue tracker.",
+    "per_ue_kpi.packet_effective_total_delivered_bits": "Sum of original payload bits over this UE's MAC-queue-completed packets.",
+    "per_ue_kpi.packet_effective_total_system_time_ms": "Sum of packet system time over this UE's MAC-queue-completed packets.",
+    "per_ue_kpi.packet_effective_service_rate_mbps": "This UE's packet effective service rate, computed as delivered bits divided by packet system time.",
+    "per_ue_kpi.packet_effective_service_rate_per_packet_mean_mbps": "Arithmetic mean over this UE's completed packets of each packet's effective service rate.",
     "per_ue_kpi.generated_bytes": "Total generated traffic bytes for this UE.",
     "per_ue_kpi.accepted_bytes": "Total bytes accepted into the flow/MAC pipeline for this UE.",
     "per_ue_kpi.dropped_bytes": "Total generated bytes dropped before reaching the MAC buffer for this UE.",
@@ -212,6 +222,12 @@ UE_KPI_FIELD_ORDER = [
     "packet_delay_p90_ms",
     "packet_delay_p95_ms",
     "packet_delay_max_ms",
+    "packet_effective_delivered_pkt_count",
+    "packet_effective_pending_pkt_count",
+    "packet_effective_total_delivered_bits",
+    "packet_effective_total_system_time_ms",
+    "packet_effective_service_rate_mbps",
+    "packet_effective_service_rate_per_packet_mean_mbps",
     "generated_bytes",
     "accepted_bytes",
     "dropped_bytes",
@@ -599,6 +615,23 @@ def parse_ue_packet_delay_kpi(log_text: str):
     return rows
 
 
+def parse_ue_packet_service_rate_kpi(log_text: str):
+    pat = re.compile(
+        r"UE_PKT_RATE\s+ue_id=(\d+)\s+delivered_pkt_count=(\d+)\s+pending_pkt_count=(\d+)\s+total_delivered_bits=(\d+)\s+total_packet_system_time_ms=([0-9eE+\-\.]+)\s+packet_effective_service_rate_mbps=([0-9eE+\-\.]+)\s+packet_effective_service_rate_per_packet_mean_mbps=([0-9eE+\-\.]+)"
+    )
+    rows = {}
+    for m in pat.finditer(log_text):
+        rows[int(m.group(1))] = {
+            "packet_effective_delivered_pkt_count": int(m.group(2)),
+            "packet_effective_pending_pkt_count": int(m.group(3)),
+            "packet_effective_total_delivered_bits": int(m.group(4)),
+            "packet_effective_total_system_time_ms": float(m.group(5)),
+            "packet_effective_service_rate_mbps": float(m.group(6)),
+            "packet_effective_service_rate_per_packet_mean_mbps": float(m.group(7)),
+        }
+    return rows
+
+
 def parse_ue_goodput_kpi(log_text: str):
     pat = re.compile(
         r"UE_GOODPUT\s+ue_id=(\d+)\s+goodput_bytes=(\d+)\s+goodput_mbps=([0-9eE+\-\.]+)"
@@ -630,6 +663,20 @@ def merge_ue_packet_delay(ue_kpi, ue_packet_delay):
         row["packet_delay_p90_ms"] = pkt.get("packet_delay_p90_ms", 0.0)
         row["packet_delay_p95_ms"] = pkt.get("packet_delay_p95_ms", 0.0)
         row["packet_delay_max_ms"] = pkt.get("packet_delay_max_ms", 0.0)
+    return ue_kpi
+
+
+def merge_ue_packet_service_rate(ue_kpi, ue_packet_service_rate):
+    for row in ue_kpi:
+        pkt = ue_packet_service_rate.get(row["ue_id"], {})
+        row["packet_effective_delivered_pkt_count"] = pkt.get("packet_effective_delivered_pkt_count", 0)
+        row["packet_effective_pending_pkt_count"] = pkt.get("packet_effective_pending_pkt_count", 0)
+        row["packet_effective_total_delivered_bits"] = pkt.get("packet_effective_total_delivered_bits", 0)
+        row["packet_effective_total_system_time_ms"] = pkt.get("packet_effective_total_system_time_ms", 0.0)
+        row["packet_effective_service_rate_mbps"] = pkt.get("packet_effective_service_rate_mbps")
+        row["packet_effective_service_rate_per_packet_mean_mbps"] = pkt.get(
+            "packet_effective_service_rate_per_packet_mean_mbps"
+        )
     return ue_kpi
 
 
@@ -717,6 +764,16 @@ def summarize_global_kpi(ue_kpi, cell_kpi, traffic_kpi=None, bandwidth_hz=None, 
     predicted_bler_values = [float(r.get("avg_predicted_bler", 0.0)) for r in ue_kpi]
     predicted_bler_weights = [max(int(r.get("scheduled_tti_count", r.get("mcs_samples", 0))), 0) for r in ue_kpi]
     cell_thr_values = [float(r.get("cell_sum_thr_mbps", 0.0)) for r in cell_kpi]
+    ue_packet_effective_rate_values = [
+        float(r["packet_effective_service_rate_mbps"])
+        for r in ue_kpi
+        if r.get("packet_effective_service_rate_mbps") is not None
+    ]
+    ue_packet_effective_per_packet_rate_values = [
+        float(r["packet_effective_service_rate_per_packet_mean_mbps"])
+        for r in ue_kpi
+        if r.get("packet_effective_service_rate_per_packet_mean_mbps") is not None
+    ]
 
     ue_count = len(ue_kpi)
     total_generated_bytes = sum(generated_values)
@@ -821,6 +878,12 @@ def summarize_global_kpi(ue_kpi, cell_kpi, traffic_kpi=None, bandwidth_hz=None, 
         "packet_effective_total_system_time_ms": float((traffic_kpi or {}).get("packet_effective_total_system_time_ms", 0.0) or 0.0),
         "packet_effective_service_rate_mbps": float((traffic_kpi or {}).get("packet_effective_service_rate_mbps", 0.0) or 0.0),
         "packet_effective_service_rate_per_packet_mean_mbps": float((traffic_kpi or {}).get("packet_effective_service_rate_per_packet_mean_mbps", 0.0) or 0.0),
+        "ue_macro_packet_effective_service_rate_mbps": (
+            mean(ue_packet_effective_rate_values) if ue_packet_effective_rate_values else None
+        ),
+        "ue_macro_packet_effective_service_rate_per_packet_mean_mbps": (
+            mean(ue_packet_effective_per_packet_rate_values) if ue_packet_effective_per_packet_rate_values else None
+        ),
         "ue_count": ue_count,
     }
 
@@ -831,6 +894,12 @@ def format_metric_value(v):
     if isinstance(v, float):
         return f"{v:.10f}"
     return str(v)
+
+
+def format_csv_float(v):
+    if v is None:
+        return ""
+    return f"{float(v):.6f}"
 
 
 def metric_note(path):
@@ -958,6 +1027,7 @@ def main():
         ue_kpi = parse_ue_kpi(log_text)
         ue_kpi = merge_ue_goodput(ue_kpi, parse_ue_goodput_kpi(log_text))
         ue_kpi = merge_ue_packet_delay(ue_kpi, parse_ue_packet_delay_kpi(log_text))
+        ue_kpi = merge_ue_packet_service_rate(ue_kpi, parse_ue_packet_service_rate_kpi(log_text))
         throughput_summary = {
             "instantaneous_mbps_cpu": basic_stats([x / 1e6 for x in sum_ins_cpu]),
             "instantaneous_mbps_gpu": basic_stats(throughput_ins_mbps),
@@ -1025,6 +1095,12 @@ def main():
             row.setdefault("packet_delay_p90_ms", 0.0)
             row.setdefault("packet_delay_p95_ms", 0.0)
             row.setdefault("packet_delay_max_ms", 0.0)
+            row.setdefault("packet_effective_delivered_pkt_count", 0)
+            row.setdefault("packet_effective_pending_pkt_count", 0)
+            row.setdefault("packet_effective_total_delivered_bits", 0)
+            row.setdefault("packet_effective_total_system_time_ms", 0.0)
+            row.setdefault("packet_effective_service_rate_mbps", None)
+            row.setdefault("packet_effective_service_rate_per_packet_mean_mbps", None)
         ue_kpi.sort(key=lambda x: (x["cell_id"], x["ue_local_id"], x["ue_id"]))
     else:
         raise FileNotFoundError(f"Cannot find output or summary file in {out_dir}")
@@ -1066,6 +1142,8 @@ def main():
             "packet_effective_total_system_time_ms": 0.0,
             "packet_effective_service_rate_mbps": 0.0,
             "packet_effective_service_rate_per_packet_mean_mbps": 0.0,
+            "ue_macro_packet_effective_service_rate_mbps": None,
+            "ue_macro_packet_effective_service_rate_per_packet_mean_mbps": None,
             "note": "Traffic counters were not found in run.log; offered load is estimated from CLI args.",
         }
     traffic_kpi.setdefault("packet_delay_served_pkt_count", 0)
@@ -1080,6 +1158,8 @@ def main():
     traffic_kpi.setdefault("packet_effective_total_system_time_ms", 0.0)
     traffic_kpi.setdefault("packet_effective_service_rate_mbps", 0.0)
     traffic_kpi.setdefault("packet_effective_service_rate_per_packet_mean_mbps", 0.0)
+    traffic_kpi.setdefault("ue_macro_packet_effective_service_rate_mbps", None)
+    traffic_kpi.setdefault("ue_macro_packet_effective_service_rate_per_packet_mean_mbps", None)
     traffic_kpi.setdefault("expired_bytes", 0)
     traffic_kpi.setdefault("expired_packets", 0)
     traffic_kpi.setdefault("expiry_drop_rate", 0.0)
@@ -1088,6 +1168,12 @@ def main():
 
     cell_kpi = summarize_cell_kpi(ue_kpi)
     global_kpi = summarize_global_kpi(ue_kpi, cell_kpi, traffic_kpi, bandwidth_hz, prg_kpi)
+    traffic_kpi["ue_macro_packet_effective_service_rate_mbps"] = global_kpi[
+        "ue_macro_packet_effective_service_rate_mbps"
+    ]
+    traffic_kpi["ue_macro_packet_effective_service_rate_per_packet_mean_mbps"] = global_kpi[
+        "ue_macro_packet_effective_service_rate_per_packet_mean_mbps"
+    ]
     tti_count = len(sum_ins_gpu) if sum_ins_gpu else len(sum_ins_cpu) if sum_ins_cpu else int((existing or {}).get("tti_count", 0))
     ue_count = len(ue_avg_gpu) if ue_avg_gpu else len(ue_avg_cpu) if ue_avg_cpu else len(ue_kpi) if ue_kpi else int((existing or {}).get("ue_count", 0))
     cpu_gpu_compare = build_cpu_gpu_compare(throughput_summary, execution_mode)
@@ -1098,9 +1184,9 @@ def main():
         "throughput.long_term_sum_mbps_gpu": "output_short/output.txt arrays from GPU scheduler path",
         "throughput.per_ue_avg_mbps_cpu": "output_short/output.txt arrays from CPU scheduler path",
         "throughput.per_ue_avg_mbps_gpu": "output_short/output.txt arrays from GPU scheduler path",
-        "traffic": "run.log TRAFFIC_KPI / TRAFFIC_GOODPUT / TRAFFIC_EXPIRY / TRAFFIC_PKT_DELAY / TRAFFIC_PKT_RATE lines emitted from CPU-side state",
+        "traffic": "run.log TRAFFIC_KPI / TRAFFIC_GOODPUT / TRAFFIC_EXPIRY / TRAFFIC_PKT_DELAY / TRAFFIC_PKT_RATE lines emitted from CPU-side state, plus UE-macro packet-rate metrics derived from UE_PKT_RATE",
         "prg_utilization": "run.log PRG_UTILIZATION line emitted from CPU-side scheduling solutions",
-        "per_ue_kpi": "run.log UE_KPI and UE_GOODPUT lines emitted from CPU-side state",
+        "per_ue_kpi": "run.log UE_KPI / UE_GOODPUT / UE_PKT_DELAY / UE_PKT_RATE lines emitted from CPU-side state",
         "per_cell_kpi": "derived from CPU-side per_ue_kpi",
         "global_kpi": "derived mainly from CPU-side traffic/per_ue_kpi",
         "cpu_gpu_compare": "derived from CPU/GPU throughput arrays in output_short/output.txt",
@@ -1179,6 +1265,18 @@ def main():
             "traffic.packet_effective_service_rate_per_packet_mean_mbps",
             f"{summary['traffic']['packet_effective_service_rate_per_packet_mean_mbps']:.6f}",
         ),
+        format_metric_line(
+            "traffic.ue_macro_packet_effective_service_rate_mbps",
+            "N/A"
+            if summary["traffic"]["ue_macro_packet_effective_service_rate_mbps"] is None
+            else f"{summary['traffic']['ue_macro_packet_effective_service_rate_mbps']:.6f}",
+        ),
+        format_metric_line(
+            "traffic.ue_macro_packet_effective_service_rate_per_packet_mean_mbps",
+            "N/A"
+            if summary["traffic"]["ue_macro_packet_effective_service_rate_per_packet_mean_mbps"] is None
+            else f"{summary['traffic']['ue_macro_packet_effective_service_rate_per_packet_mean_mbps']:.6f}",
+        ),
         "",
         "[Global KPI]",
         format_metric_line("global_kpi.cluster_sum_throughput_mbps", f"{summary['global_kpi']['cluster_sum_throughput_mbps']:.6f}"),
@@ -1213,12 +1311,24 @@ def main():
             "global_kpi.packet_effective_service_rate_per_packet_mean_mbps",
             f"{summary['global_kpi']['packet_effective_service_rate_per_packet_mean_mbps']:.6f}",
         ),
+        format_metric_line(
+            "global_kpi.ue_macro_packet_effective_service_rate_mbps",
+            "N/A"
+            if summary["global_kpi"]["ue_macro_packet_effective_service_rate_mbps"] is None
+            else f"{summary['global_kpi']['ue_macro_packet_effective_service_rate_mbps']:.6f}",
+        ),
+        format_metric_line(
+            "global_kpi.ue_macro_packet_effective_service_rate_per_packet_mean_mbps",
+            "N/A"
+            if summary["global_kpi"]["ue_macro_packet_effective_service_rate_per_packet_mean_mbps"] is None
+            else f"{summary['global_kpi']['ue_macro_packet_effective_service_rate_per_packet_mean_mbps']:.6f}",
+        ),
         format_metric_line("global_kpi.ue_fraction_queue_delay_gt_10s", f"{summary['global_kpi']['ue_fraction_queue_delay_gt_10s']:.6f}"),
         format_metric_line("global_kpi.ue_fraction_queue_delay_gt_20s", f"{summary['global_kpi']['ue_fraction_queue_delay_gt_20s']:.6f}"),
         "",
         "[Metric Sources]",
         "throughput_cpu_gpu: output_short/output.txt arrays",
-        "traffic_global_per_ue: run.log CPU-side UE_KPI/UE_GOODPUT/TRAFFIC_KPI/TRAFFIC_GOODPUT/TRAFFIC_EXPIRY/TRAFFIC_PKT_DELAY/TRAFFIC_PKT_RATE",
+        "traffic_global_per_ue: run.log CPU-side UE_KPI/UE_GOODPUT/UE_PKT_DELAY/UE_PKT_RATE/TRAFFIC_KPI/TRAFFIC_GOODPUT/TRAFFIC_EXPIRY/TRAFFIC_PKT_DELAY/TRAFFIC_PKT_RATE",
         "note: throughput arrays are scheduler internal avg-rate metrics, not packet-served throughput",
     ]
     traffic_idx = lines.index("[Traffic]")
@@ -1245,13 +1355,17 @@ def main():
     summary_txt.write_text("\n".join(lines) + "\n")
     if ue_kpi:
         csv_lines = [
-            "cell_id,ue_local_id,ue_id,avg_thr_mbps,goodput_bytes,goodput_mbps,avg_mcs_tx_only,avg_mcs_all_tti0,avg_selected_layers_tx_only,avg_selected_layers_all_tti,scheduled_tti_count,no_tx_tti_count,scheduled_ratio,avg_wb_sinr_db,avg_sched_wb_sinr_db,avg_predicted_bler,tb_err_count,tb_bler,tx_success_rate,tx_drop_rate,tx_total_pkts,tx_success_pkts,queue_delay_est_ms,packet_delay_served_pkt_count,packet_delay_pending_pkt_count,packet_delay_mean_ms,packet_delay_p50_ms,packet_delay_p90_ms,packet_delay_p95_ms,packet_delay_max_ms,generated_bytes,accepted_bytes,dropped_bytes,flow_queued_bytes,mac_buffer_bytes,mcs_samples"
+            "cell_id,ue_local_id,ue_id,avg_thr_mbps,goodput_bytes,goodput_mbps,avg_mcs_tx_only,avg_mcs_all_tti0,avg_selected_layers_tx_only,avg_selected_layers_all_tti,scheduled_tti_count,no_tx_tti_count,scheduled_ratio,avg_wb_sinr_db,avg_sched_wb_sinr_db,avg_predicted_bler,tb_err_count,tb_bler,tx_success_rate,tx_drop_rate,tx_total_pkts,tx_success_pkts,queue_delay_est_ms,packet_delay_served_pkt_count,packet_delay_pending_pkt_count,packet_delay_mean_ms,packet_delay_p50_ms,packet_delay_p90_ms,packet_delay_p95_ms,packet_delay_max_ms,packet_effective_delivered_pkt_count,packet_effective_pending_pkt_count,packet_effective_total_delivered_bits,packet_effective_total_system_time_ms,packet_effective_service_rate_mbps,packet_effective_service_rate_per_packet_mean_mbps,generated_bytes,accepted_bytes,dropped_bytes,flow_queued_bytes,mac_buffer_bytes,mcs_samples"
         ]
         for r in ue_kpi:
             goodput_bytes_csv = "" if r.get("goodput_bytes") is None else str(r["goodput_bytes"])
             goodput_mbps_csv = "" if r.get("goodput_mbps") is None else f"{r['goodput_mbps']:.6f}"
+            pkt_effective_rate_csv = format_csv_float(r.get("packet_effective_service_rate_mbps"))
+            pkt_effective_per_packet_rate_csv = format_csv_float(
+                r.get("packet_effective_service_rate_per_packet_mean_mbps")
+            )
             csv_lines.append(
-                f"{r['cell_id']},{r['ue_local_id']},{r['ue_id']},{r['avg_thr_mbps']:.6f},{goodput_bytes_csv},{goodput_mbps_csv},{r['avg_mcs_tx_only']:.6f},{r['avg_mcs_all_tti0']:.6f},{r['avg_selected_layers_tx_only']:.6f},{r['avg_selected_layers_all_tti']:.6f},{r['scheduled_tti_count']},{r['no_tx_tti_count']},{r['scheduled_ratio']:.6f},{r['avg_wb_sinr_db']:.6f},{r['avg_sched_wb_sinr_db']:.6f},{r['avg_predicted_bler']:.6f},{r['tb_err_count']},{r['tb_bler']:.6f},{r['tx_success_rate']:.6f},{r['tx_drop_rate']:.6f},{r['tx_total_pkts']},{r['tx_success_pkts']},{r['queue_delay_est_ms']:.6f},{r['packet_delay_served_pkt_count']},{r['packet_delay_pending_pkt_count']},{r['packet_delay_mean_ms']:.6f},{r['packet_delay_p50_ms']:.6f},{r['packet_delay_p90_ms']:.6f},{r['packet_delay_p95_ms']:.6f},{r['packet_delay_max_ms']:.6f},{r['generated_bytes']},{r['accepted_bytes']},{r['dropped_bytes']},{r['flow_queued_bytes']},{r['mac_buffer_bytes']},{r['mcs_samples']}"
+                f"{r['cell_id']},{r['ue_local_id']},{r['ue_id']},{r['avg_thr_mbps']:.6f},{goodput_bytes_csv},{goodput_mbps_csv},{r['avg_mcs_tx_only']:.6f},{r['avg_mcs_all_tti0']:.6f},{r['avg_selected_layers_tx_only']:.6f},{r['avg_selected_layers_all_tti']:.6f},{r['scheduled_tti_count']},{r['no_tx_tti_count']},{r['scheduled_ratio']:.6f},{r['avg_wb_sinr_db']:.6f},{r['avg_sched_wb_sinr_db']:.6f},{r['avg_predicted_bler']:.6f},{r['tb_err_count']},{r['tb_bler']:.6f},{r['tx_success_rate']:.6f},{r['tx_drop_rate']:.6f},{r['tx_total_pkts']},{r['tx_success_pkts']},{r['queue_delay_est_ms']:.6f},{r['packet_delay_served_pkt_count']},{r['packet_delay_pending_pkt_count']},{r['packet_delay_mean_ms']:.6f},{r['packet_delay_p50_ms']:.6f},{r['packet_delay_p90_ms']:.6f},{r['packet_delay_p95_ms']:.6f},{r['packet_delay_max_ms']:.6f},{r['packet_effective_delivered_pkt_count']},{r['packet_effective_pending_pkt_count']},{r['packet_effective_total_delivered_bits']},{r['packet_effective_total_system_time_ms']:.6f},{pkt_effective_rate_csv},{pkt_effective_per_packet_rate_csv},{r['generated_bytes']},{r['accepted_bytes']},{r['dropped_bytes']},{r['flow_queued_bytes']},{r['mac_buffer_bytes']},{r['mcs_samples']}"
             )
         cell_kpi = summary["per_cell_kpi"]
         if cell_kpi:

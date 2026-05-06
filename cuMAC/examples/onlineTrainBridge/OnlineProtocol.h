@@ -10,8 +10,14 @@
 namespace cumac::online {
 
 constexpr uint32_t kMagic = 0x524c4e4fU; // "ONLR"
-constexpr uint16_t kVersion = 5U;
-constexpr uint32_t kRewardTerms = 12U;
+constexpr uint16_t kVersion = 10U;
+constexpr uint32_t kRewardTerms = 17U;
+constexpr uint32_t kStateFlagHasPostEqSinr = 1U << 0;
+constexpr uint32_t kStateFlagHasTeacherAction = 1U << 1;
+constexpr uint32_t kStateFlagHasActualUeDiagnostics = 1U << 2;
+constexpr uint32_t kStateFlagHasAcceptedPrePdschUeDiagnostics = 1U << 3;
+constexpr uint32_t kStateFlagHasNativeRejectDiagnostics = 1U << 4;
+constexpr uint32_t kStateFlagHasNativeSlotLayoutDiagnostics = 1U << 5;
 
 enum class MsgType : uint16_t {
     ResetReq = 1,
@@ -57,6 +63,7 @@ struct EnvDimsPayload {
     uint32_t ueFeatDim = 0;
     uint32_t edgeFeatDim = 0;
     uint32_t prgFeatDim = 0;
+    uint32_t postEqLayerDim = 0;
 };
 
 struct StepStateHeader {
@@ -66,6 +73,7 @@ struct StepStateHeader {
     float rewardScalar = 0.0F;
     float rewardTerms[kRewardTerms] = {};
     EnvDimsPayload dims;
+    uint32_t stateFlags = 0;
 };
 
 struct ErrorPayload {

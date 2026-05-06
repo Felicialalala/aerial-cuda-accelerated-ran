@@ -2,6 +2,8 @@
 
 This directory contains the current Stage-B offline BC / offline PPO / online PPO training code.
 
+Note: this is the legacy GNNRL stack. The current representative Stage-B result set uses `3cell + 36UE + RBG16 + TTL200ms + SVD`, `3000B`, and `traffic_arrival_rate=1.0`; HGraph v33 is the preferred current training/evaluation line.
+
 Canonical project docs:
 
 - `Doc/current_stageB_effective_configuration.md`
@@ -178,7 +180,7 @@ Multi-seed merged online training:
   --topology-scenario 3cell \
   --tti 2000 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.8 \
+  --traffic-arrival-rate 1.0 \
   --topology-seed 42 \
   --topology-seed-mode sequential \
   --baseline-scheduler pfq \
@@ -199,7 +201,7 @@ Notes:
 - `--action-mode joint` is now the recommended baseline-aligned mode. Each Type-0 slot in a cell can choose from that cell's full associated-UE set, so variable association counts remain visible to the policy.
 - `--action-mode prg_only_type0` fixes all Type-0 slots to the native all-active-UE layout and only learns PRG assignment.
 - In `prg_only_type0`, each cell only exposes `n_sched_ue / n_cell` scheduler slots to the policy, so if a topology has more associated UEs than that in one cell, the extra UEs are outside the PRG action space for that step.
-- If you plan to export ONNX and compare against RR/PFQ under variable per-cell association counts, train in `joint` mode; a checkpoint trained in `prg_only_type0` should not be evaluated as `joint` because its UE head was never optimized.
+- If you plan to export ONNX and compare against RRQ/PFQ under variable per-cell association counts, train in `joint` mode; a checkpoint trained in `prg_only_type0` should not be evaluated as `joint` because its UE head was never optimized.
 - `--online-persistent 1` (default): keep one simulator subprocess alive and stream continuous TTIs.
 - `--episode-horizon` is also honored by trainer-managed episode boundaries when `--curve-every-episodes > 0` or `--topology-seed-mode != fixed` under `--online-persistent 1`.
 - With `--topology-seed-mode fixed` plus trainer-managed boundaries, the trainer now uses soft episode rollover: hitting `--episode-horizon` only finalizes episode stats/GAE and keeps the same simulator process/socket alive until the simulator reaches its own natural ring horizon.
@@ -241,7 +243,7 @@ Notes:
   --cdl-delay-spreads 0 \
   --tti 4000 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.8 \
+  --traffic-arrival-rate 1.0 \
   --packet-ttl-ms 200 \
   --topology-seed 42 \
   --topology-seed-mode fixed \

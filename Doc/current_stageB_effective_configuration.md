@@ -1,4 +1,4 @@
-# 当前 Stage-B 生效配置与 RR/PF/PFQ 基线说明
+# 当前 Stage-B 生效配置与 RRQ/PFQ 基线说明
 
 ## 1. 文档定位
 
@@ -6,6 +6,7 @@
 - 重点覆盖当前真实生效的三条主线：
   - `./cuMAC/scripts/run_stageB_main_experiment.sh`
   - `./cuMAC/scripts/run_stageB_rr_pf_compare.sh`
+  - `./cuMAC/scripts/run_stageB_rr_pf_multi_seed_compare.sh`
   - `multiCellSchedulerUeSelection` 当前在 `Type-0 bitmap` 下的 native PF/RR 行为
 - 旧的独立 baseline 场景说明已经并入本文档。
 
@@ -25,10 +26,21 @@
 - 默认全向发射，不做 sector design
 - 入口脚本现已支持 `--topology-scenario 7cell|3cell`；`3cell` 变体保持同样的全向 + 均匀撒点口径，默认也是每站 `8 UE`
 
+当前分析和报告建议优先使用下面这组“最新代表性 baseline”：
+
+- `3cell + 36UE + RBG16 + Rayleigh + TTL200ms + 4T4R + SVD`
+- `packet_size_bytes = 3000`
+- `traffic_arrival_rate = 1.0 pkt/TTI`
+- topology seeds: `41,42,43,44,45,46,47,48,49,50`
+- 结果目录：
+  [`output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443)
+
+这组 10-seed 结果已经取代早期 3-seed / no-SVD / RR-vs-PF 结果，作为当前 RRQ/PFQ baseline 的主参考。
+
 当前最重要的变化不是“又多了一个脚本”，而是：
 
 1. native PF 和极限 RR 都已经能在 `GPU + Type-0 bitmap` 下跑通。
-2. `run_stageB_rr_pf_compare.sh` 已经把 RR/PF 或 RR/PFQ 对比流程脚本化。
+2. `run_stageB_rr_pf_compare.sh` / `run_stageB_rr_pf_multi_seed_compare.sh` 已经把 RRQ/PFQ 对比流程脚本化。
 3. 当前 baseline 对比在 `Type-0` 下本质上是“PRG bitmap 分配策略对比”，不是旧语义下完整的 UE selection + scheduler 双模块对比。
 
 ## 3. 入口脚本与职责
@@ -51,12 +63,18 @@
   - `kpi_summary.txt`
   - `ue_kpi.csv`
 
-### 3.2 RR/PF/PFQ 一键比较脚本
+### 3.2 RRQ/PFQ 一键比较脚本
 
-入口：
+单 seed 入口：
 
 ```bash
 ./cuMAC/scripts/run_stageB_rr_pf_compare.sh
+```
+
+多 seed 入口：
+
+```bash
+./cuMAC/scripts/run_stageB_rr_pf_multi_seed_compare.sh
 ```
 
 脚本职责：
@@ -79,8 +97,8 @@
 |---|---:|
 | `numCellConst` | 默认 `7`，`--topology-scenario 3cell` 时为 `3` |
 | `numCoorCellConst` | 默认 `7`，`--topology-scenario 3cell` 时为 `3` |
-| `numUePerCellConst` | `8` |
-| `numActiveUePerCellConst` | `8` |
+| `numUePerCellConst` | 默认 `8`；当前 3cell/36UE benchmark 通过脚本注入为 `12` |
+| `numActiveUePerCellConst` | 默认 `8`；当前 3cell/36UE benchmark 通过脚本注入为 `12` |
 | `nBsAntConst` | `4` |
 | `nUeAntConst` | `4` |
 | `nPrbsPerGrpConst` | `4` |
@@ -172,7 +190,7 @@
 
 ### 5.3 KPI 解释重点
 
-RR/PF/PFQ 胜负优先看：
+RRQ/PFQ 胜负优先看：
 
 - `traffic.*`
 - `global_kpi.*`
@@ -480,29 +498,40 @@ RR 路径：
 
 - [`cuMAC/examples/multiCellSchedulerUeSelection/main.cpp`](/home/oai2/aerial-cuda-accelerated-ran/cuMAC/examples/multiCellSchedulerUeSelection/main.cpp)
 
-## 8. RR/PF/PFQ 比较脚本当前产物
+## 8. RRQ/PFQ 比较脚本当前产物
 
-以用户当前命令为例：
+当前推荐的 RRQ/PFQ 多 topology-seed baseline 命令为：
 
 ```bash
-./cuMAC/scripts/run_stageB_rr_pf_compare.sh \
+RUN_TS="$(date +%Y%m%d_%H%M%S)"; \
+./cuMAC/scripts/run_stageB_rr_pf_multi_seed_compare.sh \
+  --seed-list 41,42,43,44,45,46,47,48,49,50 \
+  --reference-baseline rrq \
+  --pf-baseline pfq \
+  --topology-scenario 3cell \
+  --total-ue-count 36 \
   --build-method cmake \
   --fading-mode 0 \
   --cdl-profiles NA \
   --cdl-delay-spreads 0 \
-  --tti 2000 \
-  --custom-ue-prg 0 \
+  --tti 4000 \
+  --prbs-per-group 16 \
+  --precoding svd \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.2 \
-  --topology-seed 42 \
+  --traffic-arrival-rate 1 \
+  --packet-ttl-ms 200 \
+  --progress-tti 1000 \
+  --kpi-tti-log 0 \
+  --compare-tti 0 \
+  --compact-output 1 \
   --exec-mode gpu \
-  --compact-output 0 \
-  --tag rayleigh_seed42_gpu
+  --tag rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd \
+  --compare-output-dir "output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_${RUN_TS}"
 ```
 
-输出目录：
+当前保留的输出目录：
 
-- [`output/stageB_rr_pf_compare_rayleigh_seed42_gpu_20260327_074709`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rr_pf_compare_rayleigh_seed42_gpu_20260327_074709)
+- [`output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443)
 
 核心产物命名会跟第二个 baseline 联动。
 例如 `--pf-baseline pf` 时是 `rr_vs_pf_compare.*`，`--pf-baseline pfq` 时是 `rr_vs_pfq_compare.*`。
@@ -529,38 +558,11 @@ RR 路径：
 - 这些 `compare.csv/json/txt` 是最终 KPI 对比结果，不是 RL replay transition，不能直接拿去做 `bc_train.py` / `ppo_train.py`。
 - 若要做离线训练，必须重新跑 `run_stageB_main_experiment.sh --replay-dump 1` 生成 `rl_replay_meta.json`、`rl_replay_schema.json`、`rl_replay_records.bin`。
 
-## 9. 历史参考结果（2026-03-27，Rayleigh，seed=42，gpu-only）
+## 9. 历史参考结果处理
 
-以下结果生成于旧版 Stage-B 拓扑口径下。
-在当前场景已切换为“覆盖区内均匀撒点 + 默认全向发射”后，这组数值不应再视为新的当前基线，需要按新配置重新跑一次。
+2026-03 至 2026-04 的早期 RR/PF、RR/PFQ、no-SVD 或 3-seed 结果只保留为历史背景，不再作为当前 baseline 引用。相关本地输出目录已经清理；如果需要复现，应按第 8 节命令重新跑同口径结果。
 
-场景：
-
-- `RAYLEIGH`
-- `tti=2000`
-- `packet_size_bytes=3000`
-- `traffic_arrival_rate=0.2 pkt/TTI`
-- `exec-mode=gpu`
-
-结果来源：
-
-- [`output/stageB_rr_pf_compare_rayleigh_seed42_gpu_20260327_074709/RAYLEIGH/rr_vs_pf_compare.txt`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rr_pf_compare_rayleigh_seed42_gpu_20260327_074709/RAYLEIGH/rr_vs_pf_compare.txt)
-
-关键结论：
-
-- `cluster_sum_throughput_mbps`：RR `2119.033536`，PF `1247.099712`
-- `ue_throughput_jain`：RR `0.996670`，PF `0.736751`
-- `residual_buffer_ratio`：RR `1.6518%`，PF `42.0366%`
-- `packet_delay_p95_ms`：RR `35.5 ms`，PF `525.5 ms`
-- `scheduled_ratio_p5`：RR `99.8%`，PF `53.975%`
-- PF 仅在少数可靠性指标略优：
-  - `global_tb_bler`：PF `8.115%`，RR `8.472%`
-  - `global_tx_success_rate`：PF `91.885%`，RR `91.528%`
-
-因此，按当前这组负载和当前 Type-0 baseline 语义：
-
-- RR 明显优于 PF 的主要方向是吞吐、公平性、残留队列和时延
-- PF 的优势只剩轻微的 BLER / success-rate 改善
+当前报告不要再引用 2026-03 的旧 RR/PF 单 seed 输出或早期 `rr_vs_pfq_compare_mean.csv` 作为主结论来源。
 
 ## 10. 对后续智能算法开发的直接启示
 
@@ -575,7 +577,7 @@ RR 路径：
 
 1. 先对齐同一场景、同一 traffic 模型、同一 KPI 口径
 2. 明确“当前 baseline 对比的是 bitmap 分配策略”这一点
-3. 先完成与 RR/PF/PFQ 的同口径 compare automation，再做更复杂的联合动作空间扩展
+3. 先完成与 RRQ/PFQ 的同口径 compare automation，再做更复杂的联合动作空间扩展
 
 ## 11. 当前已知限制
 

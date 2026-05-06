@@ -1,5 +1,7 @@
 # 簇级智能调度分步实施详情（先接管 UE Selection + PRG/RBG）
 
+> 状态：早期接管路线规划，机制判断仍有参考价值；当前代表性实验已收敛到 `3cell + 36UE + RBG16 + TTL200ms + SVD` 口径。
+
 ## 1. 文档目标
 
 本方案基于当前仓库可运行环境（`multiCellSchedulerUeSelection` + Stage-B 脚本）设计一条低风险落地路线：
@@ -219,4 +221,3 @@
 2. 明确输入输出与回退机制。
 3. 确定先实现规则版 `CustomUePrgScheduler`，不直接引入 RL/GNN。
 4. 完成 S1 后再进入 S2/S3。
-

@@ -12,6 +12,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+LEGACY_ROOTS = [Path("/opt/nvidia/cuBB")]
+
 
 DEFAULT_METRICS = [
     {"name": "traffic.served_mbps_est", "unit": "Mbps", "direction": "higher_better"},
@@ -60,6 +63,129 @@ DEFAULT_METRICS = [
     {"name": "global_kpi.scheduled_ratio_p5", "unit": "%", "direction": "higher_better"},
 ]
 
+EVAL_SUMMARY_METRICS = [
+    {
+        "name": "eval.completed_steps",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Number of online-bridge evaluator steps completed for this checkpoint run.",
+    },
+    {
+        "name": "eval.stats_warmup_steps",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Number of initial evaluator steps excluded from eval.stats_mean_* metrics.",
+    },
+    {
+        "name": "eval.stats_count",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Number of evaluator steps included in eval.stats_mean_* metrics after warm-up exclusion.",
+    },
+    {
+        "name": "eval.mean_goodput_mbps",
+        "unit": "Mbps",
+        "direction": "higher_better",
+        "note": "Python online evaluator mean goodput over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_tb_err_rate",
+        "unit": "%",
+        "direction": "lower_better",
+        "note": "Python online evaluator mean TB error rate over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_blank_ratio",
+        "unit": "%",
+        "direction": "lower_better",
+        "note": "Python online evaluator mean policy blank ratio over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_fill_ratio",
+        "unit": "%",
+        "direction": "higher_better",
+        "note": "Python online evaluator mean decoded PRG fill ratio over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_cap_drop_count",
+        "unit": None,
+        "direction": "lower_better",
+        "note": "Python online evaluator mean PRG count dropped by the HGraph demand-cap decoder over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_fallback_success_count",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Python online evaluator mean over-cap PRG count successfully reassigned by decoder fallback over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_final_blank_count",
+        "unit": None,
+        "direction": "lower_better",
+        "note": "Python online evaluator mean final blank PRG-token count after decode over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.mean_uniq_ue",
+        "unit": None,
+        "direction": "higher_better",
+        "note": "Python online evaluator mean unique scheduled UE count over all completed evaluator steps.",
+    },
+    {
+        "name": "eval.stats_mean_goodput_mbps",
+        "unit": "Mbps",
+        "direction": "higher_better",
+        "note": "Python online evaluator mean goodput after excluding eval.stats_warmup_steps initial steps.",
+    },
+    {
+        "name": "eval.stats_mean_tb_err_rate",
+        "unit": "%",
+        "direction": "lower_better",
+        "note": "Python online evaluator mean TB error rate after excluding eval.stats_warmup_steps initial steps.",
+    },
+    {
+        "name": "eval.stats_mean_prg_utilization_ratio",
+        "unit": "%",
+        "direction": "higher_better",
+        "note": "Python online evaluator mean PRG utilization ratio after excluding eval.stats_warmup_steps initial steps.",
+    },
+    {
+        "name": "eval.stats_mean_blank_ratio",
+        "unit": "%",
+        "direction": "lower_better",
+        "note": "Python online evaluator mean policy blank ratio after excluding eval.stats_warmup_steps initial steps.",
+    },
+    {
+        "name": "eval.stats_mean_fill_ratio",
+        "unit": "%",
+        "direction": "higher_better",
+        "note": "Python online evaluator mean decoded PRG fill ratio after excluding eval.stats_warmup_steps initial steps.",
+    },
+    {
+        "name": "eval.stats_mean_cap_drop_count",
+        "unit": None,
+        "direction": "lower_better",
+        "note": "Python online evaluator mean PRG count dropped by the HGraph demand-cap decoder after warm-up exclusion.",
+    },
+    {
+        "name": "eval.stats_mean_fallback_success_count",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Python online evaluator mean over-cap PRG count successfully reassigned by decoder fallback after warm-up exclusion.",
+    },
+    {
+        "name": "eval.stats_mean_final_blank_count",
+        "unit": None,
+        "direction": "lower_better",
+        "note": "Python online evaluator mean final blank PRG-token count after decode after warm-up exclusion.",
+    },
+    {
+        "name": "eval.stats_mean_uniq_ue",
+        "unit": None,
+        "direction": "higher_better",
+        "note": "Python online evaluator mean unique scheduled UE count after excluding eval.stats_warmup_steps initial steps.",
+    },
+]
+
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Aggregate multi-seed Stage-B model KPI runs and compare with RR/PFQ means.")
@@ -96,6 +222,45 @@ def load_manifest_rows(path: Path) -> List[Dict[str, str]]:
 def load_json(path: Path) -> Dict:
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def resolve_path_maybe_rebased(raw: str, base_dir: Optional[Path] = None) -> Path:
+    path = Path(raw)
+    if not path.is_absolute():
+        path = (base_dir or ROOT_DIR) / path
+    if path.exists():
+        return path.resolve()
+    if path.is_absolute():
+        for legacy_root in LEGACY_ROOTS:
+            try:
+                rel = path.relative_to(legacy_root)
+            except ValueError:
+                continue
+            candidate = ROOT_DIR / rel
+            if candidate.exists():
+                return candidate.resolve()
+    return path.resolve()
+
+
+def resolve_eval_summary_path(row: Dict[str, str], manifest_path: Path) -> Optional[Path]:
+    raw = str(row.get("eval_summary_json", "") or "").strip()
+    if raw:
+        return resolve_path_maybe_rebased(raw, manifest_path.parent)
+
+    seed = str(row.get("seed", "")).strip()
+    if seed:
+        candidate = manifest_path.parent / "per_seed_eval" / f"s{seed}" / "eval_summary.json"
+        if candidate.is_file():
+            return candidate.resolve()
+    return None
+
+
+def load_summary_with_eval(row: Dict[str, str], manifest_path: Path) -> Dict:
+    summary = load_json(resolve_path_maybe_rebased(str(row["kpi_summary_json"]), manifest_path.parent))
+    eval_summary_path = resolve_eval_summary_path(row, manifest_path)
+    if eval_summary_path is not None and eval_summary_path.is_file():
+        summary["eval"] = load_json(eval_summary_path)
+    return summary
 
 
 def coerce_float(value) -> Optional[float]:
@@ -180,8 +345,10 @@ def load_baseline_csv(path: Path) -> Dict:
         rows = list(reader)
         fieldnames = list(reader.fieldnames or [])
     baseline_label = ""
-    for field in fieldnames:
-        if field.endswith("_mean") and field not in {"rr_mean"}:
+    mean_fields = [field for field in fieldnames if field.endswith("_mean")]
+    compare_mean_fields = [field for field in mean_fields if field not in {"rr_mean", "rrq_mean"}]
+    for field in compare_mean_fields or mean_fields:
+        if field not in {"rr_mean"}:
             baseline_label = field[: -len("_mean")]
             break
     baseline_label = normalize_label(baseline_label, default="pf")
@@ -237,6 +404,20 @@ def build_metric_specs(
     first_summary: Dict,
     baseline_rows: Optional[Sequence[Dict[str, str]]],
 ) -> List[Dict]:
+    def append_eval_specs(specs: List[Dict]) -> List[Dict]:
+        eval_summary = first_summary.get("eval") if isinstance(first_summary, dict) else None
+        if not isinstance(eval_summary, dict):
+            return specs
+        seen = {spec.get("name") for spec in specs}
+        for spec in EVAL_SUMMARY_METRICS:
+            if spec["name"] in seen:
+                continue
+            if dotted_get(first_summary, spec["name"]) is None:
+                continue
+            specs.append(dict(spec))
+            seen.add(spec["name"])
+        return specs
+
     if baseline_rows:
         specs: List[Dict] = []
         seen = set()
@@ -253,10 +434,10 @@ def build_metric_specs(
                 }
             )
             seen.add(metric_name)
-        return specs
+        return append_eval_specs(specs)
 
     metric_definitions = first_summary.get("metric_definitions", {}) if isinstance(first_summary, dict) else {}
-    return [
+    specs = [
         {
             "name": spec["name"],
             "unit": spec.get("unit"),
@@ -265,6 +446,7 @@ def build_metric_specs(
         }
         for spec in DEFAULT_METRICS
     ]
+    return append_eval_specs(specs)
 
 
 def aggregate_model_metrics(
@@ -429,6 +611,8 @@ def write_model_text(
     ]
     for row in sorted(source_rows, key=lambda r: int(r["seed"])):
         lines.append(f"seed={row['seed']} kpi_summary_json={row['kpi_summary_json']}")
+        if row.get("eval_summary_json"):
+            lines.append(f"seed={row['seed']} eval_summary_json={row['eval_summary_json']}")
     lines.extend(["", "[Aggregated Model Mean Metrics]"])
     for row in rows:
         lines.append(
@@ -525,6 +709,8 @@ def write_compare_text(
     ]
     for row in sorted(source_rows, key=lambda r: int(r["seed"])):
         lines.append(f"seed={row['seed']} kpi_summary_json={row['kpi_summary_json']}")
+        if row.get("eval_summary_json"):
+            lines.append(f"seed={row['seed']} eval_summary_json={row['eval_summary_json']}")
     lines.extend(["", "[RR/PFQ/Model Mean Compare]"])
     for row in rows:
         lines.append(
@@ -567,10 +753,7 @@ def main() -> None:
     aggregate_manifest_rows: List[Dict[str, str]] = []
     for scenario in sorted(grouped.keys()):
         rows = sorted(grouped[scenario], key=lambda r: int(r["seed"]))
-        summaries_by_seed = {
-            str(row["seed"]): load_json(Path(row["kpi_summary_json"]).resolve())
-            for row in rows
-        }
+        summaries_by_seed = {str(row["seed"]): load_summary_with_eval(row, manifest_path) for row in rows}
         requested_seeds = [str(row["seed"]) for row in rows]
 
         baseline_csv_path = resolve_baseline_csv_for_scenario(

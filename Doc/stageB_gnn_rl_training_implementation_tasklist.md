@@ -1,5 +1,7 @@
 # Stage-B GNNRL 当前 Readiness Checklist
 
+> 状态：GNNRL 旧路线的操作参考。当前训练/评测主线优先看 HGraph v33 与 10-seed RRQ/PFQ baseline；本文中的命令已更新到当前 `traffic_arrival_rate=1.0` 口径，但 checkpoint 目录只作为示例名。
+
 ## 1. 结论
 
 当前仓库已经具备以下可实际使用的训练主线：
@@ -102,7 +104,7 @@
   --cdl-delay-spreads 0 \
   --tti 2000 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.8 \
+  --traffic-arrival-rate 1.0 \
   --topology-seed 42 \
   --exec-mode gpu \
   --replay-dump 1 \
@@ -150,7 +152,7 @@ python3 training/gnnrl/ppo_train.py \
   --cdl-delay-spreads 0 \
   --tti 4000 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.8 \
+  --traffic-arrival-rate 1.0 \
   --packet-ttl-ms 200 \
   --topology-seed 42 \
   --exec-mode both \

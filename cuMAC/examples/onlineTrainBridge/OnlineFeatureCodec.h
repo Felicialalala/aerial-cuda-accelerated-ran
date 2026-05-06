@@ -45,6 +45,11 @@ public:
         float expiredBytes = 0.0F;
         float expiredPackets = 0.0F;
         float expiryDropRate = 0.0F;
+        float packetCompletedCount = 0.0F;
+        float packetDeliveredBits = 0.0F;
+        float packetSystemTimeMs = 0.0F;
+        float packetEffectiveServiceRateMbps = 0.0F;
+        float packetEffectiveServiceRatePerPacketMeanMbps = 0.0F;
     };
 
     bool initialize(const cumacCellGrpPrms* cellGrpPrmsCpu);
@@ -94,7 +99,12 @@ public:
                             float prgUtilizationRatio,
                             float goodputSpectralEfficiencyBpsHz,
                             float prgReuseRatio,
-                            float expiryDropRate) const;
+                            float expiryDropRate,
+                            float packetCompletedCount,
+                            float packetDeliveredBits,
+                            float packetSystemTimeMs,
+                            float packetEffectiveServiceRateMbps,
+                            float packetEffectiveServiceRatePerPacketMeanMbps) const;
 
 private:
     uint32_t m_nCell = 0U;

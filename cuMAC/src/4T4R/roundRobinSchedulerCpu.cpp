@@ -20,6 +20,43 @@
 // cuMAC namespace
 namespace cumac {
 
+namespace {
+
+constexpr uint16_t kInvalidActUeIdRrCpu = 0xFFFF;
+
+uint16_t rrDemandCapPrgCpu(const rrDynDescrCpu_t* pCpuDynDesc, uint16_t ueIdx)
+{
+    if (pCpuDynDesc->rrQueueDemandAwareCap == 0 || pCpuDynDesc->bufferSize == nullptr ||
+        pCpuDynDesc->setSchdUePerCellTTI == nullptr || ueIdx >= pCpuDynDesc->nUe) {
+        return pCpuDynDesc->nPrbGrp;
+    }
+
+    const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+    if (actUeId == kInvalidActUeIdRrCpu || actUeId >= pCpuDynDesc->nActiveUe) {
+        return 0;
+    }
+
+    const float demandBytes = static_cast<float>(pCpuDynDesc->bufferSize[actUeId]) +
+                              std::max(pCpuDynDesc->rrQueueDemandCapSlackBytes, 0.0f);
+    if (!(demandBytes > 0.0f)) {
+        return 0;
+    }
+
+    const float estimatedBytesPerPrg = pCpuDynDesc->rrQueueEstimatedBytesPerPrg > 1.0f
+                                           ? pCpuDynDesc->rrQueueEstimatedBytesPerPrg
+                                           : 1.0f;
+    const float capPrgFloat = std::ceil(demandBytes / estimatedBytesPerPrg);
+    if (!(capPrgFloat > 0.0f)) {
+        return 0;
+    }
+    if (capPrgFloat >= static_cast<float>(pCpuDynDesc->nPrbGrp)) {
+        return pCpuDynDesc->nPrbGrp;
+    }
+    return static_cast<uint16_t>(capPrgFloat);
+}
+
+} // namespace
+
 roundRobinSchedulerCpu::roundRobinSchedulerCpu(cumacCellGrpPrms* cellGrpPrms)
 {
     pCpuDynDesc = std::make_unique<rrDynDescrCpu_t>();
@@ -52,6 +89,57 @@ void roundRobinSchedulerCpu::roundRobinSchedulerCpu_type0()
         int numAllocRbgPerUe = floor(static_cast<float>(pCpuDynDesc->nPrbGrp)/numAssocUe);
 
         int numRemainingRgb = pCpuDynDesc->nPrbGrp - numAllocRbgPerUe*numAssocUe;
+
+        if (pCpuDynDesc->rrQueueDemandAwareCap != 0 && pCpuDynDesc->bufferSize != nullptr) {
+            std::vector<uint16_t> capPrg(assocUeIdx.size(), 0);
+            std::vector<uint16_t> assignedPrg(assocUeIdx.size(), 0);
+            uint16_t activeUeWithDemand = 0;
+            for (size_t uid = 0; uid < assocUeIdx.size(); ++uid) {
+                capPrg[uid] = rrDemandCapPrgCpu(pCpuDynDesc.get(), static_cast<uint16_t>(assocUeIdx[uid]));
+                if (capPrg[uid] > 0) {
+                    activeUeWithDemand++;
+                }
+            }
+
+            size_t rrCursor = 0;
+            for (int rbgIdx = 0; rbgIdx < pCpuDynDesc->nPrbGrp && activeUeWithDemand > 0; ++rbgIdx) {
+                bool allocated = false;
+                for (size_t probe = 0; probe < assocUeIdx.size(); ++probe) {
+                    const size_t uid = (rrCursor + probe) % assocUeIdx.size();
+                    if (assignedPrg[uid] >= capPrg[uid]) {
+                        continue;
+                    }
+
+                    pCpuDynDesc->allocSol[rbgIdx*pCpuDynDesc->nCell + cIdx] = assocUeIdx[uid];
+                    assignedPrg[uid]++;
+                    if (assignedPrg[uid] >= capPrg[uid] && activeUeWithDemand > 0) {
+                        activeUeWithDemand--;
+                    }
+                    rrCursor = (uid + 1) % assocUeIdx.size();
+                    allocated = true;
+                    break;
+                }
+                if (!allocated) {
+                    break;
+                }
+            }
+
+            for (size_t uid = 0; uid < assocUeIdx.size(); ++uid) {
+                const int ueIdx = assocUeIdx[uid];
+                const uint16_t actUeId = pCpuDynDesc->setSchdUePerCellTTI[ueIdx];
+                if (actUeId == kInvalidActUeIdRrCpu || actUeId >= pCpuDynDesc->nActiveUe) {
+                    continue;
+                }
+                if (assignedPrg[uid] > 0) {
+                    pCpuDynDesc->prioWeightActUe[actUeId] = 0;
+                } else {
+                    uint32_t tempPrio = pCpuDynDesc->prioWeightActUe[actUeId] + pCpuDynDesc->prioWeightStep;
+                    tempPrio = tempPrio > 0x0000FFFF ? 0x0000FFFF : tempPrio;
+                    pCpuDynDesc->prioWeightActUe[actUeId] = static_cast<uint16_t>(tempPrio);
+                }
+            }
+            continue;
+        }
 
         std::random_shuffle(assocUeIdx.begin(), assocUeIdx.end());
 
@@ -237,15 +325,26 @@ void roundRobinSchedulerCpu::setup(cumacCellGrpUeStatus*       cellGrpUeStatus,
                                    cumacSchdSol*               schdSol,
                                    cumacCellGrpPrms*           cellGrpPrms)
 {
+    if (cellGrpPrms->allocType == 0 && schdSol->allocSol != nullptr) {
+        const size_t allocCount = static_cast<size_t>(cellGrpPrms->nCell) *
+                                  static_cast<size_t>(cellGrpPrms->nPrbGrp);
+        std::fill_n(schdSol->allocSol, allocCount, static_cast<int16_t>(-1));
+    }
+
     pCpuDynDesc->cellId                 = cellGrpPrms->cellId;
     pCpuDynDesc->allocSol               = schdSol->allocSol;
     pCpuDynDesc->cellAssoc              = cellGrpPrms->cellAssoc;
     pCpuDynDesc->setSchdUePerCellTTI    = schdSol->setSchdUePerCellTTI;
     pCpuDynDesc->prioWeightActUe        = cellGrpUeStatus->prioWeightActUe;
+    pCpuDynDesc->bufferSize             = cellGrpUeStatus->bufferSize;
     pCpuDynDesc->nUe                    = cellGrpPrms->nUe; // total number of UEs across all coordinated cells
+    pCpuDynDesc->nActiveUe              = cellGrpPrms->nActiveUe;
     pCpuDynDesc->nCell                  = cellGrpPrms->nCell; // number of coordinated cells
     pCpuDynDesc->nPrbGrp                = cellGrpPrms->nPrbGrp;
     pCpuDynDesc->prioWeightStep         = cellGrpPrms->prioWeightStep;
+    pCpuDynDesc->rrQueueDemandAwareCap  = cellGrpPrms->rrQueueDemandAwareCap;
+    pCpuDynDesc->rrQueueDemandCapSlackBytes = cellGrpPrms->rrQueueDemandCapSlackBytes;
+    pCpuDynDesc->rrQueueEstimatedBytesPerPrg = cellGrpPrms->rrQueueEstimatedBytesPerPrg;
     allocType                           = cellGrpPrms->allocType;
 
     if (enableHarq == 1) { // HARQ enabled

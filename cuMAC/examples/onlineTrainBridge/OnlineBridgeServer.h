@@ -30,6 +30,24 @@ struct StepState {
     std::vector<uint8_t> actionMaskUe;
     std::vector<uint8_t> actionMaskCellUe;
     std::vector<uint8_t> actionMaskPrgCell;
+    std::vector<float> postEqSinr;
+    std::vector<int32_t> teacherActionUe;
+    std::vector<int16_t> teacherActionPrg;
+    std::vector<int32_t> acceptedPrePdschUePrgCount;
+    std::vector<int32_t> nativeRejectWrongCellSlotCount;
+    std::vector<int32_t> nativeRejectEmptySlotCount;
+    std::vector<int32_t> nativeRejectPrgMaskCount;
+    std::vector<int32_t> nativeRejectOobSlotCount;
+    std::vector<int32_t> nativeRejectDuplicateUeCount;
+    std::vector<int32_t> nativeSlotCountPerCell;
+    std::vector<int32_t> nativeCellSlotStart;
+    std::vector<int32_t> nativeSlotToCell;
+    std::vector<int32_t> nativeSlotValid;
+    std::vector<int32_t> actualUePrgCount;
+    std::vector<float> actualUeServedBytes;
+    std::vector<float> actualUeGoodputBytes;
+    std::vector<int32_t> actualUeTbTxCount;
+    std::vector<int32_t> actualUeTbErrCount;
 };
 
 class OnlineBridgeServer {

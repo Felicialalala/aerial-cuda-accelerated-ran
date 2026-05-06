@@ -1,5 +1,7 @@
 # Stage-B GNNRL 当前实现参考（offline + online + deployment）
 
+> 状态：旧 GNNRL 实现参考，主要用于 bridge/replay/ONNX/online PPO 机制查阅；当前代表性实验结论请引用 HGraph v33 与 10-seed RRQ/PFQ baseline。
+
 ## 1. 文档定位
 
 - 本文档描述当前仓库里已经落地、并且仍与代码一致的 GNN+RL 实现。
@@ -495,7 +497,7 @@ struct StepReqHeader {
   --tti 2000 \
   --custom-ue-prg 0 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.8 \
+  --traffic-arrival-rate 1.0 \
   --baseline-scheduler pfq \
   --topology-seed 42 \
   --replay-dump 1 \
@@ -562,7 +564,7 @@ build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedule
   --total-ue-count 36 \
   --prbs-per-group 16 \
   --packet-size-bytes 3000 \
-  --traffic-arrival-rate 0.8 \
+  --traffic-arrival-rate 1.0 \
   --packet-ttl-ms 200 \
   --topology-seed 42 \
   --topology-seed-mode fixed \
@@ -709,7 +711,7 @@ build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedule
 - `scheduled_ratio == 0` 的 UE 数 `<= 2`
 - `packet_delay_p95_ms` 不出现灾难性恶化
 
-若要和当前 RR/PF baseline 做一致对比，推荐再额外固定：
+若要和当前 RRQ/PFQ baseline 做一致对比，推荐再额外固定：
 
 - `packet_size_bytes`
 - `traffic_arrival_rate`
@@ -717,4 +719,4 @@ build.$(uname -m)/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedule
 - `exec_mode`
 - `fading_mode`
 
-全部与 RR/PF compare 使用完全相同的配置。
+全部与 RRQ/PFQ compare 使用完全相同的配置。
