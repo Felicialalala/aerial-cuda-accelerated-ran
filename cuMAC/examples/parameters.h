@@ -29,10 +29,10 @@
  #define gpuDeviceIdx          0
 
  // simulation duration
- #define numSimChnRlz          4000
+ #define numSimChnRlz          5000
  
  // randomness
- #define seedConst          50
+ #define seedConst          42
 
  // system parameters
  //#define mu                     0 // OFDM numerology: 0, 1, 2, 3, 4

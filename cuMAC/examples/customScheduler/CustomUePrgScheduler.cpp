@@ -102,7 +102,7 @@ CustomUePrgScheduler::ActionMode parseActionMode(const char* value)
 GnnRlPolicyRuntime::DecodeMode parseModelDecodeMode(const char* value)
 {
     if (value == nullptr || value[0] == '\0') {
-        return GnnRlPolicyRuntime::DecodeMode::Sample;
+        return GnnRlPolicyRuntime::DecodeMode::Argmax;
     }
 
     std::string mode(value);
@@ -110,7 +110,23 @@ GnnRlPolicyRuntime::DecodeMode parseModelDecodeMode(const char* value)
     if (mode == "argmax" || mode == "greedy") {
         return GnnRlPolicyRuntime::DecodeMode::Argmax;
     }
-    return GnnRlPolicyRuntime::DecodeMode::Sample;
+    if (mode == "sample" || mode == "stochastic") {
+        return GnnRlPolicyRuntime::DecodeMode::Sample;
+    }
+    return GnnRlPolicyRuntime::DecodeMode::Argmax;
+}
+
+GnnRlPolicyRuntime::OutputMode parseModelOutputMode(const char* value)
+{
+    if (value == nullptr || value[0] == '\0') {
+        return GnnRlPolicyRuntime::OutputMode::Logits;
+    }
+    std::string mode(value);
+    std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (mode == "action" || mode == "actions" || mode == "final_action") {
+        return GnnRlPolicyRuntime::OutputMode::Action;
+    }
+    return GnnRlPolicyRuntime::OutputMode::Logits;
 }
 
 const char* actionModeToString(const CustomUePrgScheduler::ActionMode mode)
@@ -121,6 +137,11 @@ const char* actionModeToString(const CustomUePrgScheduler::ActionMode mode)
 const char* decodeModeToString(const GnnRlPolicyRuntime::DecodeMode mode)
 {
     return mode == GnnRlPolicyRuntime::DecodeMode::Argmax ? "argmax" : "sample";
+}
+
+const char* outputModeToString(const GnnRlPolicyRuntime::OutputMode mode)
+{
+    return mode == GnnRlPolicyRuntime::OutputMode::Action ? "action" : "logits";
 }
 
 std::string maxPrgShareToString(float value)
@@ -172,6 +193,7 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
         }
     }
     cfg.actionMode = parseActionMode(std::getenv("CUMAC_GNNRL_ACTION_MODE"));
+    cfg.modelOutputMode = parseModelOutputMode(std::getenv("CUMAC_GNNRL_MODEL_OUTPUT_MODE"));
     cfg.modelDecodeMode = parseModelDecodeMode(std::getenv("CUMAC_GNNRL_MODEL_DECODE_MODE"));
 
     cfg.sinrWeight = envFloat("CUMAC_CUSTOM_SINR_WEIGHT", cfg.sinrWeight);
@@ -191,6 +213,11 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
         cfg.modelPath = std::string(modelPath);
     }
     cfg.policyTimeoutMs = std::max(0, envInt("CUMAC_POLICY_TIMEOUT_MS", cfg.policyTimeoutMs));
+    cfg.modelUsePostEqInput = envInt("CUMAC_GNNRL_MODEL_USE_POST_EQ_INPUT", cfg.modelUsePostEqInput ? 1 : 0) != 0;
+    cfg.modelDumpActions = envInt("CUMAC_GNNRL_DUMP_ACTIONS", cfg.modelDumpActions ? 1 : 0) != 0;
+    cfg.modelStrict = envInt("CUMAC_GNNRL_MODEL_STRICT", cfg.modelStrict ? 1 : 0) != 0;
+    cfg.modelDumpActionTtiLimit =
+        static_cast<uint32_t>(std::max(0, envInt("CUMAC_GNNRL_DUMP_ACTION_TTI_LIMIT", cfg.modelDumpActionTtiLimit)));
     cfg.modelSampleSeed = envUInt64("CUMAC_GNNRL_MODEL_SAMPLE_SEED", cfg.modelSampleSeed);
     cfg.modelNoUeBias = envFloat("CUMAC_GNNRL_MODEL_NO_UE_BIAS", cfg.modelNoUeBias);
     cfg.modelMinSchedRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO", cfg.modelMinSchedRatio);
@@ -582,7 +609,12 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                   << " maxActiveCellsPerPrg=" << m_cfg.maxActiveCellsPerPrg
                   << " modelPath=" << (m_cfg.modelPath.empty() ? "<empty>" : m_cfg.modelPath)
                   << " policyTimeoutMs=" << m_cfg.policyTimeoutMs
+                  << " modelOutputMode=" << outputModeToString(m_cfg.modelOutputMode)
                   << " modelDecodeMode=" << decodeModeToString(m_cfg.modelDecodeMode)
+                  << " modelUsePostEqInput=" << (m_cfg.modelUsePostEqInput ? 1 : 0)
+                  << " modelDumpActions=" << (m_cfg.modelDumpActions ? 1 : 0)
+                  << " modelStrict=" << (m_cfg.modelStrict ? 1 : 0)
+                  << " modelDumpActionTtiLimit=" << m_cfg.modelDumpActionTtiLimit
                   << " modelSampleSeed=" << m_cfg.modelSampleSeed
                   << " modelNoUeBias=" << m_cfg.modelNoUeBias
                   << " modelMinSchedRatio=" << m_cfg.modelMinSchedRatio
@@ -603,7 +635,11 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 runtimeCfg.actionMode = (m_cfg.actionMode == ActionMode::PrgOnlyType0)
                                             ? GnnRlPolicyRuntime::ActionMode::PrgOnlyType0
                                             : GnnRlPolicyRuntime::ActionMode::Joint;
+                runtimeCfg.outputMode = m_cfg.modelOutputMode;
                 runtimeCfg.decodeMode = m_cfg.modelDecodeMode;
+                runtimeCfg.usePostEqInput = m_cfg.modelUsePostEqInput;
+                runtimeCfg.dumpActions = m_cfg.modelDumpActions;
+                runtimeCfg.dumpActionTtiLimit = m_cfg.modelDumpActionTtiLimit;
                 runtimeCfg.sampleSeed = m_cfg.modelSampleSeed;
                 runtimeCfg.noUeBias = m_cfg.modelNoUeBias;
                 runtimeCfg.minSchedRatio = m_cfg.modelMinSchedRatio;
@@ -613,6 +649,9 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 m_modelRuntime = std::make_unique<GnnRlPolicyRuntime>(runtimeCfg);
                 m_modelReady = (m_modelRuntime != nullptr) && m_modelRuntime->initialize(cellGrpPrmsCpu);
                 if (!m_modelReady) {
+                    if (m_cfg.modelStrict) {
+                        throw std::runtime_error("[GNNRL_MODEL] runtime init failed in strict mode");
+                    }
                     std::cerr << "[GNNRL_MODEL] runtime init failed; fallback to legacy policy\n";
                 }
             }
@@ -624,9 +663,15 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 if (ok) {
                     return;
                 }
+                if (m_cfg.modelStrict) {
+                    throw std::runtime_error("[GNNRL_MODEL] inference failed in strict mode");
+                }
                 std::cerr << "[GNNRL_MODEL] inference failed; fallback to legacy policy\n";
             }
         } else {
+            if (m_cfg.modelStrict) {
+                throw std::runtime_error("[GNNRL_MODEL] allocType!=0 not supported in strict mode");
+            }
             std::cerr << "[GNNRL_MODEL] allocType!=0 not supported; fallback to legacy policy\n";
         }
 

@@ -19,9 +19,9 @@ It is intentionally separate from `training/gnnrl/`:
 - `feature_snapshot.py`
   - builds the first-version `cell_features / ue_features / prg_features / static_meta`
   - current HGraph input layout is now:
-    - `cell_features[C,6]`
-    - `ue_features[U,10]`
-    - `prg_features[C*P,9]`
+    - `cell_features[C,5]`
+    - `ue_features[U,12]`
+    - `prg_features[C*P,8]`
   - consumes existing Stage-B observation dicts:
     - `obs_cell_features`
     - `obs_ue_features`
@@ -39,8 +39,8 @@ It is intentionally separate from `training/gnnrl/`:
   - builds `E_CC / E_CU / E_CP / E_UP / E_PP`
   - keeps `Cell-PRG` as static affiliation edges
   - supports two `UE-PRG` modes:
-    - `post_eq_topk`, preferred path when raw `post_eq_sinr` is exported by the online bridge
-    - `shared_cell_pool`
+    - post-eq candidate edges when raw `post_eq_sinr` is exported by the online bridge
+    - shared-pool candidate edges when only compact observation features are available
 - `mask_checker.py`
   - validates graph legality and mask alignment
 - `sanity_logger.py`
@@ -65,6 +65,11 @@ It is intentionally separate from `training/gnnrl/`:
   - first online PPO fine-tuning entry for the sparse entity graph stack
   - supports warm-start from the imitation checkpoint
   - also supports direct PPO from scratch without imitation initialization
+- `export_onnx.py` / `check_onnx_consistency.py`
+  - fixed `3cell/36UE/17PRG` deployment export and PyTorch-vs-ONNX validation
+  - `--output-mode logits` keeps the legacy `ue_logits/prg_logits` ABI
+  - `--output-mode action` adds `obs_post_eq_sinr` and emits `action_ue_select/action_prg_alloc`
+  - action-mode C++ finalization handles Type-0 legality, demand-cap, and fallback
 
 ## Reuse strategy
 
@@ -416,6 +421,8 @@ For reproducing the exact early-stop-selected checkpoint, use:
 
 To evaluate one fixed HGraph checkpoint with the same multi-topology-seed averaging style used by RRQ/PFQ, use:
 
+The wrapper default decode path is now `argmax`, which matches the deterministic deployment-style policy. Use `--decode-mode sample` only for stochastic-policy ablation.
+
 ```bash
 ./cuMAC/scripts/run_stageB_hgraph_checkpoint_multi_seed_compare.sh \
   --build-method skip \
@@ -455,6 +462,114 @@ This wrapper:
 - aggregates the final HGraph mean/std/min/max with the same manifest-style flow used by the RRQ/PFQ comparison scripts
 - should use the same traffic/scenario parameters as training when your first goal is model-quality validation
 - should only switch to a different traffic profile such as `2000 bytes / 0.5 pkt` if you explicitly want apples-to-apples comparison against a baseline produced under that different traffic configuration
+
+## Fixed-Shape ONNX/TRT Deployment Export
+
+For the first real-time deployment path, export the retained HGraph actor as a fixed `3cell / 36UE / 17PRG` ONNX model:
+
+```bash
+.venv/bin/python training/stageb_hgraph/export_onnx.py --output-mode action --check
+```
+
+This writes:
+
+- `training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx`
+- `training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx.metadata.json`
+
+The preferred deployment ABI is now `action` mode. It moves the Python evaluator's masked argmax and Type-0 action composition into the exported graph, then lets C++ do only final legality/demand/fallback cleanup.
+
+- inputs:
+  - `obs_cell_features [1,3,5]`
+  - `obs_ue_features [1,36,12]`
+  - `obs_prg_features [1,3,17,8]`
+  - `obs_post_eq_sinr [1,36,17]`
+  - `obs_edge_index [1,6,2]`
+  - `obs_edge_attr [1,6,2]`
+  - `action_mask_ue [1,36]`
+  - `action_mask_cell_ue [1,3,36]`
+- outputs:
+  - `action_ue_select [1,36]`
+  - `action_prg_alloc [1,51]`
+
+The legacy `logits` ABI is still available when needed:
+
+```bash
+.venv/bin/python training/stageb_hgraph/export_onnx.py --output-mode logits --check
+```
+
+That path writes `hgraph_3cell_36ue_17prg_argmax.onnx` and keeps the old `ue_logits/prg_logits` outputs for C++ masked decode experiments.
+
+To re-check an already exported model:
+
+```bash
+.venv/bin/python training/stageb_hgraph/check_onnx_consistency.py --output-mode action
+```
+
+To run it through the C++ runtime path, pass the action ONNX as the `gnnrl_model` policy model:
+
+```bash
+./cuMAC/scripts/run_stageB_main_experiment.sh \
+  --build-method skip \
+  --custom-ue-prg 1 \
+  --custom-policy gnnrl_model \
+  --model-path training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx \
+  --gnnrl-model-output-mode action \
+  --gnnrl-model-use-post-eq-input 1 \
+  --gnnrl-model-decode-mode argmax \
+  --gnnrl-model-strict 1 \
+  --topology-scenario 3cell \
+  --total-ue-count 36 \
+  --prbs-per-group 16 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 1.0 \
+  --packet-ttl-ms 200 \
+  --precoding svd \
+  --exec-mode both \
+  --tti 4000
+```
+
+For the seed42 smoke run with a 1000-TTI warm-start horizon and 4000 measured-horizon intent, use 5000 total TTI:
+
+```bash
+./cuMAC/scripts/run_stageB_main_experiment.sh \
+  --build-method cmake \
+  --custom-ue-prg 1 \
+  --custom-policy gnnrl_model \
+  --model-path training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx \
+  --gnnrl-model-output-mode action \
+  --gnnrl-model-use-post-eq-input 1 \
+  --gnnrl-model-decode-mode argmax \
+  --gnnrl-model-strict 1 \
+  --topology-scenario 3cell \
+  --topology-seed 42 \
+  --total-ue-count 36 \
+  --prbs-per-group 16 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 1.0 \
+  --packet-ttl-ms 200 \
+  --precoding svd \
+  --exec-mode both \
+  --tti 5000 \
+  --compact-output 0 \
+  --tag hgraph_action_s42_warmup1000
+```
+
+Important caveat: the current Stage-B main KPI summary still accumulates over the full run. The `warmup1000` tag and `--tti 5000` layout are useful for controlled runs, but strict warmup-excluded KPI still requires a future `--stats-warmup-tti 1000` counter/snapshot path.
+
+Latest seed42 action-mode smoke result:
+
+| Metric | HGraph action s42 | PFQ s42 | RRQ s42 |
+|---|---:|---:|---:|
+| `traffic.served_mbps_est` | 1736.670 | 1734.346 | 1725.653 |
+| `traffic.goodput_mbps` | 1555.805 | 1548.486 | 1548.063 |
+| `global_kpi.global_tb_bler` | 0.105984 | 0.108009 | 0.108990 |
+| `global_kpi.ue_goodput_jain` | 0.998669 | 0.998616 | 0.998790 |
+| `global_kpi.ue_goodput_p5_mbps` | 40.209 | 39.604 | 40.306 |
+| `global_kpi.prg_utilization_ratio` | 0.603208 | 0.906142 | 0.866892 |
+| `traffic.packet_delay_mean_ms` | 2.353 | 0.692 | 0.685 |
+| `traffic.packet_delay_p95_ms` | 6.500 | 2.000 | 1.500 |
+
+Interpretation: the final action path is now functionally credible. It matches or slightly beats PFQ on throughput, goodput, BLER, fairness, and p5 goodput for seed42, but it does so with much lower PRG utilization and scheduling frequency. The remaining deployment-quality gap is therefore mostly packet-delay/service-regularity, not aggregate rate.
 
 ## Latest validated smoke status
 

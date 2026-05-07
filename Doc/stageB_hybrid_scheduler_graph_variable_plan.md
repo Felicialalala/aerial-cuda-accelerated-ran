@@ -177,7 +177,7 @@ CUDA_VISIBLE_DEVICES=1 ./cuMAC/scripts/run_stageB_hgraph_online_ppo.sh \
   --out-dir training/stageb_hgraph/runs/online_ppo_seed42_svd_rawbridge_joint_v33_capSlack3000_simpleExecutor_ablation
 ```
 
-下面这段是 v33 checkpoint 的三种子评测样式；当前 RRQ/PFQ baseline 已是 10-seed，若要形成最终 HGraph 结论，应进一步补齐 HGraph 的 10-seed 评测或明确声明 HGraph 仍是 3-seed 证据。
+下面这段是 v33 checkpoint 的三种子评测样式；当前 RRQ/PFQ baseline 已是 10-seed，若要形成最终 HGraph 结论，应进一步补齐 HGraph 的 10-seed 评测或明确声明 HGraph 仍是 3-seed 证据。评测脚本默认已经切到 deterministic `argmax`，`sample` 只建议作为随机策略消融。
 
 三随机拓扑种子测试示例:
 
@@ -1359,3 +1359,136 @@ r_bler = -lambda_e * failedBytes
 - UE goodput p5/p10 和 Jain 不下降
 
 这条路线与原始研究目标一致: 以簇级速率、干扰水平、频谱效率等 KPI 为目标, 研究时、频、功、空多维资源协同。v33 的价值已经开始体现为“用更少资源获得接近或略优 KPI”, 下一阶段要做的是把这部分资源效率优势转成更稳定的 packet-level 服务效率。
+
+## 13. 2026-05-07 固定 ONNX action 部署进展
+
+本节记录从 Python HGraph evaluator 走向固定部署路径的最新状态。当前目标不是继续证明训练脚本能跑, 而是确认最终在线动作路径是否能在主实验 C++ runtime 中复现可接受的调度行为。
+
+### 13.1 已完成的部署路径
+
+固定 `3cell/36UE/17PRG` 的 HGraph actor 已经支持两种 ONNX ABI:
+
+| ABI | ONNX 输出 | C++ 责任 | 当前定位 |
+|---|---|---|---|
+| `logits` | `ue_logits`, `prg_logits` | C++ masked decode | 兼容/消融路径 |
+| `action` | `action_ue_select`, `action_prg_alloc` | Type-0 合法化、demand-cap、fallback | 当前推荐部署路径 |
+
+当前推荐模型:
+
+```text
+training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx
+```
+
+action-mode 相比旧 logits-mode 的关键变化:
+
+1. ONNX 额外接收 `obs_post_eq_sinr [1,36,17]`, 对齐 Python evaluator 的 post-eq 信息。
+2. ONNX 内部执行 masked argmax, 直接输出 `slot -> UE` 和 `PRG -> slot` 后的最终 action。
+3. C++ runtime 不再重新解释 logits, 只负责最终工程合法化:
+   - Type-0 native 顺序检查与修正
+   - 同 UE 重复 slot 去重
+   - UE demand-cap
+   - 同 cell fallback
+4. 主实验脚本增加 metadata preflight, 如果 action ONNX 的 `n_cell/n_ue/n_prg/output_mode/use_post_eq_input` 与运行配置不一致, 会直接退出, 避免 `3cell/36UE/17PRG` 模型误跑到默认 `7cell/56UE` 配置。
+
+导出和一致性校验命令:
+
+```bash
+.venv/bin/python training/stageb_hgraph/export_onnx.py --output-mode action --check
+.venv/bin/python training/stageb_hgraph/check_onnx_consistency.py --output-mode action
+```
+
+当前 PyTorch-vs-ONNX action 一致性校验已经通过, `action_ue_select/action_prg_alloc` 的最大绝对差为 0。
+
+### 13.2 seed42 主实验 smoke
+
+本轮 smoke 使用 `topology_seed=42`, `SVD`, `TTL=200ms`, `3000B`, `1 pkt/TTI`, `3cell/36UE/17PRG`, `tti=5000`:
+
+```bash
+./cuMAC/scripts/run_stageB_main_experiment.sh \
+  --build-method cmake \
+  --custom-ue-prg 1 \
+  --custom-policy gnnrl_model \
+  --model-path training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx \
+  --gnnrl-model-output-mode action \
+  --gnnrl-model-use-post-eq-input 1 \
+  --gnnrl-model-decode-mode argmax \
+  --gnnrl-model-strict 1 \
+  --topology-scenario 3cell \
+  --topology-seed 42 \
+  --total-ue-count 36 \
+  --prbs-per-group 16 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 1.0 \
+  --packet-ttl-ms 200 \
+  --precoding svd \
+  --exec-mode both \
+  --tti 5000 \
+  --compact-output 0 \
+  --tag hgraph_action_s42_warmup1000
+```
+
+输出目录:
+
+```text
+output/stageB_main_experiment_hgraph_action_s42_warmup1000_20260507_021558
+```
+
+> 注意: 当前 `warmup1000` 只是运行标签和实验设计意图。主实验 `kpi_summary.json` 与 `ue_kpi.csv` 仍然是 5000 TTI 全程累计, 尚未真正剔除前 1000 TTI。严格 warmup-excluded KPI 需要后续补正式 `--stats-warmup-tti 1000` 计数路径。
+
+与同 seed RRQ/PFQ 对比:
+
+| 指标 | RRQ s42 | PFQ s42 | HGraph action s42 | HGraph vs PFQ |
+|---|---:|---:|---:|---:|
+| `traffic.served_mbps_est` | 1725.653 | 1734.346 | 1736.670 | +0.13% |
+| `traffic.goodput_mbps` | 1548.063 | 1548.486 | 1555.805 | +0.47% |
+| `global_kpi.global_tb_bler` | 0.108990 | 0.108009 | 0.105984 | -1.87% |
+| `global_kpi.ue_throughput_jain` | 0.999706 | 0.999631 | 0.999833 | +0.02% |
+| `global_kpi.ue_goodput_jain` | 0.998790 | 0.998616 | 0.998669 | +0.01% |
+| `global_kpi.ue_throughput_p5_mbps` | 46.659 | 46.836 | 47.191 | +0.76% |
+| `global_kpi.ue_goodput_p5_mbps` | 40.306 | 39.604 | 40.209 | +1.53% |
+| `global_kpi.prg_utilization_ratio` | 0.866892 | 0.906142 | 0.603208 | -33.43% |
+| `traffic.packet_delay_mean_ms` | 0.685 | 0.692 | 2.353 | +239.90% |
+| `traffic.packet_delay_p95_ms` | 1.500 | 2.000 | 6.500 | +225.00% |
+
+### 13.3 结果解释
+
+这次结果说明 action-mode 最终动作路径已经基本可信:
+
+- `served throughput` 和 `goodput` 均略高于 PFQ。
+- `TB BLER` 略低于 PFQ, 说明不是靠更高误块风险换吞吐。
+- UE Jain、公平性和 p5 goodput 保持良好, 说明不是牺牲边缘 UE 换平均值。
+- TTL 过期为 0, 没有出现明显 starvation 或策略崩坏。
+
+同时, 它的资源使用形态与 PFQ/RRQ 明显不同:
+
+- HGraph action 的 `PRG utilization = 0.603`, 远低于 PFQ 的 `0.906`。
+- HGraph action 的 `scheduled_ratio_mean = 0.2268`, 远低于 PFQ 的 `0.7231`。
+- 因此它是“低频、集中、较高单次服务量”的策略, 不是 PFQ/RRQ 那种“高频、细粒度、持续铺满”的策略。
+
+所以当前指标间的量级关系应这样解释:
+
+```text
+吞吐 / goodput 接近或略优
+  说明总服务能力足够
+
+PRG utilization 和 scheduled ratio 显著更低
+  说明模型用更少 PRG/更少调度事件完成了相近业务量
+
+packet delay 明显更高
+  说明 packet 等待下一次集中服务的时间更长, 服务更不均匀
+```
+
+换句话说, 当前 gap 已经不是“模型不会调度”, 而是“模型服务节奏不够平滑”。下一步优化不应简单追求把 PRG utilization 拉到 PFQ 的 0.90, 而应提高有效覆盖和 packet completion regularity。
+
+### 13.4 下一步收口事项
+
+优先级建议:
+
+1. 补 `--stats-warmup-tti 1000`, 让 served/goodput/PRG util/UE KPI/packet delay 都能严格剔除 warmup 区间。
+2. 用 action-mode ONNX 跑 `s41-s50` 10-seed, 与当前 RRQ/PFQ 10-seed baseline 同口径比较。
+3. 保留低 PRG utilization 优势, 只轻量改善服务节奏:
+   - active-demand UE coverage
+   - HOL-age / no-service proxy
+   - packet completion reward
+   - valid blank penalty
+4. 后续 C++ TRT/ONNX Runtime 性能优化应以 action-mode ABI 为主, logits-mode 只保留作回归和消融。

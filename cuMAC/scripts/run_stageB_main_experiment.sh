@@ -52,7 +52,12 @@ CUSTOM_POLICY="gnnrl"   # gnnrl | legacy (effective only when --custom-ue-prg=1)
 GNNRL_ACTION_MODE="joint" # joint | prg_only_type0
 MODEL_PATH=""          # used when --custom-policy gnnrl_model
 POLICY_TIMEOUT_MS=0    # policy timeout hint for model runtime (0=disable)
-GNNRL_MODEL_DECODE_MODE="sample"
+GNNRL_MODEL_OUTPUT_MODE="logits" # logits | action
+GNNRL_MODEL_DECODE_MODE="argmax"
+GNNRL_MODEL_USE_POST_EQ_INPUT=0
+GNNRL_DUMP_ACTIONS=0
+GNNRL_DUMP_ACTION_TTI_LIMIT=0
+GNNRL_MODEL_STRICT=1
 GNNRL_MODEL_SAMPLE_SEED="0"
 GNNRL_MODEL_NO_UE_BIAS=""
 GNNRL_MODEL_MIN_SCHED_RATIO=""
@@ -119,7 +124,12 @@ Options:
   --gnnrl-action-mode <m>     joint | prg_only_type0 for gnnrl_model decode (default: ${GNNRL_ACTION_MODE})
   --model-path <path>         ONNX model path for gnnrl_model policy (default: empty)
   --policy-timeout-ms <n>     Model policy timeout hint in ms, 0=disable (default: ${POLICY_TIMEOUT_MS})
+  --gnnrl-model-output-mode <m>        logits | action (default: ${GNNRL_MODEL_OUTPUT_MODE})
   --gnnrl-model-decode-mode <m>        sample | argmax (default: ${GNNRL_MODEL_DECODE_MODE})
+  --gnnrl-model-use-post-eq-input <0|1> Feed postEqSinr input to ONNX (default: ${GNNRL_MODEL_USE_POST_EQ_INPUT})
+  --gnnrl-dump-actions <0|1>            Dump decoded/finalized action traces (default: ${GNNRL_DUMP_ACTIONS})
+  --gnnrl-dump-action-tti-limit <n>     Max action trace TTIs, 0=unlimited (default: ${GNNRL_DUMP_ACTION_TTI_LIMIT})
+  --gnnrl-model-strict <0|1>             1 fail instead of falling back when model init/infer fails (default: ${GNNRL_MODEL_STRICT})
   --gnnrl-model-sample-seed <n>        RNG seed for sample decode (default: ${GNNRL_MODEL_SAMPLE_SEED})
   --gnnrl-model-no-ue-bias <v>          Override CUMAC_GNNRL_MODEL_NO_UE_BIAS
   --gnnrl-model-min-sched-ratio <v>     Override CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO
@@ -189,7 +199,12 @@ while [[ $# -gt 0 ]]; do
         --gnnrl-action-mode) GNNRL_ACTION_MODE="$2"; shift 2 ;;
         --model-path) MODEL_PATH="$2"; shift 2 ;;
         --policy-timeout-ms) POLICY_TIMEOUT_MS="$2"; shift 2 ;;
+        --gnnrl-model-output-mode) GNNRL_MODEL_OUTPUT_MODE="$2"; shift 2 ;;
         --gnnrl-model-decode-mode) GNNRL_MODEL_DECODE_MODE="$2"; shift 2 ;;
+        --gnnrl-model-use-post-eq-input) GNNRL_MODEL_USE_POST_EQ_INPUT="$2"; shift 2 ;;
+        --gnnrl-dump-actions) GNNRL_DUMP_ACTIONS="$2"; shift 2 ;;
+        --gnnrl-dump-action-tti-limit) GNNRL_DUMP_ACTION_TTI_LIMIT="$2"; shift 2 ;;
+        --gnnrl-model-strict) GNNRL_MODEL_STRICT="$2"; shift 2 ;;
         --gnnrl-model-sample-seed) GNNRL_MODEL_SAMPLE_SEED="$2"; shift 2 ;;
         --gnnrl-model-no-ue-bias) GNNRL_MODEL_NO_UE_BIAS="$2"; shift 2 ;;
         --gnnrl-model-min-sched-ratio) GNNRL_MODEL_MIN_SCHED_RATIO="$2"; shift 2 ;;
@@ -370,9 +385,34 @@ if ! [[ "${POLICY_TIMEOUT_MS}" =~ ^[0-9]+$ ]]; then
     echo "--policy-timeout-ms must be a non-negative integer" >&2
     exit 1
 fi
+GNNRL_MODEL_OUTPUT_MODE="$(echo "${GNNRL_MODEL_OUTPUT_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${GNNRL_MODEL_OUTPUT_MODE}" != "logits" && "${GNNRL_MODEL_OUTPUT_MODE}" != "action" ]]; then
+    echo "--gnnrl-model-output-mode must be logits or action" >&2
+    exit 1
+fi
 GNNRL_MODEL_DECODE_MODE="$(echo "${GNNRL_MODEL_DECODE_MODE}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${GNNRL_MODEL_DECODE_MODE}" != "sample" && "${GNNRL_MODEL_DECODE_MODE}" != "argmax" ]]; then
     echo "--gnnrl-model-decode-mode must be sample or argmax" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_MODEL_USE_POST_EQ_INPUT}" =~ ^[01]$ ]]; then
+    echo "--gnnrl-model-use-post-eq-input must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "${GNNRL_MODEL_OUTPUT_MODE}" == "action" && "${GNNRL_MODEL_USE_POST_EQ_INPUT}" == "0" ]]; then
+    echo "[Stage-B] --gnnrl-model-output-mode=action enables --gnnrl-model-use-post-eq-input=1 for the action ONNX signature."
+    GNNRL_MODEL_USE_POST_EQ_INPUT=1
+fi
+if ! [[ "${GNNRL_DUMP_ACTIONS}" =~ ^[01]$ ]]; then
+    echo "--gnnrl-dump-actions must be 0 or 1" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_DUMP_ACTION_TTI_LIMIT}" =~ ^[0-9]+$ ]]; then
+    echo "--gnnrl-dump-action-tti-limit must be a non-negative integer" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_MODEL_STRICT}" =~ ^[01]$ ]]; then
+    echo "--gnnrl-model-strict must be 0 or 1" >&2
     exit 1
 fi
 if ! [[ "${GNNRL_MODEL_SAMPLE_SEED}" =~ ^[0-9]+$ ]]; then
@@ -406,6 +446,50 @@ fi
 if [[ "${CUSTOM_POLICY}" == "gnnrl_model" && "${CUSTOM_UE_PRG}" != "1" ]]; then
     echo "--custom-policy=gnnrl_model requires --custom-ue-prg=1" >&2
     exit 1
+fi
+if [[ "${CUSTOM_POLICY}" == "gnnrl_model" ]]; then
+    MODEL_METADATA="${MODEL_PATH}.metadata.json"
+    if [[ -f "${MODEL_METADATA}" ]]; then
+        python3 - "${MODEL_METADATA}" "${TOPOLOGY_NUM_CELLS}" "${TOTAL_UE_COUNT}" "${PRG_COUNT}" "${GNNRL_MODEL_OUTPUT_MODE}" "${GNNRL_MODEL_USE_POST_EQ_INPUT}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+meta_path = Path(sys.argv[1])
+expected = {
+    "n_cell": int(sys.argv[2]),
+    "n_ue": int(sys.argv[3]),
+    "n_prg": int(sys.argv[4]),
+}
+expected_output_mode = sys.argv[5]
+expected_post_eq = bool(int(sys.argv[6]))
+
+data = json.loads(meta_path.read_text(encoding="utf-8"))
+fixed = data.get("fixed_shape") or {}
+errors = []
+for key, value in expected.items():
+    got = fixed.get(key)
+    if got is not None and int(got) != value:
+        errors.append(f"{key}: ONNX metadata has {got}, run config has {value}")
+output_mode = data.get("output_mode")
+if output_mode and str(output_mode) != expected_output_mode:
+    errors.append(f"output_mode: ONNX metadata has {output_mode}, run config has {expected_output_mode}")
+use_post_eq = data.get("use_post_eq_input")
+if use_post_eq is not None and bool(use_post_eq) != expected_post_eq:
+    errors.append(
+        "use_post_eq_input: ONNX metadata has "
+        f"{int(bool(use_post_eq))}, run config has {int(expected_post_eq)}"
+    )
+if errors:
+    print("[Stage-B] ERROR: --model-path metadata does not match this run configuration:", file=sys.stderr)
+    for err in errors:
+        print(f"[Stage-B]   {err}", file=sys.stderr)
+    print("[Stage-B] For hgraph_3cell_36ue_17prg_action_posteq.onnx use --topology-scenario 3cell --total-ue-count 36 --prbs-per-group 16 --gnnrl-model-output-mode action --gnnrl-model-use-post-eq-input 1.", file=sys.stderr)
+    sys.exit(1)
+PY
+    else
+        echo "[Stage-B] Warning: model metadata not found: ${MODEL_METADATA}; cannot preflight ONNX fixed shape." >&2
+    fi
 fi
 if ! [[ "${COMPACT_TTI_LOG}" =~ ^[01]$ ]]; then
     echo "--compact-tti-log must be 0 or 1" >&2
@@ -882,7 +966,7 @@ fi
 if [[ "${BUILD_ONLY}" == "1" ]]; then
     echo "[Stage-B] Build-only mode ready."
     echo "[Stage-B] Binary: ${BIN}"
-    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} precoding=${PRECODING} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE}"
+    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} precoding=${PRECODING} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE} gnnrl_model_output_mode=${GNNRL_MODEL_OUTPUT_MODE} gnnrl_model_use_post_eq_input=${GNNRL_MODEL_USE_POST_EQ_INPUT}"
     exit 0
 fi
 
@@ -990,7 +1074,11 @@ for i in "${!PROFILE_ARR[@]}"; do
             echo "  gnnrl_action_mode=${GNNRL_ACTION_MODE}"
             echo "  model_path=${MODEL_PATH}"
             echo "  policy_timeout_ms=${POLICY_TIMEOUT_MS}"
+            echo "  gnnrl_model_output_mode=${GNNRL_MODEL_OUTPUT_MODE}"
             echo "  gnnrl_model_decode_mode=${GNNRL_MODEL_DECODE_MODE}"
+            echo "  gnnrl_model_use_post_eq_input=${GNNRL_MODEL_USE_POST_EQ_INPUT}"
+            echo "  gnnrl_dump_actions=${GNNRL_DUMP_ACTIONS} limit=${GNNRL_DUMP_ACTION_TTI_LIMIT}"
+            echo "  gnnrl_model_strict=${GNNRL_MODEL_STRICT}"
             echo "  gnnrl_model_sample_seed=${GNNRL_MODEL_SAMPLE_SEED}"
         fi
     fi
@@ -1036,7 +1124,12 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_GNNRL_ACTION_MODE="${GNNRL_ACTION_MODE}"
         export CUMAC_GNNRL_MODEL_PATH="${MODEL_PATH}"
         export CUMAC_POLICY_TIMEOUT_MS="${POLICY_TIMEOUT_MS}"
+        export CUMAC_GNNRL_MODEL_OUTPUT_MODE="${GNNRL_MODEL_OUTPUT_MODE}"
         export CUMAC_GNNRL_MODEL_DECODE_MODE="${GNNRL_MODEL_DECODE_MODE}"
+        export CUMAC_GNNRL_MODEL_USE_POST_EQ_INPUT="${GNNRL_MODEL_USE_POST_EQ_INPUT}"
+        export CUMAC_GNNRL_DUMP_ACTIONS="${GNNRL_DUMP_ACTIONS}"
+        export CUMAC_GNNRL_DUMP_ACTION_TTI_LIMIT="${GNNRL_DUMP_ACTION_TTI_LIMIT}"
+        export CUMAC_GNNRL_MODEL_STRICT="${GNNRL_MODEL_STRICT}"
         export CUMAC_GNNRL_MODEL_SAMPLE_SEED="${GNNRL_MODEL_SAMPLE_SEED}"
         if [[ -n "${GNNRL_MODEL_NO_UE_BIAS}" ]]; then export CUMAC_GNNRL_MODEL_NO_UE_BIAS="${GNNRL_MODEL_NO_UE_BIAS}"; else unset CUMAC_GNNRL_MODEL_NO_UE_BIAS; fi
         if [[ -n "${GNNRL_MODEL_MIN_SCHED_RATIO}" ]]; then export CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO="${GNNRL_MODEL_MIN_SCHED_RATIO}"; else unset CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO; fi

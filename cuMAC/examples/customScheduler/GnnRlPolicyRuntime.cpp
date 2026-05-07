@@ -38,6 +38,11 @@ const char* decodeModeToString(const GnnRlPolicyRuntime::DecodeMode mode)
     return mode == GnnRlPolicyRuntime::DecodeMode::Argmax ? "argmax" : "sample";
 }
 
+const char* outputModeToString(const GnnRlPolicyRuntime::OutputMode mode)
+{
+    return mode == GnnRlPolicyRuntime::OutputMode::Action ? "action" : "logits";
+}
+
 std::string maxPrgShareToString(float value)
 {
     if (value > 0.0f) {
@@ -46,6 +51,19 @@ std::string maxPrgShareToString(float value)
         return oss.str();
     }
     return "auto";
+}
+
+template <typename T>
+std::string joinVector(const std::vector<T>& values)
+{
+    std::ostringstream oss;
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (i > 0U) {
+            oss << ",";
+        }
+        oss << values[i];
+    }
+    return oss.str();
 }
 
 template <typename ValidFn, typename LogitFn>
@@ -136,6 +154,10 @@ void GnnRlPolicyRuntime::releaseCudaBuffers()
         CUDA_CHECK_ERR(cudaFree(m_obsPrgDev));
         m_obsPrgDev = nullptr;
     }
+    if (m_obsPostEqDev != nullptr) {
+        CUDA_CHECK_ERR(cudaFree(m_obsPostEqDev));
+        m_obsPostEqDev = nullptr;
+    }
     if (m_obsEdgeIndexDev != nullptr) {
         CUDA_CHECK_ERR(cudaFree(m_obsEdgeIndexDev));
         m_obsEdgeIndexDev = nullptr;
@@ -160,6 +182,14 @@ void GnnRlPolicyRuntime::releaseCudaBuffers()
         CUDA_CHECK_ERR(cudaFree(m_prgLogitsDev));
         m_prgLogitsDev = nullptr;
     }
+    if (m_actionUeDev != nullptr) {
+        CUDA_CHECK_ERR(cudaFree(m_actionUeDev));
+        m_actionUeDev = nullptr;
+    }
+    if (m_actionPrgDev != nullptr) {
+        CUDA_CHECK_ERR(cudaFree(m_actionPrgDev));
+        m_actionPrgDev = nullptr;
+    }
 }
 
 bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
@@ -181,6 +211,10 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
     if (cellGrpPrmsCpu->allocType != 0) {
         std::cerr << "[GNNRL_MODEL] supports allocType=0 only, got allocType=" << static_cast<int>(cellGrpPrmsCpu->allocType) << "\n";
         return false;
+    }
+    if (m_cfg.outputMode == OutputMode::Action && !m_cfg.usePostEqInput) {
+        std::cerr << "[GNNRL_MODEL] action output mode requires obs_post_eq_sinr for the fixed HGraph action ABI; enabling usePostEqInput\n";
+        m_cfg.usePostEqInput = true;
     }
 
     m_nCell = cellGrpPrmsCpu->nCell;
@@ -209,7 +243,11 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
               << " nPrbGrp=" << m_nPrbGrp
               << " numUeSchdPerCellTTI=" << m_numUeSchdPerCellTTI
               << " actionMode=" << actionModeToString(m_cfg.actionMode)
+              << " outputMode=" << outputModeToString(m_cfg.outputMode)
               << " decodeMode=" << decodeModeToString(m_cfg.decodeMode)
+              << " usePostEqInput=" << (m_cfg.usePostEqInput ? 1 : 0)
+              << " dumpActions=" << (m_cfg.dumpActions ? 1 : 0)
+              << " dumpActionTtiLimit=" << m_cfg.dumpActionTtiLimit
               << " sampleSeed=" << m_cfg.sampleSeed
               << " noUeBias=" << m_cfg.noUeBias
               << " minSchedRatio=" << m_cfg.minSchedRatio
@@ -237,6 +275,7 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
     m_obsCellHost.assign(static_cast<size_t>(m_nCell) * kCellFeatDim, 0.0f);
     m_obsUeHost.assign(static_cast<size_t>(m_nActiveUe) * kUeFeatDim, 0.0f);
     m_obsPrgHost.assign(static_cast<size_t>(m_nCell) * static_cast<size_t>(m_nPrbGrp) * kPrgFeatDim, 0.0f);
+    m_obsPostEqHost.assign(static_cast<size_t>(m_nActiveUe) * m_nPrbGrp, 0.0f);
     m_obsEdgeAttrHost.assign(static_cast<size_t>(m_nEdges) * kEdgeFeatDim, 0.0f);
     m_actionMaskUeHost.assign(m_nActiveUe, 0.0f);
     m_actionMaskCellUeHost.assign(static_cast<size_t>(m_nCell) * m_nActiveUe, 0.0f);
@@ -247,20 +286,28 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
     const size_t prgLogitsSize = static_cast<size_t>(m_nCell) * m_nPrbGrp * (m_nSchedUe + 1U);
     m_ueLogitsHost.assign(ueLogitsSize, 0.0f);
     m_prgLogitsHost.assign(prgLogitsSize, 0.0f);
+    m_actionUeHost.assign(m_nSchedUe, 0.0f);
+    m_actionPrgHost.assign(static_cast<size_t>(m_nCell) * m_nPrbGrp, -1.0f);
 
     releaseCudaBuffers();
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_obsCellDev), sizeof(float) * m_obsCellHost.size()));
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_obsUeDev), sizeof(float) * m_obsUeHost.size()));
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_obsPrgDev), sizeof(float) * m_obsPrgHost.size()));
+    CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_obsPostEqDev), sizeof(float) * m_obsPostEqHost.size()));
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_obsEdgeIndexDev), sizeof(int64_t) * m_edgeIndexHost.size()));
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_obsEdgeAttrDev), sizeof(float) * m_obsEdgeAttrHost.size()));
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_actionMaskUeDev), sizeof(float) * m_actionMaskUeHost.size()));
     CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_actionMaskCellUeDev), sizeof(float) * m_actionMaskCellUeHost.size()));
-    CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_ueLogitsDev), sizeof(float) * m_ueLogitsHost.size()));
-    CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_prgLogitsDev), sizeof(float) * m_prgLogitsHost.size()));
+    if (m_cfg.outputMode == OutputMode::Action) {
+        CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_actionUeDev), sizeof(float) * m_actionUeHost.size()));
+        CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_actionPrgDev), sizeof(float) * m_actionPrgHost.size()));
+    } else {
+        CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_ueLogitsDev), sizeof(float) * m_ueLogitsHost.size()));
+        CUDA_CHECK_ERR(cudaMalloc(reinterpret_cast<void**>(&m_prgLogitsDev), sizeof(float) * m_prgLogitsHost.size()));
+    }
 
     try {
-        const std::vector<cumac_ml::trtTensorPrms_t> inputPrms = {
+        std::vector<cumac_ml::trtTensorPrms_t> inputPrms = {
             {"obs_cell_features", {1, static_cast<int>(m_nCell), static_cast<int>(kCellFeatDim)}},
             {"obs_ue_features", {1, static_cast<int>(m_nActiveUe), static_cast<int>(kUeFeatDim)}},
             {"obs_prg_features", {1, static_cast<int>(m_nCell), static_cast<int>(m_nPrbGrp), static_cast<int>(kPrgFeatDim)}},
@@ -269,10 +316,22 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
             {"action_mask_ue", {1, static_cast<int>(m_nActiveUe)}},
             {"action_mask_cell_ue", {1, static_cast<int>(m_nCell), static_cast<int>(m_nActiveUe)}},
         };
-        const std::vector<cumac_ml::trtTensorPrms_t> outputPrms = {
-            {"ue_logits", {1, static_cast<int>(m_nSchedUe), static_cast<int>(m_nActiveUe + 1U)}},
-            {"prg_logits", {1, static_cast<int>(m_nCell), static_cast<int>(m_nPrbGrp), static_cast<int>(m_nSchedUe + 1U)}},
-        };
+        if (m_cfg.usePostEqInput) {
+            inputPrms.push_back({"obs_post_eq_sinr", {1, static_cast<int>(m_nActiveUe), static_cast<int>(m_nPrbGrp)}});
+        }
+
+        std::vector<cumac_ml::trtTensorPrms_t> outputPrms;
+        if (m_cfg.outputMode == OutputMode::Action) {
+            outputPrms = {
+                {"action_ue_select", {1, static_cast<int>(m_nSchedUe)}},
+                {"action_prg_alloc", {1, static_cast<int>(m_nCell * m_nPrbGrp)}},
+            };
+        } else {
+            outputPrms = {
+                {"ue_logits", {1, static_cast<int>(m_nSchedUe), static_cast<int>(m_nActiveUe + 1U)}},
+                {"prg_logits", {1, static_cast<int>(m_nCell), static_cast<int>(m_nPrbGrp), static_cast<int>(m_nSchedUe + 1U)}},
+            };
+        }
 
         m_trtEngine = std::make_unique<cumac_ml::trtEngine>(m_cfg.modelPath.c_str(), true, 1U, inputPrms, outputPrms);
     } catch (const std::exception& e) {
@@ -309,6 +368,7 @@ void GnnRlPolicyRuntime::buildObservation(const cumacCellGrpUeStatus* cellGrpUeS
     std::fill(m_obsCellHost.begin(), m_obsCellHost.end(), 0.0f);
     std::fill(m_obsUeHost.begin(), m_obsUeHost.end(), 0.0f);
     std::fill(m_obsPrgHost.begin(), m_obsPrgHost.end(), 0.0f);
+    std::fill(m_obsPostEqHost.begin(), m_obsPostEqHost.end(), 0.0f);
     std::fill(m_obsEdgeAttrHost.begin(), m_obsEdgeAttrHost.end(), 0.0f);
 
     std::vector<int32_t> ueServingCell(m_nActiveUe, -1);
@@ -352,6 +412,22 @@ void GnnRlPolicyRuntime::buildObservation(const cumacCellGrpUeStatus* cellGrpUeS
                 wbSinrLin += clampMin(cellGrpPrmsCpu->wbSinr[ueIdx * nUeAnt + ant], 1.0e-9f);
             }
             wbSinrLin /= static_cast<float>(nUeAnt);
+        }
+
+        if (m_cfg.usePostEqInput) {
+            for (uint32_t prgIdx = 0; prgIdx < m_nPrbGrp; ++prgIdx) {
+                float prgSinrLin = wbSinrLin > 0.0f ? wbSinrLin : 1.0e-9f;
+                if (cellGrpPrmsCpu->postEqSinr != nullptr) {
+                    float prgSinrSum = 0.0f;
+                    const size_t prgBase = static_cast<size_t>(ueIdx) * m_nPrbGrp * nUeAnt +
+                                           static_cast<size_t>(prgIdx) * nUeAnt;
+                    for (uint8_t ant = 0; ant < nUeAnt; ++ant) {
+                        prgSinrSum += clampMin(cellGrpPrmsCpu->postEqSinr[prgBase + ant], 1.0e-9f);
+                    }
+                    prgSinrLin = prgSinrSum / static_cast<float>(nUeAnt);
+                }
+                m_obsPostEqHost[static_cast<size_t>(ueIdx) * m_nPrbGrp + prgIdx] = clampMin(prgSinrLin, 1.0e-9f);
+            }
         }
 
         float staleSlots = 0.0f;
@@ -491,6 +567,14 @@ bool GnnRlPolicyRuntime::buildAndRunModel(cudaStream_t stream)
         m_obsUeDev, m_obsUeHost.data(), sizeof(float) * m_obsUeHost.size(), cudaMemcpyHostToDevice, stream));
     CUDA_CHECK_ERR(cudaMemcpyAsync(
         m_obsPrgDev, m_obsPrgHost.data(), sizeof(float) * m_obsPrgHost.size(), cudaMemcpyHostToDevice, stream));
+    if (m_cfg.usePostEqInput) {
+        CUDA_CHECK_ERR(cudaMemcpyAsync(
+            m_obsPostEqDev,
+            m_obsPostEqHost.data(),
+            sizeof(float) * m_obsPostEqHost.size(),
+            cudaMemcpyHostToDevice,
+            stream));
+    }
     CUDA_CHECK_ERR(cudaMemcpyAsync(
         m_obsEdgeIndexDev, m_edgeIndexHost.data(), sizeof(int64_t) * m_edgeIndexHost.size(), cudaMemcpyHostToDevice, stream));
     CUDA_CHECK_ERR(cudaMemcpyAsync(
@@ -508,7 +592,7 @@ bool GnnRlPolicyRuntime::buildAndRunModel(cudaStream_t stream)
         cudaMemcpyHostToDevice,
         stream));
 
-    const std::vector<void*> inputs = {
+    std::vector<void*> inputs = {
         reinterpret_cast<void*>(m_obsCellDev),
         reinterpret_cast<void*>(m_obsUeDev),
         reinterpret_cast<void*>(m_obsPrgDev),
@@ -517,10 +601,22 @@ bool GnnRlPolicyRuntime::buildAndRunModel(cudaStream_t stream)
         reinterpret_cast<void*>(m_actionMaskUeDev),
         reinterpret_cast<void*>(m_actionMaskCellUeDev),
     };
-    const std::vector<void*> outputs = {
-        reinterpret_cast<void*>(m_ueLogitsDev),
-        reinterpret_cast<void*>(m_prgLogitsDev),
-    };
+    if (m_cfg.usePostEqInput) {
+        inputs.push_back(reinterpret_cast<void*>(m_obsPostEqDev));
+    }
+
+    std::vector<void*> outputs;
+    if (m_cfg.outputMode == OutputMode::Action) {
+        outputs = {
+            reinterpret_cast<void*>(m_actionUeDev),
+            reinterpret_cast<void*>(m_actionPrgDev),
+        };
+    } else {
+        outputs = {
+            reinterpret_cast<void*>(m_ueLogitsDev),
+            reinterpret_cast<void*>(m_prgLogitsDev),
+        };
+    }
 
     if (!m_trtEngine->setup(inputs, outputs, 1U)) {
         std::cerr << "[GNNRL_MODEL] trt setup failed\n";
@@ -531,10 +627,25 @@ bool GnnRlPolicyRuntime::buildAndRunModel(cudaStream_t stream)
         return false;
     }
 
-    CUDA_CHECK_ERR(cudaMemcpyAsync(
-        m_ueLogitsHost.data(), m_ueLogitsDev, sizeof(float) * m_ueLogitsHost.size(), cudaMemcpyDeviceToHost, stream));
-    CUDA_CHECK_ERR(cudaMemcpyAsync(
-        m_prgLogitsHost.data(), m_prgLogitsDev, sizeof(float) * m_prgLogitsHost.size(), cudaMemcpyDeviceToHost, stream));
+    if (m_cfg.outputMode == OutputMode::Action) {
+        CUDA_CHECK_ERR(cudaMemcpyAsync(
+            m_actionUeHost.data(),
+            m_actionUeDev,
+            sizeof(float) * m_actionUeHost.size(),
+            cudaMemcpyDeviceToHost,
+            stream));
+        CUDA_CHECK_ERR(cudaMemcpyAsync(
+            m_actionPrgHost.data(),
+            m_actionPrgDev,
+            sizeof(float) * m_actionPrgHost.size(),
+            cudaMemcpyDeviceToHost,
+            stream));
+    } else {
+        CUDA_CHECK_ERR(cudaMemcpyAsync(
+            m_ueLogitsHost.data(), m_ueLogitsDev, sizeof(float) * m_ueLogitsHost.size(), cudaMemcpyDeviceToHost, stream));
+        CUDA_CHECK_ERR(cudaMemcpyAsync(
+            m_prgLogitsHost.data(), m_prgLogitsDev, sizeof(float) * m_prgLogitsHost.size(), cudaMemcpyDeviceToHost, stream));
+    }
     CUDA_CHECK_ERR(cudaStreamSynchronize(stream));
 
     return true;
@@ -947,9 +1058,291 @@ bool GnnRlPolicyRuntime::decodeType0Argmax(const cumacCellGrpPrms* cellGrpPrmsCp
     return true;
 }
 
+std::vector<uint32_t> GnnRlPolicyRuntime::estimateUePrgDemandCap() const
+{
+    std::vector<uint32_t> caps(m_nActiveUe, 0U);
+    for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
+        const size_t ueBase = static_cast<size_t>(ueIdx) * kUeFeatDim;
+        const float bufferBytes = clampMin(m_obsUeHost[ueBase + 0U], 0.0f);
+        const float newData = (kUeFeatDim > 6U) ? m_obsUeHost[ueBase + 6U] : 0.0f;
+        const bool demandActive = (m_ueMaskHost[ueIdx] != 0U) && (bufferBytes >= 1.0f || newData > 0.5f);
+        if (!demandActive) {
+            continue;
+        }
+
+        float qualityLin = clampMin(m_obsUeHost[ueBase + 2U], 1.0e-9f);
+        if (m_cfg.usePostEqInput && !m_obsPostEqHost.empty()) {
+            qualityLin = 1.0e-9f;
+            for (uint32_t prgIdx = 0; prgIdx < m_nPrbGrp; ++prgIdx) {
+                qualityLin = std::max(
+                    qualityLin,
+                    clampMin(m_obsPostEqHost[static_cast<size_t>(ueIdx) * m_nPrbGrp + prgIdx], 1.0e-9f));
+            }
+        }
+
+        const float spectralEff = std::log2(1.0f + qualityLin);
+        const float scale = std::max(0.5f, std::min(4.0f, spectralEff / 2.0f));
+        const float estBytesPerPrg = std::max(1200.0f, std::min(12000.0f, 3000.0f * scale));
+        float demandBytes = bufferBytes + 3000.0f;
+        if (newData > 0.5f && demandBytes <= 0.0f) {
+            demandBytes = estBytesPerPrg;
+        }
+        uint32_t cap = static_cast<uint32_t>(std::ceil(demandBytes / std::max(1.0f, estBytesPerPrg)));
+        if (newData > 0.5f && cap == 0U) {
+            cap = 1U;
+        }
+        caps[ueIdx] = std::min<uint32_t>(m_nPrbGrp, cap);
+    }
+    return caps;
+}
+
+int32_t GnnRlPolicyRuntime::pickFallbackSlot(uint32_t ownerCell,
+                                             int32_t excludeSlot,
+                                             const std::vector<int32_t>& ueAction,
+                                             const Type0SlotLayout& slotLayout,
+                                             const std::vector<uint32_t>& uePrgAssigned,
+                                             const std::vector<uint32_t>& uePrgDemandCap,
+                                             const std::vector<uint8_t>& demandActive,
+                                             const std::vector<float>& ueBacklogBytes) const
+{
+    if (ownerCell >= slotLayout.cellSlotStart.size() || ownerCell >= slotLayout.slotCountPerCell.size()) {
+        return -1;
+    }
+
+    int32_t bestSlot = -1;
+    int bestP0 = -1;
+    int bestP1 = -1;
+    int bestP2 = -1;
+    int bestHeadroom = -1;
+    float bestBacklog = -1.0f;
+
+    const uint32_t start = slotLayout.cellSlotStart[ownerCell];
+    const uint32_t count = slotLayout.slotCountPerCell[ownerCell];
+    for (uint32_t relIdx = 0; relIdx < count; ++relIdx) {
+        const uint32_t slot = start + relIdx;
+        if (excludeSlot >= 0 && slot == static_cast<uint32_t>(excludeSlot)) {
+            continue;
+        }
+        if (slot >= ueAction.size() || !slotLayout.validSlot(slot)) {
+            continue;
+        }
+        const int32_t ueIdx = ueAction[slot];
+        if (ueIdx < 0 || static_cast<uint32_t>(ueIdx) >= m_nActiveUe) {
+            continue;
+        }
+        const uint32_t ue = static_cast<uint32_t>(ueIdx);
+        const int headroom = static_cast<int>(uePrgDemandCap[ue]) - static_cast<int>(uePrgAssigned[ue]);
+        if (headroom <= 0) {
+            continue;
+        }
+
+        const bool activeDemand = ue < demandActive.size() && demandActive[ue] != 0U;
+        const float backlogBytes = ue < ueBacklogBytes.size() ? ueBacklogBytes[ue] : 0.0f;
+        const bool underserved = uePrgAssigned[ue] == 0U;
+        const int p0 = (underserved && activeDemand && backlogBytes > 0.0f) ? 1 : 0;
+        const int p1 = (underserved && activeDemand) ? 1 : 0;
+        const int p2 = (activeDemand && backlogBytes > 0.0f) ? 1 : 0;
+
+        const bool better = (p0 > bestP0) ||
+                            (p0 == bestP0 && p1 > bestP1) ||
+                            (p0 == bestP0 && p1 == bestP1 && p2 > bestP2) ||
+                            (p0 == bestP0 && p1 == bestP1 && p2 == bestP2 && headroom > bestHeadroom) ||
+                            (p0 == bestP0 && p1 == bestP1 && p2 == bestP2 && headroom == bestHeadroom &&
+                             backlogBytes > bestBacklog);
+        if (better) {
+            bestP0 = p0;
+            bestP1 = p1;
+            bestP2 = p2;
+            bestHeadroom = headroom;
+            bestBacklog = backlogBytes;
+            bestSlot = static_cast<int32_t>(slot);
+        }
+    }
+    return bestSlot;
+}
+
+GnnRlPolicyRuntime::FinalizedAction GnnRlPolicyRuntime::finalizeType0Action(
+    const std::vector<int32_t>& ueActionRaw,
+    const std::vector<int16_t>& prgActionRaw,
+    const Type0SlotLayout& slotLayout,
+    const cumacCellGrpPrms* cellGrpPrmsCpu) const
+{
+    FinalizedAction action;
+    action.ueAction.assign(m_nSchedUe, -1);
+    action.prgAction.assign(static_cast<size_t>(m_totNumCell) * m_nPrbGrp, static_cast<int16_t>(-1));
+    action.perUePrgCount.assign(m_nActiveUe, 0U);
+
+    std::vector<uint8_t> usedUe(m_nActiveUe, 0U);
+    const uint32_t ueLen = std::min<uint32_t>(m_nSchedUe, static_cast<uint32_t>(ueActionRaw.size()));
+    for (uint32_t slot = 0; slot < ueLen; ++slot) {
+        if (!slotLayout.validSlot(slot)) {
+            continue;
+        }
+        const int32_t ueIdx = ueActionRaw[slot];
+        if (ueIdx < 0 || static_cast<uint32_t>(ueIdx) >= m_nActiveUe) {
+            continue;
+        }
+        const uint32_t ue = static_cast<uint32_t>(ueIdx);
+        const uint32_t cell = slotLayout.slotToCell[slot];
+        if (m_ueMaskHost[ue] == 0U || !assocToCell(cellGrpPrmsCpu, cell, ue) || usedUe[ue] != 0U) {
+            continue;
+        }
+        usedUe[ue] = 1U;
+        action.ueAction[slot] = ueIdx;
+    }
+
+    const std::vector<uint32_t> uePrgDemandCap = estimateUePrgDemandCap();
+    std::vector<uint8_t> demandActive(m_nActiveUe, 0U);
+    std::vector<float> ueBacklogBytes(m_nActiveUe, 0.0f);
+    for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
+        const size_t ueBase = static_cast<size_t>(ueIdx) * kUeFeatDim;
+        const float bufferBytes = clampMin(m_obsUeHost[ueBase + 0U], 0.0f);
+        const float newData = (kUeFeatDim > 6U) ? m_obsUeHost[ueBase + 6U] : 0.0f;
+        demandActive[ueIdx] = (m_ueMaskHost[ueIdx] != 0U && (bufferBytes >= 1.0f || newData > 0.5f)) ? 1U : 0U;
+        ueBacklogBytes[ueIdx] = bufferBytes;
+    }
+
+    for (uint32_t cell = 0; cell < m_nCell; ++cell) {
+        for (uint32_t prg = 0; prg < m_nPrbGrp; ++prg) {
+            const size_t outIdx = static_cast<size_t>(prg) * m_totNumCell + cell;
+            if (m_prgMaskHost[cell * m_nPrbGrp + prg] == 0U) {
+                continue;
+            }
+            const size_t rawIdx = static_cast<size_t>(prg) * m_nCell + cell;
+            if (rawIdx >= prgActionRaw.size()) {
+                continue;
+            }
+            int32_t slot = static_cast<int32_t>(prgActionRaw[rawIdx]);
+            if (slot < 0 || static_cast<uint32_t>(slot) >= m_nSchedUe) {
+                continue;
+            }
+            if (!slotLayout.slotBelongsToCell(static_cast<uint32_t>(slot), cell)) {
+                continue;
+            }
+            int32_t ueIdx = action.ueAction[static_cast<uint32_t>(slot)];
+            if (ueIdx < 0 || static_cast<uint32_t>(ueIdx) >= m_nActiveUe) {
+                continue;
+            }
+            uint32_t ue = static_cast<uint32_t>(ueIdx);
+            if (action.perUePrgCount[ue] >= uePrgDemandCap[ue]) {
+                const int32_t fallbackSlot = pickFallbackSlot(
+                    cell,
+                    slot,
+                    action.ueAction,
+                    slotLayout,
+                    action.perUePrgCount,
+                    uePrgDemandCap,
+                    demandActive,
+                    ueBacklogBytes);
+                if (fallbackSlot < 0) {
+                    action.capDropCount += 1U;
+                    continue;
+                }
+                slot = fallbackSlot;
+                ueIdx = action.ueAction[static_cast<uint32_t>(slot)];
+                if (ueIdx < 0 || static_cast<uint32_t>(ueIdx) >= m_nActiveUe) {
+                    continue;
+                }
+                ue = static_cast<uint32_t>(ueIdx);
+                action.fallbackSuccessCount += 1U;
+            }
+
+            action.prgAction[outIdx] = static_cast<int16_t>(slot);
+            action.perUePrgCount[ue] += 1U;
+        }
+    }
+
+    for (uint32_t cell = 0; cell < m_nCell; ++cell) {
+        for (uint32_t prg = 0; prg < m_nPrbGrp; ++prg) {
+            const size_t outIdx = static_cast<size_t>(prg) * m_totNumCell + cell;
+            if (outIdx >= action.prgAction.size() || action.prgAction[outIdx] < 0) {
+                action.finalBlankCount += 1U;
+            }
+        }
+    }
+
+    return action;
+}
+
+void GnnRlPolicyRuntime::dumpActionTrace(const FinalizedAction& action,
+                                         const std::vector<int16_t>& prgActionRaw) const
+{
+    if (!m_cfg.dumpActions) {
+        return;
+    }
+    if (m_cfg.dumpActionTtiLimit > 0U && m_inferCount >= m_cfg.dumpActionTtiLimit) {
+        return;
+    }
+
+    std::cerr << "[GNNRL_ACTION_DUMP] tti=" << m_inferCount
+              << " ue=" << joinVector(action.ueAction)
+              << " prg_pre=" << joinVector(prgActionRaw)
+              << " prg_final=" << joinVector(action.prgAction)
+              << " per_ue_prg=" << joinVector(action.perUePrgCount)
+              << " capDrop=" << action.capDropCount
+              << " fbOK=" << action.fallbackSuccessCount
+              << " blank=" << action.finalBlankCount
+              << "\n";
+}
+
+bool GnnRlPolicyRuntime::decodeType0Action(const cumacCellGrpPrms* cellGrpPrmsCpu,
+                                           cumacSchdSol* schdSolCpu)
+{
+    if (cellGrpPrmsCpu == nullptr || schdSolCpu == nullptr || schdSolCpu->setSchdUePerCellTTI == nullptr ||
+        schdSolCpu->allocSol == nullptr) {
+        return false;
+    }
+
+    std::vector<int32_t> ueActionRaw(m_nSchedUe, -1);
+    for (uint32_t slot = 0; slot < m_nSchedUe && slot < m_actionUeHost.size(); ++slot) {
+        const float v = m_actionUeHost[slot];
+        if (!std::isfinite(v)) {
+            continue;
+        }
+        const long rounded = std::lround(v);
+        if (rounded >= 0L && rounded <= static_cast<long>(m_nActiveUe)) {
+            ueActionRaw[slot] = rounded == static_cast<long>(m_nActiveUe) ? -1 : static_cast<int32_t>(rounded);
+        }
+    }
+
+    std::vector<int16_t> prgActionRaw(static_cast<size_t>(m_nCell) * m_nPrbGrp, static_cast<int16_t>(-1));
+    for (size_t idx = 0; idx < prgActionRaw.size() && idx < m_actionPrgHost.size(); ++idx) {
+        const float v = m_actionPrgHost[idx];
+        if (!std::isfinite(v)) {
+            continue;
+        }
+        const long rounded = std::lround(v);
+        if (rounded >= 0L && rounded < static_cast<long>(m_nSchedUe)) {
+            prgActionRaw[idx] = static_cast<int16_t>(rounded);
+        }
+    }
+
+    const Type0SlotLayout slotLayout = buildSlotLayout(cellGrpPrmsCpu);
+    const FinalizedAction action = finalizeType0Action(ueActionRaw, prgActionRaw, slotLayout, cellGrpPrmsCpu);
+
+    std::fill(schdSolCpu->setSchdUePerCellTTI, schdSolCpu->setSchdUePerCellTTI + m_nSchedUe, 0xFFFF);
+    std::fill(schdSolCpu->allocSol, schdSolCpu->allocSol + (m_totNumCell * m_nPrbGrp), static_cast<int16_t>(-1));
+    for (uint32_t slot = 0; slot < m_nSchedUe && slot < action.ueAction.size(); ++slot) {
+        const int32_t ueIdx = action.ueAction[slot];
+        if (ueIdx >= 0 && static_cast<uint32_t>(ueIdx) < m_nActiveUe) {
+            schdSolCpu->setSchdUePerCellTTI[slot] = static_cast<uint16_t>(ueIdx);
+        }
+    }
+    const size_t allocLen = static_cast<size_t>(m_totNumCell) * m_nPrbGrp;
+    for (size_t idx = 0; idx < allocLen && idx < action.prgAction.size(); ++idx) {
+        schdSolCpu->allocSol[idx] = action.prgAction[idx];
+    }
+
+    dumpActionTrace(action, prgActionRaw);
+    return true;
+}
+
 bool GnnRlPolicyRuntime::decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
                                      cumacSchdSol* schdSolCpu)
 {
+    if (m_cfg.outputMode == OutputMode::Action) {
+        return decodeType0Action(cellGrpPrmsCpu, schdSolCpu);
+    }
     if (m_cfg.decodeMode == DecodeMode::Argmax) {
         return decodeType0Argmax(cellGrpPrmsCpu, schdSolCpu);
     }
@@ -987,6 +1380,7 @@ bool GnnRlPolicyRuntime::inferType0(const cumacCellGrpUeStatus* cellGrpUeStatusC
     CUDA_CHECK_ERR(cudaMemcpyAsync(
         schdSolGpu->allocSol, schdSolCpu->allocSol, allocBytes, cudaMemcpyHostToDevice, stream));
 
+    m_inferCount += 1U;
     return true;
 }
 

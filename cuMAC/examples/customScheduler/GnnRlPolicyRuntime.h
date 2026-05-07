@@ -30,13 +30,22 @@ public:
         Argmax = 1,
     };
 
+    enum class OutputMode : uint8_t {
+        Logits = 0,
+        Action = 1,
+    };
+
     struct Config {
         std::string modelPath;
         int timeoutMs = 0;
         ActionMode actionMode = ActionMode::Joint;
-        // `sample` mirrors online PPO action sampling + post-processing,
-        // while `argmax` preserves the older deterministic decode path.
-        DecodeMode decodeMode = DecodeMode::Sample;
+        OutputMode outputMode = OutputMode::Logits;
+        // Deployment path defaults to deterministic masked argmax. `sample`
+        // remains available for PPO-style stochastic parity checks.
+        DecodeMode decodeMode = DecodeMode::Argmax;
+        bool usePostEqInput = false;
+        bool dumpActions = false;
+        uint32_t dumpActionTtiLimit = 0U;
         uint64_t sampleSeed = 0U;
         // Subtracted from NO_UE class logit during decode (positive encourages scheduling).
         float noUeBias = 0.0f;
@@ -89,6 +98,7 @@ private:
     std::vector<float> m_obsCellHost;
     std::vector<float> m_obsUeHost;
     std::vector<float> m_obsPrgHost;
+    std::vector<float> m_obsPostEqHost;
     std::vector<float> m_obsEdgeAttrHost;
     std::vector<float> m_actionMaskUeHost;
     std::vector<float> m_actionMaskCellUeHost;
@@ -98,18 +108,33 @@ private:
 
     std::vector<float> m_ueLogitsHost;
     std::vector<float> m_prgLogitsHost;
+    std::vector<float> m_actionUeHost;
+    std::vector<float> m_actionPrgHost;
 
     float* m_obsCellDev = nullptr;
     float* m_obsUeDev = nullptr;
     float* m_obsPrgDev = nullptr;
+    float* m_obsPostEqDev = nullptr;
     int64_t* m_obsEdgeIndexDev = nullptr;
     float* m_obsEdgeAttrDev = nullptr;
     float* m_actionMaskUeDev = nullptr;
     float* m_actionMaskCellUeDev = nullptr;
     float* m_ueLogitsDev = nullptr;
     float* m_prgLogitsDev = nullptr;
+    float* m_actionUeDev = nullptr;
+    float* m_actionPrgDev = nullptr;
 
     std::unique_ptr<cumac_ml::trtEngine> m_trtEngine;
+    uint64_t m_inferCount = 0U;
+
+    struct FinalizedAction {
+        std::vector<int32_t> ueAction;
+        std::vector<int16_t> prgAction;
+        std::vector<uint32_t> perUePrgCount;
+        uint32_t capDropCount = 0U;
+        uint32_t fallbackSuccessCount = 0U;
+        uint32_t finalBlankCount = 0U;
+    };
 
     bool buildAndRunModel(cudaStream_t stream);
     void buildObservation(const cumacCellGrpUeStatus* cellGrpUeStatusCpu,
@@ -129,8 +154,25 @@ private:
                             cumacSchdSol* schdSolCpu);
     bool decodeType0Argmax(const cumacCellGrpPrms* cellGrpPrmsCpu,
                            cumacSchdSol* schdSolCpu) const;
+    bool decodeType0Action(const cumacCellGrpPrms* cellGrpPrmsCpu,
+                           cumacSchdSol* schdSolCpu);
     bool decodeType0(const cumacCellGrpPrms* cellGrpPrmsCpu,
                      cumacSchdSol* schdSolCpu);
+    FinalizedAction finalizeType0Action(const std::vector<int32_t>& ueActionRaw,
+                                        const std::vector<int16_t>& prgActionRaw,
+                                        const Type0SlotLayout& slotLayout,
+                                        const cumacCellGrpPrms* cellGrpPrmsCpu) const;
+    std::vector<uint32_t> estimateUePrgDemandCap() const;
+    int32_t pickFallbackSlot(uint32_t ownerCell,
+                             int32_t excludeSlot,
+                             const std::vector<int32_t>& ueAction,
+                             const Type0SlotLayout& slotLayout,
+                             const std::vector<uint32_t>& uePrgAssigned,
+                             const std::vector<uint32_t>& uePrgDemandCap,
+                             const std::vector<uint8_t>& demandActive,
+                             const std::vector<float>& ueBacklogBytes) const;
+    void dumpActionTrace(const FinalizedAction& action,
+                         const std::vector<int16_t>& prgActionRaw) const;
 
     bool assocToCell(const cumacCellGrpPrms* cellGrpPrmsCpu, uint32_t cIdx, uint32_t ueIdx) const;
     void releaseCudaBuffers();

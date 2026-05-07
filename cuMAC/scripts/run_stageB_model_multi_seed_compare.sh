@@ -18,7 +18,12 @@ MODEL_PATH=""
 MODEL_LABEL=""
 BASELINE_MEAN_ROOT=""
 BASELINE_MEAN_CSV=""
-GNNRL_MODEL_DECODE_MODE="sample"
+GNNRL_MODEL_OUTPUT_MODE="logits"
+GNNRL_MODEL_DECODE_MODE="argmax"
+GNNRL_MODEL_USE_POST_EQ_INPUT=0
+GNNRL_DUMP_ACTIONS=0
+GNNRL_DUMP_ACTION_TTI_LIMIT=0
+GNNRL_MODEL_STRICT=1
 GNNRL_MODEL_SAMPLE_SEED=""
 USER_EXEC_MODE=""
 IGNORED_TOPOLOGY_SEED=""
@@ -45,7 +50,12 @@ Wrapper-specific options:
   --baseline-mean-root <dir>        Optional RR/PFQ aggregate root or scenario dir
   --baseline-mean-csv <path>        Optional RR/PFQ mean CSV for direct compare
   --baseline-scheduler <m>          Forwarded baseline label for logs; ignored by custom UE+PRG mode
+  --gnnrl-model-output-mode <m>     logits | action (default: ${GNNRL_MODEL_OUTPUT_MODE})
   --gnnrl-model-decode-mode <m>     argmax | sample (default: ${GNNRL_MODEL_DECODE_MODE})
+  --gnnrl-model-use-post-eq-input <0|1> Forward postEqSinr input to ONNX (default: ${GNNRL_MODEL_USE_POST_EQ_INPUT})
+  --gnnrl-dump-actions <0|1>        Dump C++ action traces (default: ${GNNRL_DUMP_ACTIONS})
+  --gnnrl-dump-action-tti-limit <n> Max action trace TTIs, 0=unlimited (default: ${GNNRL_DUMP_ACTION_TTI_LIMIT})
+  --gnnrl-model-strict <0|1>        1 fail instead of legacy fallback on model errors (default: ${GNNRL_MODEL_STRICT})
   --gnnrl-model-sample-seed <n>     Sample RNG seed; default is per-seed topology seed in sample mode
   --exec-mode <m>                   both | gpu; gpu is auto-upgraded to both for custom UE+PRG
   --compare-output-dir <dir>        Base output directory for manifests and aggregated artifacts
@@ -122,8 +132,28 @@ while [[ $# -gt 0 ]]; do
             BASELINE_SCHEDULER="$2"
             shift 2
             ;;
+        --gnnrl-model-output-mode)
+            GNNRL_MODEL_OUTPUT_MODE="$2"
+            shift 2
+            ;;
         --gnnrl-model-decode-mode)
             GNNRL_MODEL_DECODE_MODE="$2"
+            shift 2
+            ;;
+        --gnnrl-model-use-post-eq-input)
+            GNNRL_MODEL_USE_POST_EQ_INPUT="$2"
+            shift 2
+            ;;
+        --gnnrl-dump-actions)
+            GNNRL_DUMP_ACTIONS="$2"
+            shift 2
+            ;;
+        --gnnrl-dump-action-tti-limit)
+            GNNRL_DUMP_ACTION_TTI_LIMIT="$2"
+            shift 2
+            ;;
+        --gnnrl-model-strict)
+            GNNRL_MODEL_STRICT="$2"
             shift 2
             ;;
         --gnnrl-model-sample-seed)
@@ -212,9 +242,34 @@ if [[ -z "${MODEL_LABEL}" ]]; then
 fi
 MODEL_LABEL="$(normalize_model_label "${MODEL_LABEL}")"
 
+GNNRL_MODEL_OUTPUT_MODE="$(echo "${GNNRL_MODEL_OUTPUT_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${GNNRL_MODEL_OUTPUT_MODE}" != "logits" && "${GNNRL_MODEL_OUTPUT_MODE}" != "action" ]]; then
+    echo "--gnnrl-model-output-mode must be logits or action" >&2
+    exit 1
+fi
 GNNRL_MODEL_DECODE_MODE="$(echo "${GNNRL_MODEL_DECODE_MODE}" | tr '[:upper:]' '[:lower:]')"
 if [[ "${GNNRL_MODEL_DECODE_MODE}" != "argmax" && "${GNNRL_MODEL_DECODE_MODE}" != "sample" ]]; then
     echo "--gnnrl-model-decode-mode must be argmax or sample" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_MODEL_USE_POST_EQ_INPUT}" =~ ^[01]$ ]]; then
+    echo "--gnnrl-model-use-post-eq-input must be 0 or 1" >&2
+    exit 1
+fi
+if [[ "${GNNRL_MODEL_OUTPUT_MODE}" == "action" && "${GNNRL_MODEL_USE_POST_EQ_INPUT}" == "0" ]]; then
+    echo "[model multi-seed] --gnnrl-model-output-mode=action enables --gnnrl-model-use-post-eq-input=1." >&2
+    GNNRL_MODEL_USE_POST_EQ_INPUT=1
+fi
+if ! [[ "${GNNRL_DUMP_ACTIONS}" =~ ^[01]$ ]]; then
+    echo "--gnnrl-dump-actions must be 0 or 1" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_DUMP_ACTION_TTI_LIMIT}" =~ ^[0-9]+$ ]]; then
+    echo "--gnnrl-dump-action-tti-limit must be a non-negative integer" >&2
+    exit 1
+fi
+if ! [[ "${GNNRL_MODEL_STRICT}" =~ ^[01]$ ]]; then
+    echo "--gnnrl-model-strict must be 0 or 1" >&2
     exit 1
 fi
 if [[ "${GNNRL_MODEL_DECODE_MODE}" == "sample" && -n "${GNNRL_MODEL_SAMPLE_SEED}" ]]; then
@@ -257,8 +312,8 @@ seed_runs_manifest="${COMPARE_OUTPUT_DIR}/seed_runs.csv"
 scenario_seed_manifest="${COMPARE_OUTPUT_DIR}/scenario_seed_manifest.csv"
 summary_file="${COMPARE_OUTPUT_DIR}/aggregate_summary.txt"
 
-echo "seed,run_tag,run_dir,model_label,model_path,decode_mode,sample_seed" > "${seed_runs_manifest}"
-echo "scenario,seed,run_tag,run_dir,kpi_summary_json,model_label,model_path,decode_mode,sample_seed" > "${scenario_seed_manifest}"
+echo "seed,run_tag,run_dir,model_label,model_path,output_mode,decode_mode,use_post_eq_input,sample_seed" > "${seed_runs_manifest}"
+echo "scenario,seed,run_tag,run_dir,kpi_summary_json,model_label,model_path,output_mode,decode_mode,use_post_eq_input,sample_seed" > "${scenario_seed_manifest}"
 
 if [[ -n "${IGNORED_TOPOLOGY_SEED}" ]]; then
     echo "[model multi-seed] ignoring --topology-seed=${IGNORED_TOPOLOGY_SEED}; using --seed-list=${SEED_LIST}" >&2
@@ -294,7 +349,12 @@ for seed in "${SEEDS[@]}"; do
         --custom-ue-prg "1"
         --custom-policy "gnnrl_model"
         --model-path "${MODEL_PATH}"
+        --gnnrl-model-output-mode "${GNNRL_MODEL_OUTPUT_MODE}"
         --gnnrl-model-decode-mode "${GNNRL_MODEL_DECODE_MODE}"
+        --gnnrl-model-use-post-eq-input "${GNNRL_MODEL_USE_POST_EQ_INPUT}"
+        --gnnrl-dump-actions "${GNNRL_DUMP_ACTIONS}"
+        --gnnrl-dump-action-tti-limit "${GNNRL_DUMP_ACTION_TTI_LIMIT}"
+        --gnnrl-model-strict "${GNNRL_MODEL_STRICT}"
         --exec-mode "${RUN_EXEC_MODE}"
         --tag "${seed_tag}"
     )
@@ -313,13 +373,15 @@ for seed in "${SEEDS[@]}"; do
         exit 1
     fi
 
-    printf '%s,%s,%s,%s,%s,%s,%s\n' \
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
         "${seed}" \
         "${seed_tag}" \
         "${run_dir}" \
         "${MODEL_LABEL}" \
         "${MODEL_PATH}" \
+        "${GNNRL_MODEL_OUTPUT_MODE}" \
         "${GNNRL_MODEL_DECODE_MODE}" \
+        "${GNNRL_MODEL_USE_POST_EQ_INPUT}" \
         "${seed_sample_seed}" >> "${seed_runs_manifest}"
 
     scenario_count=0
@@ -327,7 +389,7 @@ for seed in "${SEEDS[@]}"; do
         [[ -z "${summary_json}" ]] && continue
         scenario_dir="$(dirname "${summary_json}")"
         scenario="$(basename "${scenario_dir}")"
-        printf '%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
             "${scenario}" \
             "${seed}" \
             "${seed_tag}" \
@@ -335,7 +397,9 @@ for seed in "${SEEDS[@]}"; do
             "${summary_json}" \
             "${MODEL_LABEL}" \
             "${MODEL_PATH}" \
+            "${GNNRL_MODEL_OUTPUT_MODE}" \
             "${GNNRL_MODEL_DECODE_MODE}" \
+            "${GNNRL_MODEL_USE_POST_EQ_INPUT}" \
             "${seed_sample_seed}" >> "${scenario_seed_manifest}"
         scenario_count=$((scenario_count + 1))
     done < <(find "${run_dir}" -mindepth 2 -maxdepth 2 -type f -name "kpi_summary.json" | sort)
@@ -365,7 +429,9 @@ fi
 {
     echo "model_label=${MODEL_LABEL}"
     echo "model_path=${MODEL_PATH}"
+    echo "output_mode=${GNNRL_MODEL_OUTPUT_MODE}"
     echo "decode_mode=${GNNRL_MODEL_DECODE_MODE}"
+    echo "use_post_eq_input=${GNNRL_MODEL_USE_POST_EQ_INPUT}"
     if [[ "${GNNRL_MODEL_DECODE_MODE}" == "sample" && -z "${GNNRL_MODEL_SAMPLE_SEED}" ]]; then
         echo "sample_seed=topology_seed"
     else

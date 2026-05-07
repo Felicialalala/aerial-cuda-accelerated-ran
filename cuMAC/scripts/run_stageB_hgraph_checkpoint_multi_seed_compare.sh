@@ -20,7 +20,7 @@ CHECKPOINT_PATH=""
 MODEL_LABEL=""
 BASELINE_MEAN_ROOT=""
 BASELINE_MEAN_CSV=""
-DECODE_MODE="sample"
+DECODE_MODE="argmax"
 SAMPLE_SEED=42
 EVAL_EPISODE_HORIZON=4000
 EVAL_DEVICE="auto"
@@ -59,7 +59,7 @@ Wrapper-specific options:
   --model-label <name>              Optional label for output columns/files
   --baseline-mean-root <dir>        Optional RR/PFQ aggregate root or scenario dir
   --baseline-mean-csv <path>        Optional RR/PFQ mean CSV for direct compare
-  --decode-mode <m>                 argmax | sample (default: ${DECODE_MODE})
+  --decode-mode <m>                 argmax | sample (default: ${DECODE_MODE}; deployment-style deterministic path)
   --sample-seed <n>                 Sample RNG seed for decode-mode=sample (default: ${SAMPLE_SEED})
   --eval-episode-horizon <n>        Episode horizon passed to the online bridge evaluator (default: ${EVAL_EPISODE_HORIZON})
   --eval-device <m>                 auto | cpu | cuda (default: ${EVAL_DEVICE})

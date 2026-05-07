@@ -305,11 +305,20 @@
 
 ### 4.5 C++ 部署后的真正执行输出
 
-ONNX / TensorRT 推理侧输出的是两个 logits 张量，但 C++ 端还会 decode 并做保护：
+当前 C++ 部署有两条 ABI：
+
+- `logits`：ONNX / TensorRT 输出 `ue_logits/prg_logits`，C++ 端继续做 masked decode。
+- `action`：ONNX / TensorRT 额外接收 `obs_post_eq_sinr`，直接输出 `action_ue_select/action_prg_alloc`；C++ 不再重解 UE logits，只做 Type-0 合法化、demand-cap 和 fallback。
+
+两条路径都会在 C++ 端落到 Type-0 native buffer，并做以下保护：
 
 - 同 cell 合法性检查
 - UE 不重复占同 cell 多 slot
-- `NO_UE / NO_PRG` 抑制
+- `NO_UE / NO_PRG` 处理
+- action-mode 下的按 UE 队列需求 PRG 上限与同 cell fallback
+
+logits-mode 额外保留旧 decode guardrail：
+
 - 最小调度比例
 - 最小 PRG 分配比例
 - 单 slot 最大 PRG 占比
@@ -321,6 +330,10 @@ ONNX / TensorRT 推理侧输出的是两个 logits 张量，但 C++ 端还会 de
 - `CUMAC_GNNRL_MODEL_NO_PRG_BIAS`
 - `CUMAC_GNNRL_MODEL_MIN_PRG_RATIO`
 - `CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE`
+- `CUMAC_GNNRL_MODEL_OUTPUT_MODE=logits|action`
+- `CUMAC_GNNRL_MODEL_USE_POST_EQ_INPUT=0|1`
+- `CUMAC_GNNRL_DUMP_ACTIONS=0|1`
+- `CUMAC_GNNRL_MODEL_STRICT=1`：模型初始化或推理失败时直接失败，避免静默 fallback 成 legacy policy 后误读 KPI
 
 当前默认值里最重要的变化是：
 

@@ -1,0 +1,95 @@
+{
+  "actor_config": {
+    "cc_edge_attr_dim": 2,
+    "cell_feat_dim": 5,
+    "dropout": 0.0,
+    "hidden_dim": 128,
+    "max_prg_candidates": 12,
+    "max_prg_local_pos": 128,
+    "max_slot_global_pos": 256,
+    "max_slot_local_pos": 128,
+    "message_layers": 2,
+    "prg_feat_dim": 8,
+    "ue_feat_dim": 12,
+    "up_edge_attr_dim": 5
+  },
+  "check": {
+    "max_abs_diff": {
+      "action_prg_alloc": 0.0,
+      "action_ue_select": 0.0
+    },
+    "onnx_checker": "ok",
+    "onnxruntime": "ok"
+  },
+  "checkpoint_iter": 86,
+  "checkpoint_metrics": {
+    "rollout_goodput_mbps_mean": 1595.4321726560593,
+    "rollout_post_eq_enabled_mean": 1.0,
+    "rollout_reward_mean": 0.07796545955787426
+  },
+  "checkpoint_path": "/opt/nvidia/cuBB/training/stageb_hgraph/runs/online_ppo_seed42_svd_rawbridge_joint_v33_capSlack3000_simpleExecutor_ablation/ppo_actor_absolute_best.pt",
+  "decode_path": "masked_argmax_to_action_ue_select_and_pre_cap_action_prg_alloc",
+  "fixed_shape": {
+    "input_shapes": {
+      "action_mask_cell_ue": [
+        1,
+        3,
+        36
+      ],
+      "action_mask_ue": [
+        1,
+        36
+      ],
+      "obs_cell_features": [
+        1,
+        3,
+        5
+      ],
+      "obs_edge_attr": [
+        1,
+        6,
+        2
+      ],
+      "obs_edge_index": [
+        1,
+        6,
+        2
+      ],
+      "obs_post_eq_sinr": [
+        1,
+        36,
+        17
+      ],
+      "obs_prg_features": [
+        1,
+        3,
+        17,
+        8
+      ],
+      "obs_ue_features": [
+        1,
+        36,
+        12
+      ]
+    },
+    "n_cell": 3,
+    "n_prg": 17,
+    "n_sched_ue": 36,
+    "n_ue": 36,
+    "output_shapes": {
+      "action_prg_alloc": [
+        1,
+        51
+      ],
+      "action_ue_select": [
+        1,
+        36
+      ]
+    }
+  },
+  "onnx_path": "/opt/nvidia/cuBB/training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx",
+  "opset": 17,
+  "output_mode": "action",
+  "runtime_note": "Action-mode ABI: C++ passes raw obs_post_eq_sinr, consumes action_ue_select/action_prg_alloc, then applies Type-0 legality, demand-cap, and fallback finalization.",
+  "use_post_eq_input": true
+}

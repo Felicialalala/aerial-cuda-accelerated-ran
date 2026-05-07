@@ -55,7 +55,12 @@ public:
         uint16_t maxActiveCellsPerPrg = 0; // 0 means no limit
         std::string modelPath;
         int policyTimeoutMs = 0;
-        GnnRlPolicyRuntime::DecodeMode modelDecodeMode = GnnRlPolicyRuntime::DecodeMode::Sample;
+        GnnRlPolicyRuntime::OutputMode modelOutputMode = GnnRlPolicyRuntime::OutputMode::Logits;
+        GnnRlPolicyRuntime::DecodeMode modelDecodeMode = GnnRlPolicyRuntime::DecodeMode::Argmax;
+        bool modelUsePostEqInput = false;
+        bool modelDumpActions = false;
+        bool modelStrict = false;
+        uint32_t modelDumpActionTtiLimit = 0U;
         uint64_t modelSampleSeed = 0U;
         // gnnrl_model decode stabilization knobs.
         float modelNoUeBias = 0.0f;
