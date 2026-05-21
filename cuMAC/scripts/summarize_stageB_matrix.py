@@ -80,6 +80,14 @@ def main():
                 "packet_effective_service_rate_per_packet_mean_mbps",
                 trf.get("packet_effective_service_rate_per_packet_mean_mbps", 0.0),
             ),
+            "ue_macro_packet_delay_mean_ms": gkpi.get(
+                "ue_macro_packet_delay_mean_ms",
+                trf.get("ue_macro_packet_delay_mean_ms", None),
+            ),
+            "ue_macro_packet_effective_service_rate_mbps": gkpi.get(
+                "ue_macro_packet_effective_service_rate_mbps",
+                trf.get("ue_macro_packet_effective_service_rate_mbps", None),
+            ),
             "drop_rate": trf.get("drop_rate", None),
             "queue_delay_est_ms": trf.get("queue_delay_est_ms", None),
         }
@@ -119,6 +127,8 @@ def main():
                 "served_mbps_est": 0.0,
                 "packet_effective_service_rate_mbps": 0.0,
                 "packet_effective_service_rate_per_packet_mean_mbps": 0.0,
+                "ue_macro_packet_delay_mean_ms": None,
+                "ue_macro_packet_effective_service_rate_mbps": None,
                 "drop_rate": None,
                 "queue_delay_est_ms": None,
             }
@@ -151,6 +161,8 @@ def main():
             f"ue_jain={r['ue_thr_jain']}, ue_p10={r['ue_thr_p10_mbps']}, "
             f"r_pkt={r['packet_effective_service_rate_mbps']:.3f} Mbps, "
             f"r_pkt_pkt_mean={r['packet_effective_service_rate_per_packet_mean_mbps']:.3f} Mbps, "
+            f"ue_macro_pkt_delay_ms={r['ue_macro_packet_delay_mean_ms']}, "
+            f"ue_macro_r_pkt={r['ue_macro_packet_effective_service_rate_mbps']}, "
             f"queue_p95_ms={r['queue_delay_p95_ms']}, residual_buffer_ratio={r['residual_buffer_ratio']}"
         )
     txt_file.write_text("\n".join(lines) + "\n")

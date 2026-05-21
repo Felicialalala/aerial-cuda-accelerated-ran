@@ -6,9 +6,13 @@ Note: this is the legacy GNNRL stack. The current representative Stage-B result 
 
 Canonical project docs:
 
+- `Doc/README.md`
 - `Doc/current_stageB_effective_configuration.md`
-- `Doc/stageB_gnn_rl_online_training_design.md`
-- `Doc/stageB_gnn_rl_training_implementation_tasklist.md`
+
+Legacy GNNRL design notes are archived under:
+
+- `Doc/archive/legacy_gnnrl/stageB_gnn_rl_online_training_design.md`
+- `Doc/archive/legacy_gnnrl/stageB_gnn_rl_training_implementation_tasklist.md`
 
 ## 1. Prerequisites
 

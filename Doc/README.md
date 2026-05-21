@@ -1,64 +1,74 @@
-# Doc 目录索引与当前口径
+# Stage-B 项目主文档
 
-本文档用于避免历史实验记录和当前主线混在一起阅读。
+本文是当前项目的主入口。历史设计、会议记录和平台审计已移入 [`archive/`](./archive/)，避免和当前 Stage-B 主线混读。
 
-## 当前权威口径
+## 当前结论
 
-- [`current_stageB_effective_configuration.md`](./current_stageB_effective_configuration.md)：Stage-B 当前运行配置、KPI 口径、RRQ/PFQ baseline 入口。
-- [`第二次会后确认.md`](./第二次会后确认.md)：packet-level rate、packet delay、SVD 容量提升、PFQ demand-cap 解释。
-- [`stageB_hybrid_scheduler_graph_variable_plan.md`](./stageB_hybrid_scheduler_graph_variable_plan.md)：HGraph 当前实现和 v33 训练/评测收口。
+当前主线收敛到：
 
-## 平台能力说明
+- 场景：`3cell + 36UE + RBG16 + Rayleigh + TTL200ms + 4T4R + SVD`
+- 业务：`packet_size_bytes=3000`，`traffic_arrival_rate=1.0 pkt/TTI`
+- baseline：RRQ/PFQ 以 `s41-s50` 10-seed 结果为主参考
+- 智能调度：优先看 `training/stageb_hgraph/`，旧 `training/gnnrl/` 保留为 bridge/replay/ONNX 兼容参考
+- 部署形态：HGraph v33 已支持固定 `3cell/36UE/17PRG` 的 action-mode ONNX，C++ runtime 做最终合法化、demand-cap 和 fallback
 
-- [`aerial_platform_antenna_directionality_and_mimo_precoding.md`](./aerial_platform_antenna_directionality_and_mimo_precoding.md)：天线方向性、4T4R SVD、64T64R beamforming 能力边界。
-- [`aerial_platform_rbg_selection_and_resource_mapping_completeness.md`](./aerial_platform_rbg_selection_and_resource_mapping_completeness.md)：PRG/RBG、Type-0/Type-1、资源映射边界。
-- [`aerial_platform_candidate_state_field_audit.md`](./aerial_platform_candidate_state_field_audit.md)：候选状态字段和当前 bridge/调度主线的可用性核对。
-
-## GNNRL 历史与兼容说明
-
-- [`stageB_gnn_rl_online_training_design.md`](./stageB_gnn_rl_online_training_design.md)：旧 GNNRL online/offline 实现参考；当前主实验优先看 HGraph。
-- [`stageB_gnn_rl_training_implementation_tasklist.md`](./stageB_gnn_rl_training_implementation_tasklist.md)：GNNRL readiness checklist，保留作兼容参考。
-- [`stageB_rl_gnn_scheduler_mvp_to_publish_plan.md`](./stageB_rl_gnn_scheduler_mvp_to_publish_plan.md)：历史归档，不代表当前实现状态。
-
-## 规划与历史材料
-
-- [`cluster_cell_intelligent_scheduling_implementation_plan.md`](./cluster_cell_intelligent_scheduling_implementation_plan.md)：早期总体实施计划。
-- [`ue_prg_takeover_multidomain_plan.md`](./ue_prg_takeover_multidomain_plan.md)：UE selection + PRG 接管的早期路线。
-- [`pf_call_chain_677099a_20260415.md`](./pf_call_chain_677099a_20260415.md)：原始 PF call-chain 历史分析。
-- [`空间域确认点.md`](./空间域确认点.md)：第一次会后口头汇报稿，保留为历史材料；其中 no-precoding 口径已被当前 SVD 主线覆盖。
-
-## 当前保留的关键实验产物
+最新可引用口径：
 
 - RRQ/PFQ 10-seed baseline：
   `output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443`
-- RRQ/PFQ 3-seed baseline 历史对照：
-  `output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s42_s43_ue36_ttl200_rbg16_svd_20260501_030142`
 - HGraph v33 3-seed evaluation：
   `output/stageB_hgraph_v33_best_iter86_s41_s42_s43_ue36_ttl200_rbg16_svd_warmup1000`
-- 当前保留 HGraph 训练 run：
-  `training/stageb_hgraph/runs/online_ppo_seed42_svd_rawbridge_joint_v33_capSlack3000_simpleExecutor_ablation`
-- 当前保留 GNNRL 兼容 checkpoint：
-  `training/gnnrl/checkpoints/m3_online_ppo_3cell_pfq_fixedseed42_v16c_joint_ttl200_rbg16_ue36_blankaware_prg8_i400_eval_h1024_stable`
-- HGraph action-mode ONNX/C++ seed42 smoke：
+- HGraph action-mode seed42 smoke：
   `output/stageB_main_experiment_hgraph_action_s42_warmup1000_20260507_021558`
+- RRQ/PFQ 3-seed baseline：
+  `output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s42_s43_ue36_ttl200_rbg16_svd_20260501_030142`，仅作为历史对照，不建议报告中作为主 baseline
 
-## 2026-05-07 HGraph 部署进展
+详细配置仍以 [`current_stageB_effective_configuration.md`](./current_stageB_effective_configuration.md) 为准。
 
-固定 `3cell/36UE/17PRG` 的 HGraph 部署路径已经从“导出 logits 后由 C++ 解码”推进到“ONNX 直接输出最终动作”：
+下一步 HGraph 优化方案和当前算法结构详见：
 
-- 导出脚本：`training/stageb_hgraph/export_onnx.py`
-- 一致性校验：`training/stageb_hgraph/check_onnx_consistency.py`
-- 推荐模型：`training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx`
-- ONNX action 输出：
-  - `action_ue_select [1,36]`
-  - `action_prg_alloc [1,51]`
-- C++ runtime 保留最终合法化：
-  - Type-0 slot/PRG 顺序合法化
-  - UE demand-cap
-  - 同 cell fallback
-  - strict metadata preflight，防止 `3cell/36UE/17PRG` 模型误跑到默认 `7cell/56UE` 配置
+- [`stageB_hgraph_next_optimization_plan.md`](./stageB_hgraph_next_optimization_plan.md)
 
-seed42 action-mode smoke 结果：
+## 代码入口
+
+当前 Stage-B 运行入口：
+
+- `cuMAC/scripts/run_stageB_main_experiment.sh`：单场景/矩阵实验、编译期参数注入、KPI 汇总入口
+- `cuMAC/scripts/run_stageB_rr_pf_compare.sh`：RRQ/PFQ 单 seed 对比
+- `cuMAC/scripts/run_stageB_rr_pf_multi_seed_compare.sh`：RRQ/PFQ 多 seed 聚合对比
+- `cuMAC/scripts/run_stageB_hgraph_checkpoint_multi_seed_compare.sh`：固定 HGraph checkpoint 多 seed 评测
+- `cuMAC/scripts/run_stageB_hgraph_online_ppo.sh`：HGraph online PPO 训练入口
+- `cuMAC/scripts/run_stageB_hgraph_online_sanity.sh`：HGraph online bridge/图特征 sanity
+
+当前模型代码边界：
+
+- `training/stageb_hgraph/`：当前优先维护的 sparse entity graph 调度栈
+- `training/stageb_hgraph/export_onnx.py`：固定形状 ONNX 导出，推荐 `--output-mode action`
+- `training/stageb_hgraph/check_onnx_consistency.py`：PyTorch/ONNX 一致性检查
+- `training/gnnrl/`：旧 GNNRL 栈，主要保留 online bridge、replay、旧 checkpoint 和兼容实现
+
+当前 KPI/对比脚本：
+
+- `cuMAC/scripts/summarize_stageA_kpi.py`
+- `cuMAC/scripts/summarize_stageB_matrix.py`
+- `cuMAC/scripts/rr_vs_pf_compare.py`
+- `cuMAC/scripts/aggregate_model_kpi_compare.py`
+
+这些脚本当前已覆盖 packet delay、packet effective service rate，以及 UE-macro packet delay/rate 这类更适合公平性解释的口径。
+
+## HGraph 部署状态
+
+推荐 action-mode ONNX：
+
+- `training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx`
+- `training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx.metadata.json`
+
+action-mode 输入输出：
+
+- 输入：`obs_cell_features [1,3,5]`、`obs_ue_features [1,36,12]`、`obs_prg_features [1,3,17,8]`、`obs_post_eq_sinr [1,36,17]`、mask 与 edge metadata
+- 输出：`action_ue_select [1,36]`、`action_prg_alloc [1,51]`
+
+seed42 action-mode smoke 结论：
 
 | 指标 | HGraph action s42 | PFQ s42 | RRQ s42 |
 |---|---:|---:|---:|
@@ -71,38 +81,66 @@ seed42 action-mode smoke 结果：
 | `traffic.packet_delay_mean_ms` | 2.353 | 0.692 | 0.685 |
 | `traffic.packet_delay_p95_ms` | 6.500 | 2.000 | 1.500 |
 
-结论口径：
+当前判断：action path 已经可用，吞吐、goodput、BLER、公平性和 p5 goodput 达到或略优于 PFQ seed42；主要缺口是 packet delay 和服务节奏，策略表现为低 PRG 利用率、低调度频率、单次集中服务。
 
-- action-mode 已经证明最终动作路径基本可用，吞吐、goodput、BLER、公平性和 p5 goodput 均达到或略优于 PFQ seed42。
-- 当前策略形态是“低 PRG 利用率、低调度频率、单次集中服务”。因此吞吐不差，但 packet delay 高于 PFQ/RRQ。
-- `warmup1000` 目前只是运行标签和总 TTI 设计；主实验 KPI 仍按全程累计。严格排除前 1000 TTI 还需要补正式 `--stats-warmup-tti 1000` 统计路径。
+注意：`warmup1000` 目前只是运行标签/实验布局，主 KPI 仍按全程累计。严格排除 warmup 还需要补正式 `--stats-warmup-tti 1000` 统计路径。
 
-## HGraph 固定部署路径
+## 推荐复现实验
 
-固定 `3cell/36UE/17PRG` 的主部署导出已支持两种 ONNX ABI：
+RRQ/PFQ 10-seed baseline：
 
-- `logits`：输出 `ue_logits/prg_logits`，保留旧 C++ masked decode。
-- `action`：额外输入 `obs_post_eq_sinr`，直接输出 `action_ue_select/action_prg_alloc`，C++ 只做 Type-0 合法化、demand-cap 和 fallback。
+```bash
+./cuMAC/scripts/run_stageB_rr_pf_multi_seed_compare.sh \
+  --build-method cmake \
+  --topology-scenario 3cell \
+  --seed-list 41,42,43,44,45,46,47,48,49,50 \
+  --total-ue-count 36 \
+  --prbs-per-group 16 \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 1.0 \
+  --packet-ttl-ms 200 \
+  --precoding svd \
+  --tti 4000
+```
 
-推荐 action-mode 命令：
+HGraph action-mode C++ smoke：
 
 ```bash
 .venv/bin/python training/stageb_hgraph/export_onnx.py --output-mode action --check
+
 ./cuMAC/scripts/run_stageB_main_experiment.sh \
   --build-method cmake \
-  --custom-ue-prg 1 --custom-policy gnnrl_model \
+  --custom-ue-prg 1 \
+  --custom-policy gnnrl_model \
   --model-path training/stageb_hgraph/exports/hgraph_3cell_36ue_17prg_action_posteq.onnx \
   --gnnrl-model-output-mode action \
   --gnnrl-model-use-post-eq-input 1 \
   --gnnrl-model-decode-mode argmax \
   --gnnrl-model-strict 1 \
   --topology-scenario 3cell \
+  --topology-seed 42 \
   --total-ue-count 36 \
-  --tti 4000 \
   --prbs-per-group 16 \
   --packet-size-bytes 3000 \
   --traffic-arrival-rate 1.0 \
   --packet-ttl-ms 200 \
   --precoding svd \
-  --exec-mode both
+  --exec-mode both \
+  --tti 5000 \
+  --tag hgraph_action_s42_warmup1000
 ```
+
+## 归档索引
+
+归档目录只保留上下文价值，不再代表当前结论。
+
+- [`archive/platform/`](./archive/platform/)：Aerial 平台能力、天线/precoding、PRG/RBG、状态字段审计
+- [`archive/hgraph_design/`](./archive/hgraph_design/)：HGraph 设计过程、v33 训练/评测收口材料
+- [`archive/legacy_gnnrl/`](./archive/legacy_gnnrl/)：旧 GNNRL online/offline/部署说明与 checklist
+- [`archive/plans/`](./archive/plans/)：早期总体规划、UE/PRG 接管路线、历史 RL+GNN MVP
+- [`archive/meeting_notes/`](./archive/meeting_notes/)：第一次/第二次会后确认材料
+- [`archive/code_audit/`](./archive/code_audit/)：原始 PF call-chain 等历史代码审计
+
+## 清理规则
+
+`output/` 是忽略目录，只保留有代表性的聚合结果和当前 smoke；单 seed 原始 `stageB_main_experiment_*` 目录属于中间产物，可按需重跑。若后续要长期引用某个结果，优先保留聚合目录和生成命令，而不是堆积所有单次运行目录。

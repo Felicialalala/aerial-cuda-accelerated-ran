@@ -14,8 +14,8 @@
 
 口径提醒：
 
-- 本文最初面向 GNNRL/online bridge 字段核对；HGraph 主线已经有独立的图特征编码，详见 [`stageB_hybrid_scheduler_graph_variable_plan.md`](./stageB_hybrid_scheduler_graph_variable_plan.md)。
-- 当前代表性 baseline 已切换到 `3cell + 36UE + RBG16 + TTL200ms + 4T4R + SVD + 10 topology seeds`，详见 [`current_stageB_effective_configuration.md`](./current_stageB_effective_configuration.md)。
+- 本文最初面向 GNNRL/online bridge 字段核对；HGraph 主线已经有独立的图特征编码，历史设计详见 [`stageB_hybrid_scheduler_graph_variable_plan.md`](../hgraph_design/stageB_hybrid_scheduler_graph_variable_plan.md)。
+- 当前代表性 baseline 已切换到 `3cell + 36UE + RBG16 + TTL200ms + 4T4R + SVD + 10 topology seeds`，详见 [`current_stageB_effective_configuration.md`](../../current_stageB_effective_configuration.md)。
 
 ## 2. 统一 shape 口径
 

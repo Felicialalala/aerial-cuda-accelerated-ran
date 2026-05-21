@@ -47,6 +47,8 @@ DEFAULT_METRICS = [
     {"name": "traffic.packet_effective_total_system_time_ms", "unit": "ms", "direction": "lower_better"},
     {"name": "traffic.packet_effective_service_rate_mbps", "unit": "Mbps", "direction": "higher_better"},
     {"name": "traffic.packet_effective_service_rate_per_packet_mean_mbps", "unit": "Mbps", "direction": "higher_better"},
+    {"name": "traffic.ue_macro_packet_effective_service_rate_mbps", "unit": "Mbps", "direction": "higher_better"},
+    {"name": "traffic.ue_macro_packet_delay_mean_ms", "unit": "ms", "direction": "lower_better"},
     {"name": "traffic.packet_delay_served_pkt_count", "unit": None, "direction": "higher_better"},
     {"name": "traffic.packet_delay_pending_pkt_count", "unit": None, "direction": "lower_better"},
     {"name": "traffic.packet_delay_mean_ms", "unit": "ms", "direction": "lower_better"},

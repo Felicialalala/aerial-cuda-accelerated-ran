@@ -10,8 +10,9 @@
 
 请改看以下当前文档：
 
-- [`Doc/current_stageB_effective_configuration.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/current_stageB_effective_configuration.md)
-- [`Doc/stageB_gnn_rl_online_training_design.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/stageB_gnn_rl_online_training_design.md)
-- [`Doc/stageB_gnn_rl_training_implementation_tasklist.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/stageB_gnn_rl_training_implementation_tasklist.md)
+- [`Doc/README.md`](../../README.md)
+- [`Doc/current_stageB_effective_configuration.md`](../../current_stageB_effective_configuration.md)
+- [`Doc/archive/legacy_gnnrl/stageB_gnn_rl_online_training_design.md`](../legacy_gnnrl/stageB_gnn_rl_online_training_design.md)
+- [`Doc/archive/legacy_gnnrl/stageB_gnn_rl_training_implementation_tasklist.md`](../legacy_gnnrl/stageB_gnn_rl_training_implementation_tasklist.md)
 
 如果需要继续做更高阶算法扩展，可以把旧文档里的研究方向当作“长期算法路线备忘”，但不要把其中的工程状态判断当作当前事实。

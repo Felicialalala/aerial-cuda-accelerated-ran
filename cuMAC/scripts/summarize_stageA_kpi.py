@@ -41,6 +41,7 @@ METRIC_DEFINITIONS = {
     "traffic.packet_delay_p90_ms": "90th percentile packet-level delay for fully served packets.",
     "traffic.packet_delay_p95_ms": "95th percentile packet-level delay for fully served packets.",
     "traffic.packet_delay_max_ms": "Maximum packet-level delay among fully served packets.",
+    "traffic.ue_macro_packet_delay_mean_ms": "UE-macro packet mean delay: arithmetic mean over UEs of each UE's packet_delay_mean_ms. UEs with no served packets contribute 0 when UE packet-delay logs are available.",
     "traffic.packet_effective_delivered_pkt_count": "Number of MAC-queue-completed packets contributing to R_pkt under the current packet tracker implementation.",
     "traffic.packet_effective_total_delivered_bits": "Sum of original payload bits over MAC-queue-completed packets only under the current tracker implementation; retransmissions are not double-counted.",
     "traffic.packet_effective_total_system_time_ms": "Sum over MAC-queue-completed packets of packet system time in milliseconds under the current tracker implementation; includes queueing, scheduling wait, and retransmissions, with each served packet contributing at least one slot.",
@@ -96,6 +97,7 @@ METRIC_DEFINITIONS = {
     "global_kpi.packet_delay_p90_ms": "90th percentile packet-level delay over all fully served packets.",
     "global_kpi.packet_delay_p95_ms": "95th percentile packet-level delay over all fully served packets.",
     "global_kpi.packet_delay_max_ms": "Maximum packet-level delay over all fully served packets.",
+    "global_kpi.ue_macro_packet_delay_mean_ms": "Mean over UEs of per-UE packet_delay_mean_ms; this is UE-weighted rather than packet-weighted.",
     "global_kpi.packet_effective_delivered_pkt_count": "Number of MAC-queue-completed packets contributing to R_pkt under the current packet tracker implementation.",
     "global_kpi.packet_effective_total_delivered_bits": "Sum of original payload bits over MAC-queue-completed packets only under the current tracker implementation.",
     "global_kpi.packet_effective_total_system_time_ms": "Sum of packet system time over MAC-queue-completed packets only under the current tracker implementation, with each served packet contributing at least one slot.",
@@ -764,6 +766,11 @@ def summarize_global_kpi(ue_kpi, cell_kpi, traffic_kpi=None, bandwidth_hz=None, 
     predicted_bler_values = [float(r.get("avg_predicted_bler", 0.0)) for r in ue_kpi]
     predicted_bler_weights = [max(int(r.get("scheduled_tti_count", r.get("mcs_samples", 0))), 0) for r in ue_kpi]
     cell_thr_values = [float(r.get("cell_sum_thr_mbps", 0.0)) for r in cell_kpi]
+    ue_packet_delay_mean_values = [
+        float(r.get("packet_delay_mean_ms", 0.0))
+        for r in ue_kpi
+        if r.get("packet_delay_mean_ms") is not None
+    ]
     ue_packet_effective_rate_values = [
         float(r["packet_effective_service_rate_mbps"])
         for r in ue_kpi
@@ -873,6 +880,9 @@ def summarize_global_kpi(ue_kpi, cell_kpi, traffic_kpi=None, bandwidth_hz=None, 
         "packet_delay_p90_ms": float((traffic_kpi or {}).get("packet_delay_p90_ms", 0.0) or 0.0),
         "packet_delay_p95_ms": float((traffic_kpi or {}).get("packet_delay_p95_ms", 0.0) or 0.0),
         "packet_delay_max_ms": float((traffic_kpi or {}).get("packet_delay_max_ms", 0.0) or 0.0),
+        "ue_macro_packet_delay_mean_ms": (
+            mean(ue_packet_delay_mean_values) if ue_packet_delay_mean_values else None
+        ),
         "packet_effective_delivered_pkt_count": int((traffic_kpi or {}).get("packet_effective_delivered_pkt_count", 0) or 0),
         "packet_effective_total_delivered_bits": int((traffic_kpi or {}).get("packet_effective_total_delivered_bits", 0) or 0),
         "packet_effective_total_system_time_ms": float((traffic_kpi or {}).get("packet_effective_total_system_time_ms", 0.0) or 0.0),
@@ -1137,6 +1147,7 @@ def main():
             "packet_delay_p90_ms": 0.0,
             "packet_delay_p95_ms": 0.0,
             "packet_delay_max_ms": 0.0,
+            "ue_macro_packet_delay_mean_ms": None,
             "packet_effective_delivered_pkt_count": 0,
             "packet_effective_total_delivered_bits": 0,
             "packet_effective_total_system_time_ms": 0.0,
@@ -1153,6 +1164,7 @@ def main():
     traffic_kpi.setdefault("packet_delay_p90_ms", 0.0)
     traffic_kpi.setdefault("packet_delay_p95_ms", 0.0)
     traffic_kpi.setdefault("packet_delay_max_ms", 0.0)
+    traffic_kpi.setdefault("ue_macro_packet_delay_mean_ms", None)
     traffic_kpi.setdefault("packet_effective_delivered_pkt_count", 0)
     traffic_kpi.setdefault("packet_effective_total_delivered_bits", 0)
     traffic_kpi.setdefault("packet_effective_total_system_time_ms", 0.0)
@@ -1168,6 +1180,7 @@ def main():
 
     cell_kpi = summarize_cell_kpi(ue_kpi)
     global_kpi = summarize_global_kpi(ue_kpi, cell_kpi, traffic_kpi, bandwidth_hz, prg_kpi)
+    traffic_kpi["ue_macro_packet_delay_mean_ms"] = global_kpi["ue_macro_packet_delay_mean_ms"]
     traffic_kpi["ue_macro_packet_effective_service_rate_mbps"] = global_kpi[
         "ue_macro_packet_effective_service_rate_mbps"
     ]
@@ -1184,7 +1197,7 @@ def main():
         "throughput.long_term_sum_mbps_gpu": "output_short/output.txt arrays from GPU scheduler path",
         "throughput.per_ue_avg_mbps_cpu": "output_short/output.txt arrays from CPU scheduler path",
         "throughput.per_ue_avg_mbps_gpu": "output_short/output.txt arrays from GPU scheduler path",
-        "traffic": "run.log TRAFFIC_KPI / TRAFFIC_GOODPUT / TRAFFIC_EXPIRY / TRAFFIC_PKT_DELAY / TRAFFIC_PKT_RATE lines emitted from CPU-side state, plus UE-macro packet-rate metrics derived from UE_PKT_RATE",
+        "traffic": "run.log TRAFFIC_KPI / TRAFFIC_GOODPUT / TRAFFIC_EXPIRY / TRAFFIC_PKT_DELAY / TRAFFIC_PKT_RATE lines emitted from CPU-side state, plus UE-macro packet-delay/rate metrics derived from UE_PKT_DELAY / UE_PKT_RATE",
         "prg_utilization": "run.log PRG_UTILIZATION line emitted from CPU-side scheduling solutions",
         "per_ue_kpi": "run.log UE_KPI / UE_GOODPUT / UE_PKT_DELAY / UE_PKT_RATE lines emitted from CPU-side state",
         "per_cell_kpi": "derived from CPU-side per_ue_kpi",
@@ -1260,6 +1273,12 @@ def main():
         format_metric_line("traffic.packet_delay_p50_ms", f"{summary['traffic']['packet_delay_p50_ms']:.6f}"),
         format_metric_line("traffic.packet_delay_p90_ms", f"{summary['traffic']['packet_delay_p90_ms']:.6f}"),
         format_metric_line("traffic.packet_delay_p95_ms", f"{summary['traffic']['packet_delay_p95_ms']:.6f}"),
+        format_metric_line(
+            "traffic.ue_macro_packet_delay_mean_ms",
+            "N/A"
+            if summary["traffic"]["ue_macro_packet_delay_mean_ms"] is None
+            else f"{summary['traffic']['ue_macro_packet_delay_mean_ms']:.6f}",
+        ),
         format_metric_line("traffic.packet_effective_service_rate_mbps", f"{summary['traffic']['packet_effective_service_rate_mbps']:.6f}"),
         format_metric_line(
             "traffic.packet_effective_service_rate_per_packet_mean_mbps",
@@ -1306,6 +1325,12 @@ def main():
         ),
         format_metric_line("global_kpi.queue_delay_p95_ms", f"{summary['global_kpi']['queue_delay_p95_ms']:.6f}"),
         format_metric_line("global_kpi.packet_delay_p95_ms", f"{summary['global_kpi']['packet_delay_p95_ms']:.6f}"),
+        format_metric_line(
+            "global_kpi.ue_macro_packet_delay_mean_ms",
+            "N/A"
+            if summary["global_kpi"]["ue_macro_packet_delay_mean_ms"] is None
+            else f"{summary['global_kpi']['ue_macro_packet_delay_mean_ms']:.6f}",
+        ),
         format_metric_line("global_kpi.packet_effective_service_rate_mbps", f"{summary['global_kpi']['packet_effective_service_rate_mbps']:.6f}"),
         format_metric_line(
             "global_kpi.packet_effective_service_rate_per_packet_mean_mbps",
