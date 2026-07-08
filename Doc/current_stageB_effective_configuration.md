@@ -3,6 +3,7 @@
 ## 1. 文档定位
 
 - 本文档是当前 Stage-B 基线场景的唯一配置参考。
+- 当前实验结论和模型排序以 [`stageB_boundary_intelligent_algorithm_experiment_report.md`](./stageB_boundary_intelligent_algorithm_experiment_report.md) 为准；本文只维护配置、脚本和 KPI 口径。
 - 重点覆盖当前真实生效的三条主线：
   - `./cuMAC/scripts/run_stageB_main_experiment.sh`
   - `./cuMAC/scripts/run_stageB_rr_pf_compare.sh`
@@ -11,6 +12,37 @@
 - 旧的独立 baseline 场景说明已经并入本文档。
 
 ## 2. 一眼结论
+
+2026-06-22 当前 active 3-cell 分支已经切到：
+
+- `3cell + 36UE + RBG16 + Rayleigh + SVD + TTL200ms`
+- `packet_size_bytes = 3000`
+- `traffic_arrival_rate = 1.0 pkt/TTI/UE`
+- `ue-placement = coop_boundary`
+- `cell-assoc-mode = strongest`
+- 不传 `shadow-seed`，采用日志中的 `shadow_seed=legacy_shared_rng`，以便和旧 uniform run 口径一致
+- native baseline 已固定为 `cell-radius=500` / `ISD1000`；`cell-radius=250` / `ISD500` 只作为已废弃诊断分支，不再进入下一阶段训练
+- 正式 baseline 口径为 `4000 TTI full-run`，RRQ/PFQ 都作为 reference
+
+`coop_boundary nominal` 的 seed41/r250 结果只作为纯几何诊断：它证明边界带 UE 能把 baseline 拉到 hard case，但不是正式系统口径。正式实验必须恢复 strongest association，因为 UE 被 strongest-cell 接走是合理行为。
+
+当前 active baseline evidence：
+
+| 场景 | 输出目录 | 用途 |
+|---|---|---|
+| uniform, strongest, no shadow seed | `output/stageB_rrq_pfq_multiseed_compare_uniform_assocstrongest_legacyshadow_r500_t4000_w0_s41_s50` | 和旧 uniform / 既有智能算法小幅增益对照 |
+| coop_boundary, strongest, no shadow seed | `output/stageB_rrq_pfq_multiseed_compare_coopboundary_assocstrongest_legacyshadow_r500_t4000_w0_s41_s50` | 下一阶段 HGraphPPO 训练 gate |
+| uniform vs boundary 汇总 | `output/stageB_isd1000_legacyshadow_uniform_vs_boundary_rrq_pfq_detailed_compare.md` | 当前报告和文档引用入口 |
+
+关键 10-seed mean：
+
+| 指标 | Uniform RRQ | Uniform PFQ | Boundary RRQ | Boundary PFQ |
+|---|---:|---:|---:|---:|
+| goodput Mbps | `1525.710` | `1531.572` | `1513.633` | `1520.536` |
+| TTL expiry | `0.602%` | `0.038%` | `0.609%` | `0.017%` |
+| packet p95 delay | `67.950 ms` | `21.700 ms` | `56.078 ms` | `25.650 ms` |
+| TB BLER | `11.267%` | `11.390%` | `11.555%` | `11.778%` |
+| PRG utilization | `88.784%` | `94.238%` | `93.019%` | `98.523%` |
 
 当前 Stage-B 默认基线已经固化为：
 
@@ -26,7 +58,32 @@
 - 默认全向发射，不做 sector design
 - 入口脚本现已支持 `--topology-scenario 7cell|3cell`；`3cell` 变体保持同样的全向 + 均匀撒点口径，默认也是每站 `8 UE`
 
-当前分析和报告建议优先使用下面这组“最新代表性 baseline”：
+7-cell 长期迁移仍保留下面这组主 baseline。当前 HGraphPPO 先以 3cell coop-boundary ISD1000 gate 为准，只有通过 10-seed mean gate 后再迁移到 7cell：
+
+- `7cell + 84UE + RBG16 + Rayleigh + TTL200ms + 4T4R + SVD`
+- `packet_size_bytes = 3000`
+- `traffic_arrival_rate = 0.85 pkt/TTI/UE`
+- topology seeds: `41,42,43,44,45,46,47,48,49,50`
+- 长期训练目标：goodput 有小幅增加，packet delay 明显降低，packet effective service rate 上升
+- 设计文档：
+  [`Doc/stageB_7cell_tar_gnn_pfq_design.md`](/home/oai2/aerial-cuda-accelerated-ran/Doc/stageB_7cell_tar_gnn_pfq_design.md)
+
+当前已完成 7-cell 压力扫描：
+
+| arrival rate | seeds | PFQ served delta | PFQ goodput delta | PFQ expiry | PFQ p90 | PFQ p95 | PFQ PRG util | 用途 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| `0.8` | `41-43` | `+0.14%` | `-0.64%` | `0.815%` | `25.33 ms` | `65.00 ms` | `97.17%` | 偏轻参考 |
+| `0.85` | `41-43` | `+0.42%` | `-0.06%` | `1.433%` | `48.50 ms` | `109.83 ms` | `97.90%` | 主训练点 |
+| `0.9` | `41-43` | `+0.41%` | `-0.19%` | `2.177%` | `68.50 ms` | `148.17 ms` | `98.46%` | 压力泛化 |
+| `1.0` | `41-50` | `+2.12%` | `+2.02%` | `2.657%` | `85.00 ms` | `166.70 ms` | `98.66%` | 过载参考 |
+
+对应输出目录：
+
+- `output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_7cell_s41_s43_ue84_ttl200_rbg16_svd_rate0p85_trafficseed_20260601_081200`
+- `output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_7cell_s41_s43_ue84_ttl200_rbg16_svd_rate0p9_trafficseed_20260601_080659`
+- `output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_7cell_s41_s50_ue84_ttl200_rbg16_svd_trafficseed_20260601_064006`
+
+旧 3-cell baseline 仍保留为历史对照和机制复盘口径：
 
 - `3cell + 36UE + RBG16 + Rayleigh + TTL200ms + 4T4R + SVD`
 - `packet_size_bytes = 3000`
@@ -35,7 +92,32 @@
 - 结果目录：
   [`output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443)
 
-这组 10-seed 结果已经取代早期 3-seed / no-SVD / RR-vs-PF 结果，作为当前 RRQ/PFQ baseline 的主参考。
+这组 3-cell 10-seed 结果已经取代早期 3-seed / no-SVD / RR-vs-PF 结果，但现在只作为历史对照；7-cell 训练和评测以 `arrival_rate=0.85` 为主线。
+
+2026-06-05 旧 3cell sequential/budgeted 分支的 baseline 口径需要特别区分。它现在只作为机制背景，不再作为下一阶段训练 gate：
+
+| 口径 | scheduler | horizon | goodput Mbps | TB BLER | expiry | packet delay mean / p95 | packet effective rate |
+|---|---|---:|---:|---:|---:|---:|---:|
+| active-run default: `3cell uniform radius500 rate1 seed41` | PFQ | `1000` | `1491.444` | `12.993%` | `0` | `2.606 / 14.5 ms` | `9.209 Mbps` |
+| active-run default: `3cell uniform radius500 rate1 seed41` | RRQ | `1000` | `1467.325` | `13.018%` | `0` | `5.683 / 49.0 ms` | `4.223 Mbps` |
+| pressure reference: `3cell coop-center ISD500 rate1 seed41` | PFQ | `4000` | `1465.369` | `13.695%` | `1.045%` | `11.529 / 55.0 ms` | `2.082 Mbps` |
+| pressure reference: `3cell coop-center ISD500 rate1 seed41` | RRQ | `4000` | `1441.373` | `13.395%` | `2.578%` | `18.658 / 188.5 ms` | `1.286 Mbps` |
+
+旧训练目录：
+
+```text
+training/stageb_hgraph/runs/online_ppo_3cell_s41_v8_seq_budgeted_sample_packetdelay_guardonly_i50_from_v6_20260605_073632
+```
+
+注意：该分支的启动日志显示 `cell_radius_m=500`、`ue_placement=uniform`。因此 coop-center baseline 和 uniform seed41/t1000 baseline 都只能作为压力参考或机制背景；新训练必须使用上方 `coopboundary_assocstrongest_legacyshadow_r500_t4000_w0_s41_s50` gate。
+
+2026-06-22 更新：`uniform radius500` 现在只作为“智能算法已有小幅增益”的对照；`coop_center` 只作为历史压力参考；新的 baseline gate 改为：
+
+```text
+coopboundary_assocstrongest_legacyshadow_r500_t4000_w0_s<seed>
+```
+
+输出目录和 model label 必须包含 placement、association、shadow policy、radius、horizon、warmup 和 seed。当前 shadow policy 固定写作 `legacyshadow`，表示不传 `--shadow-seed`。禁止再把 `uniform/r500/t1000`、`coop_center/r250/t4000`、`coop_boundary nominal` 或固定 `shadow41` 混到同一个 label。
 
 当前最重要的变化不是“又多了一个脚本”，而是：
 
@@ -117,8 +199,12 @@
 运行期还会通过环境变量补充：
 
 - `CUMAC_TOPOLOGY_SEED`
+- `CUMAC_SHADOW_SEED`
 - `CUMAC_UE_PLACEMENT_MODE`
+- `CUMAC_CELL_ASSOC_MODE`
 - `CUMAC_UE_VORONOI_CLIP`
+- `CUMAC_UE_COOP_BOUNDARY_SPAN_RATIO`
+- `CUMAC_UE_COOP_BOUNDARY_INSET_RATIO`
 - `CUMAC_BS_TX_PATTERN`
 - `CUMAC_TRAFFIC_ARRIVAL_RATE`
 - `CUMAC_EXEC_MODE`
@@ -500,7 +586,36 @@ RR 路径：
 
 ## 8. RRQ/PFQ 比较脚本当前产物
 
-当前推荐的 RRQ/PFQ 多 topology-seed baseline 命令为：
+当前推荐的 7cell 主 baseline 命令为：
+
+```bash
+RUN_TS="$(date +%Y%m%d_%H%M%S)"; \
+./cuMAC/scripts/run_stageB_rr_pf_multi_seed_compare.sh \
+  --seed-list 41,42,43,44,45,46,47,48,49,50 \
+  --reference-baseline rrq \
+  --pf-baseline pfq \
+  --topology-scenario 7cell \
+  --total-ue-count 84 \
+  --build-method cmake \
+  --fading-mode 0 \
+  --cdl-profiles NA \
+  --cdl-delay-spreads 0 \
+  --tti 4000 \
+  --prbs-per-group 16 \
+  --precoding svd \
+  --packet-size-bytes 3000 \
+  --traffic-arrival-rate 0.85 \
+  --packet-ttl-ms 200 \
+  --progress-tti 1000 \
+  --kpi-tti-log 0 \
+  --compare-tti 0 \
+  --compact-output 1 \
+  --exec-mode gpu \
+  --tag rrq_pfq_7cell_s41_s50_ue84_ttl200_rbg16_svd_rate0p85_trafficseed \
+  --compare-output-dir "output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_7cell_s41_s50_ue84_ttl200_rbg16_svd_rate0p85_trafficseed_${RUN_TS}"
+```
+
+旧 3cell 历史 baseline 复现命令为：
 
 ```bash
 RUN_TS="$(date +%Y%m%d_%H%M%S)"; \
@@ -529,7 +644,7 @@ RUN_TS="$(date +%Y%m%d_%H%M%S)"; \
   --compare-output-dir "output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_${RUN_TS}"
 ```
 
-当前保留的输出目录：
+当前保留的历史 3cell 输出目录：
 
 - [`output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443`](/home/oai2/aerial-cuda-accelerated-ran/output/stageB_rrq_pfq_multiseed_compare_rrq_pfq_3cell_s41_s50_ue36_ttl200_rbg16_svd_20260506_091443)
 
@@ -569,15 +684,16 @@ RUN_TS="$(date +%Y%m%d_%H%M%S)"; \
 当前 baseline 已经不是旧的 Type-1 连续块版本，而是：
 
 - `Type-0 bitmap`
-- 默认 `7-cell`
+- 7-cell 主线
 - `4T4R`
 - native PF/RR 都可在 GPU 下运行
 
-因此后续 GNN+RL 智能算法的第一阶段，应优先和这个 baseline 保持一致：
+因此后续 GNN+RL 智能算法的第一阶段，应优先和当前 3cell boundary active gate 保持一致：
 
 1. 先对齐同一场景、同一 traffic 模型、同一 KPI 口径
 2. 明确“当前 baseline 对比的是 bitmap 分配策略”这一点
 3. 先完成与 RRQ/PFQ 的同口径 compare automation，再做更复杂的联合动作空间扩展
+4. 新算法先按 `coop_boundary + strongest + legacyshadow + r500 + t4000` gate 做 checkpoint 选择，再把通过 gate 的结构迁移到 7cell rate0.85
 
 ## 11. 当前已知限制
 

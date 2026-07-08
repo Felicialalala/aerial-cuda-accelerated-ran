@@ -71,6 +71,7 @@ public:
         float modelMinPrgRatio = 0.0f;
         // Non-positive lets runtime choose a conservative default for prg_only_type0.
         float modelMaxPrgSharePerUe = -1.0f;
+        float modelCandidateDecodeDemandSlackBytes = 3000.0f;
     };
 
     CustomUePrgScheduler();

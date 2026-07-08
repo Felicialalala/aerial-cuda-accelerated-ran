@@ -25,19 +25,31 @@ TTI_COUNT=2000
 DL_UL="dl"
 FADING_MODE=0           # 0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG
 TOPOLOGY_SCENARIO="7cell"   # 7cell | 3cell
+CELL_RADIUS=500             # meters; network.cu uses siteSpacing = 2 * cellRadius
 UE_PER_CELL=8
 TOTAL_UE_COUNT=""
 TOPOLOGY_SEED=0
-UE_PLACEMENT="uniform"      # uniform | stratified
+TRAFFIC_SEED=""
+SHADOW_SEED=""
+CELL_ASSOC_MODE="strongest" # strongest | nominal
+UE_PLACEMENT="uniform"      # uniform | stratified | coop_center | coop_boundary
 UE_RADIUS_SPLITS="0.33,0.66"
 UE_STRATA_COUNTS=""
+UE_COOP_RADIUS_RATIO="0.52"
+UE_COOP_JITTER_RATIO="0.06"
+UE_COOP_ANGLE_DEG="12"
+UE_COOP_BOUNDARY_SPAN_RATIO="0.28"
+UE_COOP_BOUNDARY_INSET_RATIO="0.02"
 UE_VORONOI_CLIP=1
+TOPOLOGY_DUMP=""
 BS_TX_PATTERN="omni"        # omni | sector
 TRAFFIC_PERCENT=100
 PACKET_SIZE_BYTES=5000
 TRAFFIC_ARRIVAL_RATE=0.2
 PACKET_TTL_TTI=0
 PACKET_TTL_MS=0
+PACKET_DELAY_SAMPLES=0
+PACKET_DELAY_SAMPLES_CSV="packet_delay_samples.csv"
 CDL_PROFILES="C,D"
 CDL_DELAY_SPREADS_NS="300,1000"
 ALLOW_PROFILE_D=0
@@ -97,13 +109,27 @@ Options:
   --mode <dl|ul>              Downlink or uplink (default: ${DL_UL})
   --fading-mode <0|1|2|3|4>   0=Rayleigh, 1=TDL on PRBG, 2=TDL on SC+PRBG, 3=CDL on PRBG, 4=CDL on SC+PRBG (default: ${FADING_MODE})
   --topology-scenario <m>     Coordinated-cluster topology: 7cell | 3cell (default: ${TOPOLOGY_SCENARIO})
+  --cell-radius <m>           Cell radius in meters; ISD/site spacing is 2x this value (default: ${CELL_RADIUS})
   --ue-per-cell <n>           Active/scheduled UE per cell (default: ${UE_PER_CELL})
   --total-ue-count <n>        Total active/scheduled UE count across coordinated cells; must divide cell count
   --topology-seed <n>         Fixed topology/random seed (default: ${TOPOLOGY_SEED})
-  --ue-placement <m>          UE placement mode: uniform | stratified (default: ${UE_PLACEMENT})
+  --traffic-seed <n>          Fixed traffic RNG seed; default is the resolved topology seed
+  --shadow-seed <n>           Optional large-scale shadow fading seed; empty keeps legacy shared topology RNG
+  --cell-assoc-mode <m>       Cell association: strongest | nominal (default: ${CELL_ASSOC_MODE})
+  --ue-placement <m>          UE placement mode: uniform | stratified | coop_center | coop_boundary (default: ${UE_PLACEMENT})
   --ue-radius-splits <a,b>    Stratified center/mid upper radius ratios (default: ${UE_RADIUS_SPLITS})
   --ue-strata-counts <a,b,c>  Per-cell UE counts for center/mid/edge; empty means balanced split
+  --ue-coop-radius-ratio <r>  coop_center radius as ratio of ISD/site spacing (default: ${UE_COOP_RADIUS_RATIO})
+  --ue-coop-jitter-ratio <r>  coop_center radial jitter as ratio of ISD/site spacing (default: ${UE_COOP_JITTER_RATIO})
+  --ue-coop-angle-deg <d>     coop_center angular half-width in degrees (default: ${UE_COOP_ANGLE_DEG})
+  --ue-coop-boundary-span-ratio <r>
+                              coop_boundary half-span along pairwise Voronoi boundary as ratio of ISD/site spacing
+                              (default: ${UE_COOP_BOUNDARY_SPAN_RATIO})
+  --ue-coop-boundary-inset-ratio <r>
+                              coop_boundary max inset toward serving cell as ratio of ISD/site spacing
+                              (default: ${UE_COOP_BOUNDARY_INSET_RATIO})
   --ue-voronoi-clip <0|1>     1 clips UE samples to serving-cell Voronoi region (default: ${UE_VORONOI_CLIP})
+  --topology-dump <0|1>       Override ue_topology.csv dump; empty means coop_center dumps by default
   --bs-tx-pattern <m>         BS tx pattern: omni | sector (default: ${BS_TX_PATTERN})
   --traffic-percent <p>       UE traffic percentage [0,100] (default: ${TRAFFIC_PERCENT})
   --packet-size-bytes <b>     Traffic packet size in bytes (default: ${PACKET_SIZE_BYTES})
@@ -111,6 +137,12 @@ Options:
   --traffic-arrival-rate <r>  Traffic arrival rate in pkt/TTI (default: ${TRAFFIC_ARRIVAL_RATE})
   --packet-ttl-tti <n>        Packet TTL in TTI, 0 disables expiry (default: ${PACKET_TTL_TTI})
   --packet-ttl-ms <v>         Packet TTL in ms, 0 disables expiry; ignored when ttl-tti > 0 (default: ${PACKET_TTL_MS})
+  --packet-delay-samples <0|1>
+                              1 writes every served packet delay to CSV in each scenario dir
+                              (default: ${PACKET_DELAY_SAMPLES})
+  --packet-delay-samples-csv <name>
+                              CSV filename/path used when packet-delay samples are enabled
+                              (default: ${PACKET_DELAY_SAMPLES_CSV})
   --prbs-per-group <n>        Number of RBs in one PRG/RBG; PRG count is auto-derived for 272 total PRBs (default: ${PRBS_PER_GROUP})
   --cdl-profiles <list>       Comma list, e.g. C,D (default: ${CDL_PROFILES})
   --cdl-delay-spreads <list>  Comma list (ns), aligned with profiles (default: ${CDL_DELAY_SPREADS_NS})
@@ -172,13 +204,23 @@ while [[ $# -gt 0 ]]; do
         --mode) DL_UL="$2"; shift 2 ;;
         --fading-mode) FADING_MODE="$2"; shift 2 ;;
         --topology-scenario) TOPOLOGY_SCENARIO="$2"; shift 2 ;;
+        --cell-radius) CELL_RADIUS="$2"; shift 2 ;;
         --ue-per-cell) UE_PER_CELL="$2"; UE_PER_CELL_EXPLICIT=1; shift 2 ;;
         --total-ue-count|--ue-count) TOTAL_UE_COUNT="$2"; shift 2 ;;
         --topology-seed) TOPOLOGY_SEED="$2"; shift 2 ;;
+        --traffic-seed) TRAFFIC_SEED="$2"; shift 2 ;;
+        --shadow-seed) SHADOW_SEED="$2"; shift 2 ;;
+        --cell-assoc-mode) CELL_ASSOC_MODE="$2"; shift 2 ;;
         --ue-placement) UE_PLACEMENT="$2"; shift 2 ;;
         --ue-radius-splits) UE_RADIUS_SPLITS="$2"; shift 2 ;;
         --ue-strata-counts) UE_STRATA_COUNTS="$2"; shift 2 ;;
+        --ue-coop-radius-ratio) UE_COOP_RADIUS_RATIO="$2"; shift 2 ;;
+        --ue-coop-jitter-ratio) UE_COOP_JITTER_RATIO="$2"; shift 2 ;;
+        --ue-coop-angle-deg) UE_COOP_ANGLE_DEG="$2"; shift 2 ;;
+        --ue-coop-boundary-span-ratio) UE_COOP_BOUNDARY_SPAN_RATIO="$2"; shift 2 ;;
+        --ue-coop-boundary-inset-ratio) UE_COOP_BOUNDARY_INSET_RATIO="$2"; shift 2 ;;
         --ue-voronoi-clip) UE_VORONOI_CLIP="$2"; shift 2 ;;
+        --topology-dump) TOPOLOGY_DUMP="$2"; shift 2 ;;
         --bs-tx-pattern) BS_TX_PATTERN="$2"; shift 2 ;;
         --traffic-percent) TRAFFIC_PERCENT="$2"; shift 2 ;;
         --packet-size-bytes) PACKET_SIZE_BYTES="$2"; shift 2 ;;
@@ -186,6 +228,8 @@ while [[ $# -gt 0 ]]; do
         --traffic-arrival-rate) TRAFFIC_ARRIVAL_RATE="$2"; shift 2 ;;
         --packet-ttl-tti) PACKET_TTL_TTI="$2"; shift 2 ;;
         --packet-ttl-ms) PACKET_TTL_MS="$2"; shift 2 ;;
+        --packet-delay-samples) PACKET_DELAY_SAMPLES="$2"; shift 2 ;;
+        --packet-delay-samples-csv) PACKET_DELAY_SAMPLES_CSV="$2"; shift 2 ;;
         --prbs-per-group) PRBS_PER_GROUP="$2"; shift 2 ;;
         --cdl-profiles) CDL_PROFILES="$2"; shift 2 ;;
         --cdl-delay-spreads) CDL_DELAY_SPREADS_NS="$2"; shift 2 ;;
@@ -284,6 +328,21 @@ case "${TOPOLOGY_SCENARIO}" in
         exit 1
         ;;
 esac
+if ! [[ "${CELL_RADIUS}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    echo "--cell-radius must be a positive number" >&2
+    exit 1
+fi
+python3 - "${CELL_RADIUS}" <<'PY'
+import sys
+radius = float(sys.argv[1])
+if radius <= 0.0:
+    raise SystemExit("--cell-radius must be > 0")
+PY
+SITE_SPACING="$(python3 - "${CELL_RADIUS}" <<'PY'
+import sys
+print(f"{2.0 * float(sys.argv[1]):g}")
+PY
+)"
 if ! [[ "${UE_PER_CELL}" =~ ^[0-9]+$ ]] || [[ "${UE_PER_CELL}" -lt 1 ]]; then
     echo "--ue-per-cell must be a positive integer" >&2
     exit 1
@@ -309,10 +368,36 @@ if ! [[ "${TOPOLOGY_SEED}" =~ ^[0-9]+$ ]]; then
     echo "--topology-seed must be a non-negative integer" >&2
     exit 1
 fi
-if [[ "${UE_PLACEMENT}" != "uniform" && "${UE_PLACEMENT}" != "stratified" ]]; then
-    echo "--ue-placement must be uniform or stratified" >&2
+if [[ -z "${TRAFFIC_SEED}" ]]; then
+    TRAFFIC_SEED="${TOPOLOGY_SEED}"
+fi
+if ! [[ "${TRAFFIC_SEED}" =~ ^[0-9]+$ ]]; then
+    echo "--traffic-seed must be a non-negative integer" >&2
     exit 1
 fi
+if [[ -n "${SHADOW_SEED}" ]] && ! [[ "${SHADOW_SEED}" =~ ^[0-9]+$ ]]; then
+    echo "--shadow-seed must be a non-negative integer or empty" >&2
+    exit 1
+fi
+CELL_ASSOC_MODE="$(echo "${CELL_ASSOC_MODE}" | tr '[:upper:]' '[:lower:]')"
+case "${CELL_ASSOC_MODE}" in
+    strongest|nominal) ;;
+    placement|fixed_nominal) CELL_ASSOC_MODE="nominal" ;;
+    *)
+        echo "--cell-assoc-mode must be strongest or nominal" >&2
+        exit 1
+        ;;
+esac
+UE_PLACEMENT="$(echo "${UE_PLACEMENT}" | tr '[:upper:]' '[:lower:]')"
+case "${UE_PLACEMENT}" in
+    uniform|stratified|coop_center|coop_boundary) ;;
+    coop|cooperative|coord_center) UE_PLACEMENT="coop_center" ;;
+    cooperative_boundary|coop_edge|boundary_band) UE_PLACEMENT="coop_boundary" ;;
+    *)
+        echo "--ue-placement must be uniform, stratified, coop_center, or coop_boundary" >&2
+        exit 1
+        ;;
+esac
 if ! [[ "${UE_RADIUS_SPLITS}" =~ ^[0-9]+([.][0-9]+)?,[0-9]+([.][0-9]+)?$ ]]; then
     echo "--ue-radius-splits must be in <center_max,mid_max> format" >&2
     exit 1
@@ -333,8 +418,33 @@ if [[ -n "${UE_STRATA_COUNTS}" ]]; then
         exit 1
     fi
 fi
+for pair in \
+    "ue-coop-radius-ratio:${UE_COOP_RADIUS_RATIO}" \
+    "ue-coop-jitter-ratio:${UE_COOP_JITTER_RATIO}" \
+    "ue-coop-angle-deg:${UE_COOP_ANGLE_DEG}" \
+    "ue-coop-boundary-span-ratio:${UE_COOP_BOUNDARY_SPAN_RATIO}" \
+    "ue-coop-boundary-inset-ratio:${UE_COOP_BOUNDARY_INSET_RATIO}"; do
+    name="${pair%%:*}"
+    value="${pair#*:}"
+    if ! [[ "${value}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        echo "--${name} must be a non-negative number" >&2
+        exit 1
+    fi
+done
+awk "BEGIN {exit !(${UE_COOP_RADIUS_RATIO} > 0 && ${UE_COOP_JITTER_RATIO} >= 0 && ${UE_COOP_ANGLE_DEG} >= 0 && ${UE_COOP_ANGLE_DEG} <= 60)}" || {
+    echo "--ue-coop-radius-ratio must be >0, --ue-coop-jitter-ratio >=0, --ue-coop-angle-deg in [0,60]" >&2
+    exit 1
+}
+awk "BEGIN {exit !(${UE_COOP_BOUNDARY_SPAN_RATIO} >= 0 && ${UE_COOP_BOUNDARY_INSET_RATIO} >= 0)}" || {
+    echo "--ue-coop-boundary-span-ratio and --ue-coop-boundary-inset-ratio must be >=0" >&2
+    exit 1
+}
 if ! [[ "${UE_VORONOI_CLIP}" =~ ^[01]$ ]]; then
     echo "--ue-voronoi-clip must be 0 or 1" >&2
+    exit 1
+fi
+if [[ -n "${TOPOLOGY_DUMP}" ]] && ! [[ "${TOPOLOGY_DUMP}" =~ ^[01]$ ]]; then
+    echo "--topology-dump must be 0 or 1" >&2
     exit 1
 fi
 BS_TX_PATTERN="$(echo "${BS_TX_PATTERN}" | tr '[:upper:]' '[:lower:]')"
@@ -360,6 +470,14 @@ if ! [[ "${EFFECTIVE_LAYERS}" =~ ^[0-9]+$ ]]; then
 fi
 if ! [[ "${COMPACT_OUTPUT}" =~ ^[01]$ ]]; then
     echo "--compact-output must be 0 or 1" >&2
+    exit 1
+fi
+if ! [[ "${PACKET_DELAY_SAMPLES}" =~ ^[01]$ ]]; then
+    echo "--packet-delay-samples must be 0 or 1" >&2
+    exit 1
+fi
+if [[ -z "${PACKET_DELAY_SAMPLES_CSV}" ]]; then
+    echo "--packet-delay-samples-csv must not be empty" >&2
     exit 1
 fi
 if ! [[ "${CUSTOM_UE_PRG}" =~ ^[01]$ ]]; then
@@ -622,7 +740,7 @@ set_param() {
 
 print_effective_compile_params() {
     echo "[Stage-B] Compile-time parameter snapshot:"
-    sed -n '/#define numCellConst/p; /#define numCoorCellConst/p; /#define numUePerCellConst/p; /#define numActiveUePerCellConst/p; /#define totNumUesConst/p; /#define totNumActiveUesConst/p; /#define nPrbsPerGrpConst/p; /#define nPrbGrpsConst/p; /#define gpuAllocTypeConst/p; /#define cpuAllocTypeConst/p; /#define prdSchemeConst/p' "${PARAM_FILE}" | sed 's/^/[Stage-B]   /'
+    sed -n '/#define cellRadiusConst/p; /#define numCellConst/p; /#define numCoorCellConst/p; /#define numUePerCellConst/p; /#define numActiveUePerCellConst/p; /#define totNumUesConst/p; /#define totNumActiveUesConst/p; /#define nPrbsPerGrpConst/p; /#define nPrbGrpsConst/p; /#define gpuAllocTypeConst/p; /#define cpuAllocTypeConst/p; /#define prdSchemeConst/p' "${PARAM_FILE}" | sed 's/^/[Stage-B]   /'
 }
 
 sanitize_reason() {
@@ -830,7 +948,7 @@ write_pass_key_log() {
         head -n 20 "${log_file}" || true
         echo
         echo "summary_key_lines:"
-        log_search "GPU CDL:|GPU TDL:|CPU and GPU scheduler per-UE throughput performance check result|CPU and GPU scheduler sum throughput performance check result|CPU and GPU scheduler performance check result|Largest gap \\(in percentage\\)|TRAFFIC_KPI" "${log_file}"
+        log_search "GPU CDL:|GPU TDL:|Traffic RNG seed|CPU and GPU scheduler per-UE throughput performance check result|CPU and GPU scheduler sum throughput performance check result|CPU and GPU scheduler performance check result|Largest gap \\(in percentage\\)|TRAFFIC_KPI|TRAFFIC_PKT_DELAY|TRAFFIC_PKT_RATE|TRAFFIC_PKT_DELAY_SAMPLES_CSV" "${log_file}"
     } > "${key_file}"
 }
 
@@ -860,7 +978,7 @@ if [[ "${SKIP_COMPILE_PARAM_UPDATE}" == "0" ]]; then
     set_param seedConst "${TOPOLOGY_SEED}"
     set_param slotDurationConst "0.5e-3"
     set_param scsConst "30000.0"
-    set_param cellRadiusConst "500"
+    set_param cellRadiusConst "${CELL_RADIUS}"
     set_param numCellConst "${TOPOLOGY_NUM_CELLS}"
     set_param numCoorCellConst "${TOPOLOGY_NUM_CELLS}"
     set_param numUePerCellConst "${UE_PER_CELL}"
@@ -887,6 +1005,8 @@ fi
 BIN="${BUILD_DIR}/cuMAC/examples/multiCellSchedulerUeSelection/multiCellSchedulerUeSelection"
 CUSTOM_SCHED_SRC="${ROOT_DIR}/cuMAC/examples/customScheduler/CustomUePrgScheduler.cpp"
 MAIN_SRC="${ROOT_DIR}/cuMAC/examples/multiCellSchedulerUeSelection/main.cpp"
+TRAFFIC_GENERATOR_SRC="${ROOT_DIR}/cuMAC/examples/trafficModel/trafficGenerator.hpp"
+TRAFFIC_SERVICE_SRC="${ROOT_DIR}/cuMAC/examples/trafficModel/trafficService.hpp"
 
 case "${BUILD_METHOD}" in
     phase4)
@@ -955,6 +1075,18 @@ EOF
 EOF
             exit 1
         fi
+        if [[ "${PACKET_DELAY_SAMPLES}" == "1" && -f "${BIN}" ]] && \
+           ([[ -f "${MAIN_SRC}" && "${MAIN_SRC}" -nt "${BIN}" ]] || \
+            [[ -f "${TRAFFIC_GENERATOR_SRC}" && "${TRAFFIC_GENERATOR_SRC}" -nt "${BIN}" ]] || \
+            [[ -f "${TRAFFIC_SERVICE_SRC}" && "${TRAFFIC_SERVICE_SRC}" -nt "${BIN}" ]]); then
+            cat >&2 <<EOF
+[Stage-B] ERROR: --packet-delay-samples=1 requested, but binary is older than packet-delay sample export sources.
+[Stage-B] Rebuild first, for example:
+[Stage-B]   ./cuMAC/scripts/run_stageB_main_experiment.sh --build-method cmake --packet-delay-samples 1 ...
+[Stage-B] or use --build-method phase4 inside container.
+EOF
+            exit 1
+        fi
         ;;
 esac
 
@@ -966,7 +1098,7 @@ fi
 if [[ "${BUILD_ONLY}" == "1" ]]; then
     echo "[Stage-B] Build-only mode ready."
     echo "[Stage-B] Binary: ${BIN}"
-    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} precoding=${PRECODING} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE} gnnrl_model_output_mode=${GNNRL_MODEL_OUTPUT_MODE} gnnrl_model_use_post_eq_input=${GNNRL_MODEL_USE_POST_EQ_INPUT}"
+    echo "[Stage-B] Frozen runtime params: topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} cell_radius_m=${CELL_RADIUS} site_spacing_m=${SITE_SPACING} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT} topology_seed=${TOPOLOGY_SEED} traffic_seed=${TRAFFIC_SEED} shadow_seed=${SHADOW_SEED:-legacy_shared_rng} cell_assoc_mode=${CELL_ASSOC_MODE} ue_placement=${UE_PLACEMENT} coop_radius_ratio=${UE_COOP_RADIUS_RATIO} coop_jitter_ratio=${UE_COOP_JITTER_RATIO} coop_angle_deg=${UE_COOP_ANGLE_DEG} coop_boundary_span_ratio=${UE_COOP_BOUNDARY_SPAN_RATIO} coop_boundary_inset_ratio=${UE_COOP_BOUNDARY_INSET_RATIO} voronoi_clip=${UE_VORONOI_CLIP} topology_dump=${TOPOLOGY_DUMP:-auto} bs_tx_pattern=${BS_TX_PATTERN} traffic_packet_bytes=${PACKET_SIZE_BYTES} traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE} packet_ttl_tti=${PACKET_TTL_TTI} packet_ttl_ms=${PACKET_TTL_MS} exec_mode=${EXEC_MODE} precoding=${PRECODING} custom_policy=${CUSTOM_POLICY} gnnrl_action_mode=${GNNRL_ACTION_MODE} gnnrl_model_output_mode=${GNNRL_MODEL_OUTPUT_MODE} gnnrl_model_use_post_eq_input=${GNNRL_MODEL_USE_POST_EQ_INPUT}"
     exit 0
 fi
 
@@ -1061,12 +1193,16 @@ for i in "${!PROFILE_ARR[@]}"; do
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  note=baseline scheduler selection is ignored by custom UE+PRG mode"
     fi
-    echo "  topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
-    echo "  ue_placement=${UE_PLACEMENT} voronoi_clip=${UE_VORONOI_CLIP} bs_tx_pattern=${BS_TX_PATTERN}"
+    echo "  topology_scenario=${TOPOLOGY_SCENARIO} coordinated_cells=${TOPOLOGY_NUM_CELLS} cell_radius_m=${CELL_RADIUS} site_spacing_m=${SITE_SPACING} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
+    echo "  topology_seed=${TOPOLOGY_SEED}"
+    echo "  shadow_seed=${SHADOW_SEED:-legacy_shared_rng} cell_assoc_mode=${CELL_ASSOC_MODE}"
+    echo "  ue_placement=${UE_PLACEMENT} coop_radius_ratio=${UE_COOP_RADIUS_RATIO} coop_jitter_ratio=${UE_COOP_JITTER_RATIO} coop_angle_deg=${UE_COOP_ANGLE_DEG} coop_boundary_span_ratio=${UE_COOP_BOUNDARY_SPAN_RATIO} coop_boundary_inset_ratio=${UE_COOP_BOUNDARY_INSET_RATIO} voronoi_clip=${UE_VORONOI_CLIP} topology_dump=${TOPOLOGY_DUMP:-auto} bs_tx_pattern=${BS_TX_PATTERN}"
     echo "  traffic_packet_bytes=${PACKET_SIZE_BYTES}"
     echo "  traffic_arrival_rate_pkt_per_tti=${TRAFFIC_ARRIVAL_RATE}"
+    echo "  traffic_seed=${TRAFFIC_SEED}"
     echo "  packet_ttl_tti=${PACKET_TTL_TTI}"
     echo "  packet_ttl_ms=${PACKET_TTL_MS}"
+    echo "  packet_delay_samples=${PACKET_DELAY_SAMPLES} csv=${PACKET_DELAY_SAMPLES_CSV}"
     echo "  cmd=${BIN} -d ${DL_IND} -b ${BASELINE_IND} -f ${FADING_MODE} -x ${CUSTOM_UE_PRG} -g ${TRAFFIC_PERCENT} -r ${PACKET_SIZE_BYTES}"
     if [[ "${CUSTOM_UE_PRG}" == "1" ]]; then
         echo "  custom_policy=${CUSTOM_POLICY}"
@@ -1108,10 +1244,19 @@ for i in "${!PROFILE_ARR[@]}"; do
             export CUMAC_CDL_DELAY_SPREAD_NS="${delay}"
         fi
         export CUMAC_TOPOLOGY_SEED="${TOPOLOGY_SEED}"
+        export CUMAC_TRAFFIC_SEED="${TRAFFIC_SEED}"
+        export CUMAC_CELL_ASSOC_MODE="${CELL_ASSOC_MODE}"
+        if [[ -n "${SHADOW_SEED}" ]]; then export CUMAC_SHADOW_SEED="${SHADOW_SEED}"; else unset CUMAC_SHADOW_SEED; fi
         export CUMAC_UE_PLACEMENT_MODE="${UE_PLACEMENT}"
         export CUMAC_UE_RADIUS_SPLITS="${UE_RADIUS_SPLITS}"
         export CUMAC_UE_STRATA_COUNTS="${UE_STRATA_COUNTS}"
+        export CUMAC_UE_COOP_RADIUS_RATIO="${UE_COOP_RADIUS_RATIO}"
+        export CUMAC_UE_COOP_JITTER_RATIO="${UE_COOP_JITTER_RATIO}"
+        export CUMAC_UE_COOP_ANGLE_DEG="${UE_COOP_ANGLE_DEG}"
+        export CUMAC_UE_COOP_BOUNDARY_SPAN_RATIO="${UE_COOP_BOUNDARY_SPAN_RATIO}"
+        export CUMAC_UE_COOP_BOUNDARY_INSET_RATIO="${UE_COOP_BOUNDARY_INSET_RATIO}"
         export CUMAC_UE_VORONOI_CLIP="${UE_VORONOI_CLIP}"
+        if [[ -n "${TOPOLOGY_DUMP}" ]]; then export CUMAC_TOPOLOGY_DUMP="${TOPOLOGY_DUMP}"; else unset CUMAC_TOPOLOGY_DUMP; fi
         export CUMAC_BS_TX_PATTERN="${BS_TX_PATTERN}"
         export CUMAC_COMPACT_TTI_LOG="${COMPACT_TTI_LOG}"
         export CUMAC_PROGRESS_TTI_INTERVAL="${PROGRESS_TTI_INTERVAL}"
@@ -1120,6 +1265,8 @@ for i in "${!PROFILE_ARR[@]}"; do
         export CUMAC_TRAFFIC_ARRIVAL_RATE="${TRAFFIC_ARRIVAL_RATE}"
         export CUMAC_PACKET_TTL_TTI="${PACKET_TTL_TTI}"
         export CUMAC_PACKET_TTL_MS="${PACKET_TTL_MS}"
+        export CUMAC_PACKET_DELAY_SAMPLES="${PACKET_DELAY_SAMPLES}"
+        export CUMAC_PACKET_DELAY_SAMPLES_CSV="${PACKET_DELAY_SAMPLES_CSV}"
         export CUMAC_CUSTOM_POLICY="${CUSTOM_POLICY}"
         export CUMAC_GNNRL_ACTION_MODE="${GNNRL_ACTION_MODE}"
         export CUMAC_GNNRL_MODEL_PATH="${MODEL_PATH}"

@@ -66,6 +66,23 @@ docker pull nvcr.io/nvidia/aerial/aerial-cuda-accelerated-ran:25-3-cubb
 
 - Container versions available at [NVIDIA NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/teams/aerial/containers/aerial-cuda-accelerated-ran)
 
+### Local Stage-B/HGraph Experiments
+
+Before running the Stage-B HGraph training, evaluation, or comparison scripts in this workspace, enter the Aerial container and activate the Python virtual environment:
+
+```bash
+./cuPHY-CP/container/attach_aerial.sh
+source .venv/bin/activate
+```
+
+Run subsequent `cuMAC/scripts/*stageB*` and `training/stageb_hgraph/*` commands from the activated shell.
+
+Current local Stage-B planning docs:
+
+- `Doc/README.md`
+- `Doc/current_stageB_effective_configuration.md`
+- `Doc/stageB_7cell_tar_gnn_pfq_design.md`
+
 ### Further Information
 
 Visit the full documentation at [NVIDIA Docs Hub](https://docs.nvidia.com/aerial/)

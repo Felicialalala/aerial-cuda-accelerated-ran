@@ -374,6 +374,83 @@ def build_metric_rows(rr, pf, reference_baseline, compare_baseline):
             "pf": safe_get(pf, "traffic", "packet_delay_p95_ms"),
         },
         {
+            "name": "traffic.packet_delay_max_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "traffic", "packet_delay_max_ms"),
+            "pf": safe_get(pf, "traffic", "packet_delay_max_ms"),
+        },
+        {
+            "name": "global_kpi.packet_effective_service_rate_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "packet_effective_service_rate_mbps"),
+            "pf": safe_get(pf, "global_kpi", "packet_effective_service_rate_mbps"),
+        },
+        {
+            "name": "global_kpi.packet_effective_service_rate_per_packet_mean_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "packet_effective_service_rate_per_packet_mean_mbps"),
+            "pf": safe_get(pf, "global_kpi", "packet_effective_service_rate_per_packet_mean_mbps"),
+        },
+        {
+            "name": "global_kpi.ue_macro_packet_effective_service_rate_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "ue_macro_packet_effective_service_rate_mbps"),
+            "pf": safe_get(pf, "global_kpi", "ue_macro_packet_effective_service_rate_mbps"),
+        },
+        {
+            "name": "global_kpi.ue_macro_packet_effective_service_rate_per_packet_mean_mbps",
+            "unit": "Mbps",
+            "direction": "higher_better",
+            "rr": safe_get(rr, "global_kpi", "ue_macro_packet_effective_service_rate_per_packet_mean_mbps"),
+            "pf": safe_get(pf, "global_kpi", "ue_macro_packet_effective_service_rate_per_packet_mean_mbps"),
+        },
+        {
+            "name": "global_kpi.packet_delay_mean_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "global_kpi", "packet_delay_mean_ms"),
+            "pf": safe_get(pf, "global_kpi", "packet_delay_mean_ms"),
+        },
+        {
+            "name": "global_kpi.packet_delay_p50_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "global_kpi", "packet_delay_p50_ms"),
+            "pf": safe_get(pf, "global_kpi", "packet_delay_p50_ms"),
+        },
+        {
+            "name": "global_kpi.packet_delay_p90_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "global_kpi", "packet_delay_p90_ms"),
+            "pf": safe_get(pf, "global_kpi", "packet_delay_p90_ms"),
+        },
+        {
+            "name": "global_kpi.packet_delay_p95_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "global_kpi", "packet_delay_p95_ms"),
+            "pf": safe_get(pf, "global_kpi", "packet_delay_p95_ms"),
+        },
+        {
+            "name": "global_kpi.packet_delay_max_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "global_kpi", "packet_delay_max_ms"),
+            "pf": safe_get(pf, "global_kpi", "packet_delay_max_ms"),
+        },
+        {
+            "name": "global_kpi.ue_macro_packet_delay_mean_ms",
+            "unit": "ms",
+            "direction": "lower_better",
+            "rr": safe_get(rr, "global_kpi", "ue_macro_packet_delay_mean_ms"),
+            "pf": safe_get(pf, "global_kpi", "ue_macro_packet_delay_mean_ms"),
+        },
+        {
             "name": "global_kpi.queue_delay_p50_ms",
             "unit": "ms",
             "direction": "lower_better",
@@ -549,6 +626,23 @@ def build_per_cell_delta(rr, pf):
     return rows
 
 
+def packet_delay_sample_info(summary):
+    traffic = summary.get("traffic", {}) if isinstance(summary.get("traffic"), dict) else {}
+    path = traffic.get("packet_delay_samples_csv")
+    rows = traffic.get("packet_delay_samples_rows")
+    exists = False
+    if path:
+        try:
+            exists = Path(path).exists()
+        except OSError:
+            exists = False
+    return {
+        "csv": path,
+        "rows": rows,
+        "exists": exists,
+    }
+
+
 def build_summary(rr, pf, top_n, reference_baseline, compare_baseline):
     reference_display_name = compare_display_name(reference_baseline)
     display_name = compare_display_name(compare_baseline)
@@ -590,6 +684,10 @@ def build_summary(rr, pf, top_n, reference_baseline, compare_baseline):
         "compare_cpu_gpu_consistency": compare_consistency,
         "per_cell_delta": per_cell_delta,
         "per_ue_delta": per_ue_delta,
+        "packet_delay_samples": {
+            reference_baseline: packet_delay_sample_info(rr),
+            compare_baseline: packet_delay_sample_info(pf),
+        },
     }
 
 
@@ -695,6 +793,14 @@ def write_text(out_dir, summary):
 
     lines.extend(
         [
+            "",
+            "[Packet Delay Samples]",
+            f"{reference_baseline}: csv={summary['packet_delay_samples'][reference_baseline]['csv']} "
+            f"rows={summary['packet_delay_samples'][reference_baseline]['rows']} "
+            f"exists={summary['packet_delay_samples'][reference_baseline]['exists']}",
+            f"{compare_baseline}: csv={summary['packet_delay_samples'][compare_baseline]['csv']} "
+            f"rows={summary['packet_delay_samples'][compare_baseline]['rows']} "
+            f"exists={summary['packet_delay_samples'][compare_baseline]['exists']}",
             "",
             f"[Top UE Throughput Delta | matched_ue_count={summary['per_ue_delta']['matched_ue_count']}]",
         ]

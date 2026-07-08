@@ -44,6 +44,7 @@ Common forwarded options include:
   --ue-per-cell <n>           Active/scheduled UE count per cell
   --total-ue-count <n>        Total active/scheduled UE count across coordinated cells
   --precoding <mode>          Compile-time precoding mode: none | svd
+  --traffic-seed <n>          Fixed traffic RNG seed; default is topology seed
 
 Typical example:
   $(basename "$0") \\
@@ -57,6 +58,7 @@ Typical example:
     --precoding svd \\
     --packet-size-bytes 3000 \\
     --traffic-arrival-rate 0.2 \\
+    --traffic-seed 42 \\
     --topology-seed 42 \\
     --exec-mode gpu
 EOF

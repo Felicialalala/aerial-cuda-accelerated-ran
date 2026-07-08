@@ -18,3 +18,9 @@ nohup
 
 # Training artifacts (large binary checkpoints/exports)
 training/gnnrl/checkpoints/
+
+# Stage-B generated training/evaluation artifacts
+training/stageb_hgraph/runs/**
+!training/stageb_hgraph/runs/
+!training/stageb_hgraph/runs/README.md
+training/stageb_hgraph/exports/

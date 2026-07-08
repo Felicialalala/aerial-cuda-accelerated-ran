@@ -167,6 +167,10 @@ _DYNAMIC_PRG_SUMMARY_KEYS = (
     "prg_neighbor_max_top1_sinr_db_mean",
     "prg_same_prg_conflict_ratio_mean",
     "prg_ici_proxy_mean",
+    "prg_post_eq_p10_sinr_db_mean",
+    "prg_post_eq_mean_sinr_db_mean",
+    "prg_backlog_weighted_expected_goodput_mbps_mean",
+    "prg_low_sinr_hol_ttl_weight_mean",
 )
 
 
@@ -407,8 +411,11 @@ def main() -> int:
                             f"E_UP={row['n_edges_up']} E_PP={row['n_edges_pp']} "
                             f"mask_ok={row['mask_ok']} empty_prg={row['prg_without_legal_actions']} "
                             f"bad_up={row['unschedulable_up_edges']} "
-                            f"mode={row['candidate_mode']} L={row['post_eq_layer_dim']} "
+                            f"mode={row['candidate_mode']} Fp={row['prg_feat_dim']} L={row['post_eq_layer_dim']} "
                             f"top1_mu={row['prg_top1_sinr_db_mean']:.2f} "
+                            f"p10_mu={row['prg_post_eq_p10_sinr_db_mean']:.2f} "
+                            f"bw_gp={row['prg_backlog_weighted_expected_goodput_mbps_mean']:.2f} "
+                            f"low_tail={row['prg_low_sinr_hol_ttl_weight_mean']:.3f} "
                             f"conf_mu={row['prg_same_prg_conflict_ratio_mean']:.3f} "
                             f"ici_mu={row['prg_ici_proxy_mean']:.3f} "
                             f"prev_on={row['prg_prev_assigned_ratio']:.3f}"

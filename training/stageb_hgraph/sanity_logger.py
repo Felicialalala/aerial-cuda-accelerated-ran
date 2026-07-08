@@ -17,6 +17,7 @@ class GraphSanityStats:
     n_prg_tokens: int
     candidate_mode: str
     post_eq_layer_dim: int
+    prg_feat_dim: int
     available_prg_ratio: float
     prg_prev_assigned_ratio: float
     n_edges_cc: int
@@ -52,6 +53,18 @@ class GraphSanityStats:
     prg_ici_proxy_mean: float
     prg_ici_proxy_p90: float
     prg_ici_proxy_max: float
+    prg_post_eq_p10_sinr_db_mean: float
+    prg_post_eq_p10_sinr_db_p10: float
+    prg_post_eq_p10_sinr_db_p50: float
+    prg_post_eq_mean_sinr_db_mean: float
+    prg_post_eq_mean_sinr_db_p10: float
+    prg_post_eq_mean_sinr_db_p50: float
+    prg_backlog_weighted_expected_goodput_mbps_mean: float
+    prg_backlog_weighted_expected_goodput_mbps_p90: float
+    prg_backlog_weighted_expected_goodput_mbps_max: float
+    prg_low_sinr_hol_ttl_weight_mean: float
+    prg_low_sinr_hol_ttl_weight_p90: float
+    prg_low_sinr_hol_ttl_weight_max: float
 
     def to_dict(self) -> Dict[str, float | int | str | Dict[int, int]]:
         return asdict(self)
@@ -65,18 +78,18 @@ class GraphSanityLogger:
         return float(torch.quantile(x, q).item())
 
     def _summarize_prg_features(self, prg_features: torch.Tensor) -> Dict[str, float]:
-        availability = prg_features[:, 7]
-        available_mask = availability > 0.5
-        stats_view = prg_features[available_mask] if bool(available_mask.any().item()) else prg_features
+        availability = torch.ones((prg_features.shape[0],), dtype=prg_features.dtype, device=prg_features.device)
+        stats_view = prg_features
+        feat_dim = int(stats_view.shape[1]) if stats_view.dim() == 2 else 0
 
         top1 = stats_view[:, 0]
         top2_gap = stats_view[:, 1]
-        neighbor_max = stats_view[:, 2]
-        conflict = stats_view[:, 4]
-        ici = stats_view[:, 5]
-        prev_assigned = stats_view[:, 8]
+        neighbor_max = stats_view[:, 4]
+        conflict = stats_view[:, 6]
+        ici = stats_view[:, 7]
+        prev_assigned = stats_view[:, 2]
 
-        return {
+        out = {
             "available_prg_ratio": float(availability.mean().item()) if availability.numel() > 0 else 0.0,
             "prg_prev_assigned_ratio": float(prev_assigned.mean().item()) if prev_assigned.numel() > 0 else 0.0,
             "prg_top1_sinr_db_mean": float(top1.mean().item()) if top1.numel() > 0 else 0.0,
@@ -96,6 +109,47 @@ class GraphSanityLogger:
             "prg_ici_proxy_p90": self._quantile(ici, 0.90),
             "prg_ici_proxy_max": float(ici.max().item()) if ici.numel() > 0 else 0.0,
         }
+        if feat_dim > 8:
+            p10 = stats_view[:, 8]
+            out.update(
+                {
+                    "prg_post_eq_p10_sinr_db_mean": float(p10.mean().item()) if p10.numel() > 0 else 0.0,
+                    "prg_post_eq_p10_sinr_db_p10": self._quantile(p10, 0.10),
+                    "prg_post_eq_p10_sinr_db_p50": self._quantile(p10, 0.50),
+                }
+            )
+        if feat_dim > 9:
+            mean_sinr = stats_view[:, 9]
+            out.update(
+                {
+                    "prg_post_eq_mean_sinr_db_mean": float(mean_sinr.mean().item()) if mean_sinr.numel() > 0 else 0.0,
+                    "prg_post_eq_mean_sinr_db_p10": self._quantile(mean_sinr, 0.10),
+                    "prg_post_eq_mean_sinr_db_p50": self._quantile(mean_sinr, 0.50),
+                }
+            )
+        if feat_dim > 10:
+            bw_goodput = stats_view[:, 10]
+            out.update(
+                {
+                    "prg_backlog_weighted_expected_goodput_mbps_mean": (
+                        float(bw_goodput.mean().item()) if bw_goodput.numel() > 0 else 0.0
+                    ),
+                    "prg_backlog_weighted_expected_goodput_mbps_p90": self._quantile(bw_goodput, 0.90),
+                    "prg_backlog_weighted_expected_goodput_mbps_max": (
+                        float(bw_goodput.max().item()) if bw_goodput.numel() > 0 else 0.0
+                    ),
+                }
+            )
+        if feat_dim > 11:
+            tail = stats_view[:, 11]
+            out.update(
+                {
+                    "prg_low_sinr_hol_ttl_weight_mean": float(tail.mean().item()) if tail.numel() > 0 else 0.0,
+                    "prg_low_sinr_hol_ttl_weight_p90": self._quantile(tail, 0.90),
+                    "prg_low_sinr_hol_ttl_weight_max": float(tail.max().item()) if tail.numel() > 0 else 0.0,
+                }
+            )
+        return out
 
     def summarize(self, graph: SparseEntityGraph, mask_report: MaskCheckReport) -> GraphSanityStats:
         meta = graph.snapshot.static_meta
@@ -140,6 +194,7 @@ class GraphSanityLogger:
                 if meta.post_eq_sinr is not None and meta.post_eq_sinr.dim() == 3
                 else (1 if meta.post_eq_sinr is not None else 0)
             ),
+            prg_feat_dim=int(graph.snapshot.prg_features.values.shape[1]),
             available_prg_ratio=prg_stats["available_prg_ratio"],
             prg_prev_assigned_ratio=prg_stats["prg_prev_assigned_ratio"],
             n_edges_cc=graph.edges["E_CC"].num_edges,
@@ -175,4 +230,22 @@ class GraphSanityLogger:
             prg_ici_proxy_mean=prg_stats["prg_ici_proxy_mean"],
             prg_ici_proxy_p90=prg_stats["prg_ici_proxy_p90"],
             prg_ici_proxy_max=prg_stats["prg_ici_proxy_max"],
+            prg_post_eq_p10_sinr_db_mean=prg_stats.get("prg_post_eq_p10_sinr_db_mean", 0.0),
+            prg_post_eq_p10_sinr_db_p10=prg_stats.get("prg_post_eq_p10_sinr_db_p10", 0.0),
+            prg_post_eq_p10_sinr_db_p50=prg_stats.get("prg_post_eq_p10_sinr_db_p50", 0.0),
+            prg_post_eq_mean_sinr_db_mean=prg_stats.get("prg_post_eq_mean_sinr_db_mean", 0.0),
+            prg_post_eq_mean_sinr_db_p10=prg_stats.get("prg_post_eq_mean_sinr_db_p10", 0.0),
+            prg_post_eq_mean_sinr_db_p50=prg_stats.get("prg_post_eq_mean_sinr_db_p50", 0.0),
+            prg_backlog_weighted_expected_goodput_mbps_mean=prg_stats.get(
+                "prg_backlog_weighted_expected_goodput_mbps_mean", 0.0
+            ),
+            prg_backlog_weighted_expected_goodput_mbps_p90=prg_stats.get(
+                "prg_backlog_weighted_expected_goodput_mbps_p90", 0.0
+            ),
+            prg_backlog_weighted_expected_goodput_mbps_max=prg_stats.get(
+                "prg_backlog_weighted_expected_goodput_mbps_max", 0.0
+            ),
+            prg_low_sinr_hol_ttl_weight_mean=prg_stats.get("prg_low_sinr_hol_ttl_weight_mean", 0.0),
+            prg_low_sinr_hol_ttl_weight_p90=prg_stats.get("prg_low_sinr_hol_ttl_weight_p90", 0.0),
+            prg_low_sinr_hol_ttl_weight_max=prg_stats.get("prg_low_sinr_hol_ttl_weight_max", 0.0),
         )

@@ -17,6 +17,7 @@ TTI_COUNT=2000
 DL_UL="dl"
 FADING_MODE=0
 TOPOLOGY_SCENARIO="3cell"
+CELL_RADIUS=500
 UE_PER_CELL=12
 TOTAL_UE_COUNT=""
 TOPOLOGY_SEED=42
@@ -80,6 +81,7 @@ Stage-B scenario options:
   --mode <dl|ul>
   --fading-mode <0|1|2|3|4>
   --topology-scenario <m>     7cell | 3cell
+  --cell-radius <m>           Cell radius in meters (ISD/site spacing is 2x this value)
   --ue-per-cell <n>
   --total-ue-count <n>
   --topology-seed <n>
@@ -140,6 +142,7 @@ while [[ $# -gt 0 ]]; do
         --mode) DL_UL="$2"; shift 2 ;;
         --fading-mode) FADING_MODE="$2"; shift 2 ;;
         --topology-scenario) TOPOLOGY_SCENARIO="$2"; shift 2 ;;
+        --cell-radius) CELL_RADIUS="$2"; shift 2 ;;
         --ue-per-cell) UE_PER_CELL="$2"; shift 2 ;;
         --total-ue-count|--ue-count) TOTAL_UE_COUNT="$2"; shift 2 ;;
         --topology-seed) TOPOLOGY_SEED="$2"; shift 2 ;;
@@ -230,6 +233,22 @@ if [[ -n "${TOTAL_UE_COUNT}" ]]; then
 fi
 TOTAL_UE_COUNT=$((UE_PER_CELL * TOPOLOGY_NUM_CELLS))
 
+if ! python3 - "${CELL_RADIUS}" <<'PY'
+import sys
+v = float(sys.argv[1])
+raise SystemExit(0 if v > 0 else 1)
+PY
+then
+    echo "--cell-radius must be positive, got ${CELL_RADIUS}" >&2
+    exit 1
+fi
+SITE_SPACING="$(python3 - "${CELL_RADIUS}" <<'PY'
+import sys
+v = float(sys.argv[1]) * 2.0
+print(f"{v:g}")
+PY
+)"
+
 if [[ "${BUILD_DIR}" != /* ]]; then
     BUILD_DIR="${ROOT_DIR}/${BUILD_DIR}"
 fi
@@ -255,6 +274,7 @@ BUILD_ARGS=(
     --mode "${DL_UL}"
     --fading-mode "${FADING_MODE}"
     --topology-scenario "${TOPOLOGY_SCENARIO}"
+    --cell-radius "${CELL_RADIUS}"
     --ue-per-cell "${UE_PER_CELL}"
     --topology-seed "${TOPOLOGY_SEED}"
     --ue-placement "${UE_PLACEMENT}"
@@ -356,7 +376,7 @@ fi
 echo "[Stage-B HGraph] sim_bin=${BIN}"
 echo "[Stage-B HGraph] sim_cwd=${SIM_CWD}"
 echo "[Stage-B HGraph] sim_args=${SIM_ARGS}"
-echo "[Stage-B HGraph] ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
+echo "[Stage-B HGraph] cell_radius_m=${CELL_RADIUS} site_spacing_m=${SITE_SPACING} ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
 echo "[Stage-B HGraph] topology_seed_mode=${TOPOLOGY_SEED_MODE} topology_seed=${TOPOLOGY_SEED} seed_list=${SEED_LIST:-none}"
 echo "[Stage-B HGraph] episode_horizon=${EPISODE_HORIZON} max_steps=${MAX_STEPS} episodes=${EPISODES}"
 echo "[Stage-B HGraph] prbs_per_group=${PRBS_PER_GROUP} packet_size_bytes=${PACKET_SIZE_BYTES} packet_ttl_ms=${PACKET_TTL_MS} precoding=${PRECODING}"

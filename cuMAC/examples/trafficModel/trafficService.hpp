@@ -136,6 +136,10 @@ public:
     {
         radio_rsrc->GetPacketDelayStats(total, per_flow);
     }
+    void GetServedPacketDelaySamples(std::vector<std::vector<double>>& per_flow_delays) const
+    {
+        radio_rsrc->GetServedPacketDelaySamples(per_flow_delays);
+    }
     void GetPacketServiceRateStats(PacketServiceRateSummary& total,
                                    std::vector<PacketServiceRateSummary>& per_flow) const
     {

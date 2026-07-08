@@ -554,6 +554,10 @@ public:
             total.max_delay_ms = percentile_ms(all_delays, 100.0);
         }
     }
+    void GetServedPacketDelaySamples(std::vector<std::vector<double>>& per_flow_delays) const
+    {
+        per_flow_delays = served_packet_delay_ms;
+    }
     void GetPacketServiceRateStats(PacketServiceRateSummary& total,
                                    std::vector<PacketServiceRateSummary>& per_flow) const
     {

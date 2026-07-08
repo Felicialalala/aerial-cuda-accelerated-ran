@@ -121,6 +121,12 @@ EVAL_SUMMARY_METRICS = [
         "note": "Python online evaluator mean over-cap PRG count successfully reassigned by decoder fallback over all completed evaluator steps.",
     },
     {
+        "name": "eval.mean_safe_fill_count",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Python online evaluator mean guarded safe-fill PRG count over all completed evaluator steps.",
+    },
+    {
         "name": "eval.mean_final_blank_count",
         "unit": None,
         "direction": "lower_better",
@@ -173,6 +179,12 @@ EVAL_SUMMARY_METRICS = [
         "unit": None,
         "direction": "metadata",
         "note": "Python online evaluator mean over-cap PRG count successfully reassigned by decoder fallback after warm-up exclusion.",
+    },
+    {
+        "name": "eval.stats_mean_safe_fill_count",
+        "unit": None,
+        "direction": "metadata",
+        "note": "Python online evaluator mean guarded safe-fill PRG count after warm-up exclusion.",
     },
     {
         "name": "eval.stats_mean_final_blank_count",
@@ -377,8 +389,10 @@ def resolve_baseline_csv_for_scenario(
     scenario_dir = baseline_mean_root / scenario
     if scenario_dir.is_dir():
         candidates.extend(sorted(scenario_dir.glob("rr_vs_*_compare_mean.csv")))
+        candidates.extend(sorted(scenario_dir.glob("rrq_vs_*_compare_mean.csv")))
     if baseline_mean_root.is_dir():
         candidates.extend(sorted(baseline_mean_root.glob("rr_vs_*_compare_mean.csv")))
+        candidates.extend(sorted(baseline_mean_root.glob("rrq_vs_*_compare_mean.csv")))
     unique_candidates: List[Path] = []
     seen = set()
     for candidate in candidates:
@@ -500,6 +514,8 @@ def build_compare_rows(
         metric_name = str(model_row["metric"])
         baseline_row = baseline_index.get(metric_name, {})
         rr_mean = coerce_float(baseline_row.get("rr_mean"))
+        if rr_mean is None:
+            rr_mean = coerce_float(baseline_row.get("rrq_mean"))
         baseline_mean = coerce_float(baseline_row.get(f"{baseline_label}_mean"))
         model_mean = coerce_float(model_row.get(f"{model_label}_mean"))
         direction = str(baseline_row.get("direction") or model_row.get("direction") or "higher_better")

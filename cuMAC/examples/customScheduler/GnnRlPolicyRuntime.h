@@ -60,6 +60,8 @@ public:
         // Per-cell max PRG share allowed for a single UE slot during decode (0<share<=1).
         // Non-positive enables runtime auto-guardrails for prg_only_type0 decode.
         float maxPrgSharePerUe = -1.0f;
+        // Extra bytes added to each active UE backlog when estimating the Type-0 PRG demand cap.
+        float candidateDecodeDemandSlackBytes = 3000.0f;
     };
 
     explicit GnnRlPolicyRuntime(const Config& cfg);

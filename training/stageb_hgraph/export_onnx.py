@@ -6,7 +6,7 @@ This exporter targets the current `GnnRlPolicyRuntime` ABI:
 Logits-mode inputs:
   obs_cell_features  [1, 3, 5]
   obs_ue_features    [1, 36, 12]
-  obs_prg_features   [1, 3, 17, 8]
+  obs_prg_features   [1, 3, 17, 12]
   obs_edge_index     [1, 6, 2]
   obs_edge_attr      [1, 6, 2]
   action_mask_ue     [1, 36]
@@ -32,6 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -234,18 +235,38 @@ class FixedHGraphOnnxWrapper(nn.Module):
         )
 
         prg_by_cell = prg_features.reshape(self.n_cell, self.n_prg, -1)
-        prg_risk = prg_by_cell[:, :, 4] + prg_by_cell[:, :, 5]
-
-        edge_attr = torch.stack(
-            [
-                quality_db,
-                quality_gap,
-                urgency.view(1, 1, self.n_ue).expand(self.n_cell, self.n_prg, self.n_ue),
-                debt.view(1, 1, self.n_ue).expand(self.n_cell, self.n_prg, self.n_ue),
-                prg_risk.unsqueeze(-1).expand(self.n_cell, self.n_prg, self.n_ue),
-            ],
-            dim=-1,
+        prg_risk = torch.clamp(
+            0.5 * torch.clamp(prg_by_cell[:, :, 6], 0.0, 1.0)
+            + 0.5 * torch.clamp(prg_by_cell[:, :, 7], 0.0, 1.0),
+            0.0,
+            1.0,
         )
+
+        base_attrs = [
+            quality_db,
+            quality_gap,
+            urgency.view(1, 1, self.n_ue).expand(self.n_cell, self.n_prg, self.n_ue),
+            debt.view(1, 1, self.n_ue).expand(self.n_cell, self.n_prg, self.n_ue),
+            prg_risk.unsqueeze(-1).expand(self.n_cell, self.n_prg, self.n_ue),
+        ]
+        if int(getattr(rel, "edge_attr_dim", len(base_attrs))) >= 6:
+            avg_rate_mbps = torch.clamp_min(ue_features[:, 1], 0.1)
+            buffer_bytes = torch.clamp_min(ue_features[:, 0], 0.0)
+            queue_weight = 1.0 + 0.25 * torch.log2(1.0 + buffer_bytes / 3000.0)
+            quality_lin = torch.pow(torch.full_like(quality_db, 10.0), quality_db / 10.0)
+            est_rate_mbps = 5.76 * torch.log2(1.0 + torch.clamp_min(quality_lin, 1.0e-9))
+            pfq_anchor = torch.log1p(
+                torch.clamp_min(
+                    est_rate_mbps / avg_rate_mbps.view(1, 1, self.n_ue),
+                    0.0,
+                )
+                * queue_weight.view(1, 1, self.n_ue)
+            )
+            base_attrs.append(pfq_anchor)
+        edge_dim = int(getattr(rel, "edge_attr_dim", len(base_attrs)))
+        if len(base_attrs) < edge_dim:
+            base_attrs.extend([torch.zeros_like(quality_db)] * (edge_dim - len(base_attrs)))
+        edge_attr = torch.stack(base_attrs[:edge_dim], dim=-1)
 
         msg = rel.src_proj(ue_x).view(1, 1, self.n_ue, -1)
         if rel.edge_proj is not None:
@@ -390,7 +411,8 @@ class FixedHGraphOnnxWrapper(nn.Module):
         action_mask_ue: torch.Tensor,
         action_mask_cell_ue: torch.Tensor,
         slot_ue_class: torch.Tensor | None,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        return_prg_ctx: bool = False,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor] | tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         head = self.actor.action_head
         batch_size = 1
         hid = int(cell_x.shape[-1])
@@ -473,6 +495,8 @@ class FixedHGraphOnnxWrapper(nn.Module):
         prg_logits_main = torch.einsum("bcph,bsh->bcps", prg_q, slot_k) / math.sqrt(float(hid))
         prg_no = head.prg_null_head(prg_ctx)
         prg_logits = torch.cat([prg_logits_main, prg_no], dim=-1)
+        if return_prg_ctx:
+            return ue_logits, prg_logits, slot_valid_mask, slot_to_cell, prg_ctx
         return ue_logits, prg_logits, slot_valid_mask, slot_to_cell
 
     def forward(
@@ -519,6 +543,346 @@ class FixedHGraphOnnxWrapper(nn.Module):
 class FixedHGraphActionOnnxWrapper(FixedHGraphOnnxWrapper):
     """Fixed-shape wrapper that emits final-path deterministic action candidates."""
 
+    def __init__(
+        self,
+        actor: StageBHGraphPolicy,
+        *,
+        n_cell: int = 3,
+        n_ue: int = 36,
+        n_prg: int = 17,
+        n_sched_ue: int = 36,
+        candidate_decode_demand_slack_bytes: float = 3000.0,
+        candidate_budgeted_hard_cap: bool = True,
+        candidate_budgeted_usage_penalty: float = 0.35,
+        candidate_budgeted_overcap_penalty: float = 8.0,
+        candidate_budgeted_first_service_bonus: float = 0.0,
+    ) -> None:
+        super().__init__(
+            actor,
+            n_cell=n_cell,
+            n_ue=n_ue,
+            n_prg=n_prg,
+            n_sched_ue=n_sched_ue,
+        )
+        self.candidate_decode_demand_slack_bytes = max(0.0, float(candidate_decode_demand_slack_bytes))
+        self.candidate_budgeted_hard_cap = bool(candidate_budgeted_hard_cap)
+        self.candidate_budgeted_usage_penalty = max(0.0, float(candidate_budgeted_usage_penalty))
+        self.candidate_budgeted_overcap_penalty = max(0.0, float(candidate_budgeted_overcap_penalty))
+        self.candidate_budgeted_first_service_bonus = float(candidate_budgeted_first_service_bonus)
+
+    @staticmethod
+    def _masked_zscore(values: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        mask_f = mask.to(dtype=values.dtype)
+        count = mask_f.sum(dim=-1, keepdim=True).clamp_min(1.0)
+        mean = (values * mask_f).sum(dim=-1, keepdim=True) / count
+        centered = torch.where(mask, values - mean, torch.zeros_like(values))
+        var = (centered * centered * mask_f).sum(dim=-1, keepdim=True) / count
+        return torch.where(mask, centered / torch.sqrt(var.clamp_min(1.0e-4)), torch.zeros_like(values))
+
+    def _fixed_candidate_pack(
+        self,
+        obs_ue_features: torch.Tensor,
+        obs_prg_features: torch.Tensor,
+        action_mask_ue: torch.Tensor,
+        action_mask_cell_ue: torch.Tensor,
+        obs_post_eq_sinr: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        head = self.actor.action_head
+        max_candidates = max(1, int(head.max_prg_candidates))
+        ue_features = obs_ue_features[0]
+        prg_features = obs_prg_features[0]
+        active_ue = action_mask_ue[0].to(dtype=torch.bool)
+        demand = (torch.clamp_min(ue_features[:, 0], 0.0) >= 1.0) | (ue_features[:, 6] > 0.5)
+        legal_cell_ue = action_mask_cell_ue[0].to(dtype=torch.bool) & (active_ue & demand).unsqueeze(0)
+
+        post_eq_db = 10.0 * torch.log10(torch.clamp_min(obs_post_eq_sinr[0], 1.0e-9))
+        buffer_norm = torch.log1p(torch.clamp_min(ue_features[:, 0], 0.0))
+        hol_norm = ue_features[:, 8] / torch.max(ue_features[:, 8]).clamp_min(1.0)
+        ttl_term = torch.where(
+            ue_features[:, 9] >= 0.0,
+            1.0 / (1.0 + torch.clamp_min(ue_features[:, 9], 0.0)),
+            torch.zeros_like(ue_features[:, 9]),
+        )
+        urgency = 0.45 * buffer_norm + 0.30 * hol_norm + 0.25 * ttl_term
+        debt = 0.6 * torch.clamp_min(ue_features[:, 11], 0.0) + 0.4 * (
+            1.0 - torch.clamp(ue_features[:, 10], 0.0, 1.0)
+        )
+        tb_err = torch.clamp_min(ue_features[:, 5], 0.0)
+        prg_risk = torch.clamp(
+            0.5 * torch.clamp(prg_features[:, :, 6], 0.0, 1.0)
+            + 0.5 * torch.clamp(prg_features[:, :, 7], 0.0, 1.0),
+            0.0,
+            1.0,
+        )
+
+        candidate_ids = []
+        candidate_masks = []
+        candidate_attrs = []
+        for c_idx in range(self.n_cell):
+            legal = legal_cell_ue[c_idx]
+            for prg_idx in range(self.n_prg):
+                quality = post_eq_db[:, prg_idx]
+                score = (
+                    0.55 * self._masked_zscore(quality.view(1, -1), legal.view(1, -1)).squeeze(0)
+                    + 0.25 * self._masked_zscore(urgency.view(1, -1), legal.view(1, -1)).squeeze(0)
+                    + 0.20 * self._masked_zscore(debt.view(1, -1), legal.view(1, -1)).squeeze(0)
+                    - 0.10 * self._masked_zscore(tb_err.view(1, -1), legal.view(1, -1)).squeeze(0)
+                )
+                score = score.masked_fill(~legal, -1.0e9)
+                top_score, top_idx = torch.topk(score, k=max_candidates, dim=0)
+                cand_mask = top_score > -1.0e8
+                safe_idx = top_idx.clamp(min=0, max=max(0, self.n_ue - 1))
+                cand_quality = quality.gather(0, safe_idx)
+                best_quality = torch.where(
+                    legal.any(),
+                    quality.masked_fill(~legal, -1.0e9).max(),
+                    torch.zeros((), dtype=quality.dtype, device=quality.device),
+                )
+                base_attrs = [
+                    cand_quality,
+                    torch.clamp_min(best_quality - cand_quality, 0.0),
+                    urgency.gather(0, safe_idx),
+                    debt.gather(0, safe_idx),
+                    prg_risk[c_idx, prg_idx].expand_as(cand_quality),
+                ]
+                edge_dim = int(getattr(head, "up_edge_attr_dim", len(base_attrs)))
+                if edge_dim >= 6:
+                    avg_rate_mbps = torch.clamp_min(ue_features[:, 1], 0.1)
+                    buffer_bytes = torch.clamp_min(ue_features[:, 0], 0.0)
+                    queue_weight = 1.0 + 0.25 * torch.log2(1.0 + buffer_bytes / 3000.0)
+                    quality_lin = torch.pow(torch.full_like(cand_quality, 10.0), cand_quality / 10.0)
+                    est_rate_mbps = 5.76 * torch.log2(1.0 + torch.clamp_min(quality_lin, 1.0e-9))
+                    pfq_anchor = torch.log1p(
+                        torch.clamp_min(est_rate_mbps / avg_rate_mbps.gather(0, safe_idx), 0.0)
+                        * queue_weight.gather(0, safe_idx)
+                    )
+                    base_attrs.append(pfq_anchor)
+                if len(base_attrs) < edge_dim:
+                    base_attrs.extend([torch.zeros_like(cand_quality)] * (edge_dim - len(base_attrs)))
+                edge_attr = torch.stack(base_attrs[:edge_dim], dim=-1)
+                candidate_ids.append(safe_idx)
+                candidate_masks.append(cand_mask)
+                candidate_attrs.append(edge_attr)
+        return (
+            torch.stack(candidate_ids, dim=0).unsqueeze(0),
+            torch.stack(candidate_masks, dim=0).unsqueeze(0),
+            torch.stack(candidate_attrs, dim=0).unsqueeze(0),
+        )
+
+    def _candidate_logits_from_ctx(
+        self,
+        prg_ctx: torch.Tensor,
+        ue_x: torch.Tensor,
+        candidate_ue_ids: torch.Tensor,
+        candidate_mask: torch.Tensor,
+        candidate_edge_attr: torch.Tensor,
+    ) -> torch.Tensor:
+        head = self.actor.action_head
+        batch_size, n_prg_tokens, max_candidates = candidate_ue_ids.shape
+        hid = int(ue_x.shape[-1])
+        safe_ue = candidate_ue_ids.clamp(min=0, max=max(0, self.n_ue - 1))
+        gathered_ue = ue_x.unsqueeze(1).expand(-1, n_prg_tokens, -1, -1).gather(
+            2,
+            safe_ue.unsqueeze(-1).expand(-1, -1, -1, hid),
+        )
+        edge_ctx = head.candidate_edge_proj(candidate_edge_attr.to(dtype=ue_x.dtype))
+        prg_flat = prg_ctx.reshape(batch_size, n_prg_tokens, hid)
+        pair_ctx = torch.cat([prg_flat.unsqueeze(2).expand(-1, -1, max_candidates, -1), gathered_ue, edge_ctx], dim=-1)
+        service_value = head.candidate_pair_score(pair_ctx).squeeze(-1)
+        success_logits = head.candidate_success_score(pair_ctx).squeeze(-1)
+        success_scale = float(getattr(head, "candidate_success_logit_scale", 0.0))
+        if success_scale > 0.0:
+            main_logits = service_value + F.logsigmoid(success_logits * max(success_scale, 1.0e-3))
+        else:
+            main_logits = service_value
+        if int(getattr(head, "up_edge_attr_dim", 0)) >= 6:
+            main_logits = main_logits + float(getattr(head, "candidate_pfq_anchor_logit_coef", 0.0)) * candidate_edge_attr[..., 5]
+        main_logits = main_logits.masked_fill(~candidate_mask, -1.0e9)
+        blank_gate_scale = float(getattr(head, "candidate_blank_success_scale", 0.0))
+        if success_scale > 0.0 and blank_gate_scale != 0.0:
+            masked_success = success_logits.masked_fill(~candidate_mask, -1.0e9)
+            has_valid = candidate_mask.any(dim=-1, keepdim=True)
+            blank_gate = torch.where(
+                has_valid,
+                torch.clamp(
+                    -masked_success.max(dim=-1, keepdim=True).values * max(success_scale, 1.0e-3),
+                    min=-8.0,
+                    max=8.0,
+                ),
+                torch.zeros((batch_size, n_prg_tokens, 1), dtype=ue_x.dtype, device=ue_x.device),
+            )
+        else:
+            blank_gate = torch.zeros((batch_size, n_prg_tokens, 1), dtype=ue_x.dtype, device=ue_x.device)
+        blank_logits = (
+            head.candidate_null_head(prg_flat)
+            + float(head.candidate_blank_logit_bias)
+            + blank_gate_scale * blank_gate
+        )
+        return torch.cat([main_logits, blank_logits], dim=-1)
+
+    def _estimate_budgeted_ue_prg_cap(
+        self,
+        obs_ue_features: torch.Tensor,
+        action_mask_ue: torch.Tensor,
+        obs_post_eq_sinr: torch.Tensor,
+    ) -> torch.Tensor:
+        ue_features = obs_ue_features[0]
+        buffer_bytes = torch.clamp_min(ue_features[:, 0], 0.0)
+        new_data = ue_features[:, 6]
+        active_ue = action_mask_ue[0].to(dtype=torch.bool)
+        demand_active = active_ue & ((buffer_bytes >= 1.0) | (new_data > 0.5))
+        quality_lin = torch.clamp_min(obs_post_eq_sinr[0], 1.0e-9).max(dim=-1).values
+        spectral_eff = torch.log1p(quality_lin) / math.log(2.0)
+        scale = torch.clamp(spectral_eff / 2.0, min=0.5, max=4.0)
+        est_bytes_per_prg = torch.clamp(3000.0 * scale, min=1200.0, max=12000.0)
+        demand_bytes = buffer_bytes + float(self.candidate_decode_demand_slack_bytes)
+        demand_bytes = torch.where((new_data > 0.5) & (demand_bytes <= 0.0), est_bytes_per_prg, demand_bytes)
+        cap = torch.ceil(demand_bytes / est_bytes_per_prg.clamp_min(1.0))
+        cap = torch.where((new_data > 0.5) & (cap <= 0.0), torch.ones_like(cap), cap)
+        cap = torch.where(demand_active, cap, torch.zeros_like(cap))
+        return torch.clamp(cap, min=0.0, max=float(self.n_prg))
+
+    def _budgeted_candidate_choice(
+        self,
+        candidate_logits: torch.Tensor,
+        candidate_ue_ids: torch.Tensor,
+        candidate_mask: torch.Tensor,
+        obs_ue_features: torch.Tensor,
+        action_mask_ue: torch.Tensor,
+        obs_post_eq_sinr: torch.Tensor,
+    ) -> torch.Tensor:
+        max_candidates = int(candidate_ue_ids.shape[-1])
+        n_prg_tokens = int(self.n_cell * self.n_prg)
+        blank_valid = torch.ones((1, n_prg_tokens, 1), dtype=torch.bool, device=candidate_logits.device)
+        valid = torch.cat([candidate_mask, blank_valid], dim=-1)
+        valid_main = candidate_mask.squeeze(0).to(dtype=torch.bool)
+        logits = candidate_logits.squeeze(0)
+        candidate_ids = candidate_ue_ids.squeeze(0).clamp(min=0, max=max(0, self.n_ue - 1))
+        blank_class = torch.tensor(max_candidates, dtype=torch.long, device=logits.device)
+        choice = torch.full((n_prg_tokens,), max_candidates, dtype=torch.long, device=logits.device)
+
+        best_main_logit = logits[:, :max_candidates].masked_fill(~valid_main, -1.0e9).max(dim=-1).values
+        order = torch.topk(best_main_logit, k=n_prg_tokens, dim=0).indices
+        ue_prg_cap = self._estimate_budgeted_ue_prg_cap(
+            obs_ue_features,
+            action_mask_ue,
+            obs_post_eq_sinr,
+        ).to(device=logits.device, dtype=logits.dtype)
+        ue_prg_used = torch.zeros_like(ue_prg_cap)
+        token_index = torch.arange(n_prg_tokens, dtype=torch.long, device=logits.device)
+
+        for step in range(n_prg_tokens):
+            prg_idx = order[step]
+            main_scores = logits[prg_idx, :max_candidates]
+            prg_valid = valid_main[prg_idx]
+            ue_ids = candidate_ids[prg_idx]
+            used = ue_prg_used.gather(0, ue_ids)
+            cap = ue_prg_cap.gather(0, ue_ids)
+            in_headroom = (cap - used) > 0.0
+            selectable = prg_valid & in_headroom
+            adjusted = main_scores - float(self.candidate_budgeted_usage_penalty) * used
+            if float(self.candidate_budgeted_first_service_bonus) != 0.0:
+                adjusted = adjusted + torch.where(
+                    (used <= 0.0) & (cap > 0.0),
+                    torch.full_like(adjusted, float(self.candidate_budgeted_first_service_bonus)),
+                    torch.zeros_like(adjusted),
+                )
+            if self.candidate_budgeted_hard_cap:
+                adjusted = adjusted.masked_fill(~selectable, -1.0e9)
+            else:
+                adjusted = adjusted - torch.where(
+                    in_headroom,
+                    torch.zeros_like(adjusted),
+                    torch.full_like(adjusted, float(self.candidate_budgeted_overcap_penalty)),
+                )
+                adjusted = adjusted.masked_fill(~prg_valid, -1.0e9)
+            has_candidate = adjusted.max() > -1.0e8
+            best_selected = adjusted.view(1, -1).argmax(dim=1).squeeze(0)
+            selected = torch.where(has_candidate, best_selected, blank_class)
+            choice = torch.where(token_index == prg_idx, selected.expand_as(choice), choice)
+            safe_selected = selected.clamp(min=0, max=max(0, max_candidates - 1))
+            selected_ue = ue_ids.gather(0, safe_selected.view(1)).squeeze(0)
+            increment = F.one_hot(
+                selected_ue.clamp(min=0, max=max(0, self.n_ue - 1)).view(1),
+                num_classes=self.n_ue,
+            ).to(dtype=ue_prg_used.dtype).squeeze(0)
+            active_selected = (selected >= 0) & (selected < max_candidates) & has_candidate
+            ue_prg_used = ue_prg_used + increment * active_selected.to(dtype=ue_prg_used.dtype)
+        valid_choice = valid.squeeze(0).gather(
+            1,
+            choice.clamp(min=0, max=max_candidates).unsqueeze(-1),
+        ).squeeze(-1)
+        return choice.masked_fill(~valid_choice, max_candidates)
+
+    def _actions_from_candidate_logits(
+        self,
+        candidate_logits: torch.Tensor,
+        candidate_ue_ids: torch.Tensor,
+        candidate_mask: torch.Tensor,
+        obs_ue_features: torch.Tensor,
+        action_mask_ue: torch.Tensor,
+        action_mask_cell_ue: torch.Tensor,
+        obs_post_eq_sinr: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        max_candidates = int(candidate_ue_ids.shape[-1])
+        choice = self._budgeted_candidate_choice(
+            candidate_logits,
+            candidate_ue_ids,
+            candidate_mask,
+            obs_ue_features,
+            action_mask_ue,
+            obs_post_eq_sinr,
+        )
+        safe_choice = choice.clamp(min=0, max=max(0, max_candidates - 1))
+        chosen_ue = candidate_ue_ids.squeeze(0).gather(1, safe_choice.unsqueeze(-1)).squeeze(-1)
+        active = (choice >= 0) & (choice < max_candidates)
+
+        token_order = torch.arange(self.n_cell * self.n_prg, dtype=torch.long, device=choice.device)
+        large = torch.full_like(token_order, self.n_cell * self.n_prg + 1024)
+        action_mask_ue_b = action_mask_ue[0].to(dtype=torch.bool)
+        action_mask_cell_ue_b = action_mask_cell_ue[0].to(dtype=torch.bool)
+        action_ue_select = torch.full((1, self.n_sched_ue), -1, dtype=torch.long, device=choice.device)
+        pair_slot_rows = []
+        slot_ids = torch.arange(self.n_sched_ue, dtype=torch.long, device=choice.device)
+        for c_idx in range(self.n_cell):
+            owner = self.prg_owner_cell.to(device=choice.device, dtype=torch.long)
+            cell_active = active & (owner == c_idx)
+            first_per_ue = []
+            for ue_idx in range(self.n_ue):
+                legal_ue = action_mask_ue_b[ue_idx] & action_mask_cell_ue_b[c_idx, ue_idx]
+                match = cell_active & (chosen_ue == ue_idx) & legal_ue
+                first_per_ue.append(torch.where(match, token_order, large).min())
+            first = torch.stack(first_per_ue, dim=0)
+            valid_ue = first < large[0]
+            rank = ((first.unsqueeze(1) < first.unsqueeze(0)) & valid_ue.unsqueeze(1)).sum(dim=0)
+            cell_slot_mask = (slot_ids >= c_idx * (self.n_sched_ue // self.n_cell)) & (
+                slot_ids < (c_idx + 1) * (self.n_sched_ue // self.n_cell)
+            )
+            slot_count = int(self.n_sched_ue // self.n_cell)
+            start = c_idx * slot_count
+            pair_slot = torch.where(valid_ue & (rank < slot_count), start + rank, torch.full_like(rank, -1))
+            pair_slot_rows.append(pair_slot)
+            for rel_idx in range(slot_count):
+                slot_id = start + rel_idx
+                match_rank = valid_ue & (rank == rel_idx)
+                picked_ue = match_rank.to(dtype=torch.long).view(1, -1).argmax(dim=1).squeeze(0)
+                action_ue_select[:, slot_id] = torch.where(
+                    match_rank.any(),
+                    picked_ue,
+                    action_ue_select[:, slot_id],
+                )
+            del cell_slot_mask
+        pair_slot_lookup = torch.stack(pair_slot_rows, dim=0)
+        owner = self.prg_owner_cell.to(device=choice.device, dtype=torch.long)
+        local_prg = self.prg_local_index.to(device=choice.device, dtype=torch.long)
+        slot_for_prg = pair_slot_lookup[owner, chosen_ue.clamp(min=0, max=max(0, self.n_ue - 1))]
+        prg_ok = active & (slot_for_prg >= 0)
+        native_linear = local_prg * self.n_cell + owner
+        alloc = torch.full((self.n_cell * self.n_prg,), -1, dtype=torch.long, device=choice.device)
+        alloc = alloc.scatter(0, native_linear, torch.where(prg_ok, slot_for_prg, torch.full_like(slot_for_prg, -1)))
+        keepalive = candidate_logits.sum() * 0.0
+        return (action_ue_select.to(dtype=torch.float32) + keepalive, alloc.view(1, -1).to(dtype=torch.float32) + keepalive)
+
     def forward(
         self,
         obs_cell_features: torch.Tensor,
@@ -549,22 +913,56 @@ class FixedHGraphActionOnnxWrapper(FixedHGraphOnnxWrapper):
             slot_ue_class=None,
         )
         ue_class = ue_logits.argmax(dim=-1)
-        _, prg_logits, _, _ = self._action_head(
-            cell_x,
-            ue_x,
-            prg_x,
-            action_mask_ue,
-            action_mask_cell_ue,
-            slot_ue_class=ue_class,
-        )
-        action_ue_select, action_prg_alloc = self._actions_from_logits(
-            ue_logits,
-            prg_logits,
-            action_mask_ue,
-            action_mask_cell_ue,
-            slot_valid_mask,
-            slot_to_cell,
-        )
+        if getattr(self.actor.action_head, "action_head_mode", "slot") == "candidate":
+            _ue_logits_2, _prg_logits_unused, _slot_valid_mask_2, _slot_to_cell_2, prg_ctx = self._action_head(
+                cell_x,
+                ue_x,
+                prg_x,
+                action_mask_ue,
+                action_mask_cell_ue,
+                slot_ue_class=ue_class,
+                return_prg_ctx=True,
+            )
+            candidate_ue_ids, candidate_mask, candidate_edge_attr = self._fixed_candidate_pack(
+                obs_ue_features,
+                obs_prg_features,
+                action_mask_ue,
+                action_mask_cell_ue,
+                obs_post_eq_sinr,
+            )
+            candidate_logits = self._candidate_logits_from_ctx(
+                prg_ctx,
+                ue_x.unsqueeze(0),
+                candidate_ue_ids,
+                candidate_mask,
+                candidate_edge_attr,
+            )
+            action_ue_select, action_prg_alloc = self._actions_from_candidate_logits(
+                candidate_logits,
+                candidate_ue_ids,
+                candidate_mask,
+                obs_ue_features,
+                action_mask_ue,
+                action_mask_cell_ue,
+                obs_post_eq_sinr,
+            )
+        else:
+            _, prg_logits, _, _ = self._action_head(
+                cell_x,
+                ue_x,
+                prg_x,
+                action_mask_ue,
+                action_mask_cell_ue,
+                slot_ue_class=ue_class,
+            )
+            action_ue_select, action_prg_alloc = self._actions_from_logits(
+                ue_logits,
+                prg_logits,
+                action_mask_ue,
+                action_mask_cell_ue,
+                slot_valid_mask,
+                slot_to_cell,
+            )
         edge_index_keepalive = obs_edge_index.to(dtype=action_ue_select.dtype).sum() * 0.0
         return action_ue_select + edge_index_keepalive, action_prg_alloc + edge_index_keepalive
 
@@ -574,10 +972,20 @@ def load_actor(checkpoint_path: Path, device: torch.device) -> tuple[StageBHGrap
     if "actor_state" not in checkpoint or "actor_config" not in checkpoint:
         raise KeyError(f"{checkpoint_path} does not look like a Stage-B HGraph checkpoint")
     actor = build_model_from_config(checkpoint["actor_config"])
-    actor.load_state_dict(checkpoint["actor_state"])
+    actor.load_state_dict(checkpoint["actor_state"], strict=False)
     actor.to(device=device)
     actor.eval()
     return actor, checkpoint
+
+
+def _checkpoint_arg(checkpoint: dict[str, Any], name: str, default: Any) -> Any:
+    for key in ("args", "train_args", "config"):
+        values = checkpoint.get(key)
+        if isinstance(values, dict) and name in values:
+            return values[name]
+        if values is not None and hasattr(values, name):
+            return getattr(values, name)
+    return default
 
 
 def make_dummy_inputs(
@@ -711,10 +1119,12 @@ def write_metadata(
     n_cell: int,
     n_ue: int,
     n_prg: int,
+    prg_feat_dim: int,
     n_sched_ue: int,
     opset: int,
     output_mode: str,
     use_post_eq_input: bool,
+    candidate_action_operator: dict[str, Any] | None,
     check_result: dict[str, Any] | None,
 ) -> None:
     output_shapes = (
@@ -731,7 +1141,7 @@ def write_metadata(
     input_shapes = {
         "obs_cell_features": [1, n_cell, 5],
         "obs_ue_features": [1, n_ue, 12],
-        "obs_prg_features": [1, n_cell, n_prg, 8],
+        "obs_prg_features": [1, n_cell, n_prg, prg_feat_dim],
         "obs_edge_index": [1, n_cell * (n_cell - 1), 2],
         "obs_edge_attr": [1, n_cell * (n_cell - 1), 2],
         "action_mask_ue": [1, n_ue],
@@ -764,8 +1174,13 @@ def write_metadata(
             "output_shapes": output_shapes,
         },
         "output_mode": output_mode,
+        "candidate_action_operator": candidate_action_operator,
         "decode_path": (
-            "masked_argmax_to_action_ue_select_and_pre_cap_action_prg_alloc"
+            (
+                "candidate_prg_budgeted_greedy_to_type0_action"
+                if str(checkpoint.get("actor_config", {}).get("action_head_mode", "slot")) == "candidate"
+                else "masked_argmax_to_action_ue_select_and_pre_cap_action_prg_alloc"
+            )
             if output_mode == "action"
             else "masked_argmax_for_internal_ue_conditioning"
         ),
@@ -805,6 +1220,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--opset", type=int, default=17)
     parser.add_argument("--check", action="store_true", help="Run ONNX checker and onnxruntime consistency if available")
     parser.add_argument("--device", default="cpu", help="Export device, usually cpu")
+    parser.add_argument(
+        "--candidate-decode-demand-slack-bytes",
+        type=float,
+        default=None,
+        help="Action-mode budgeted demand-cap slack; defaults to checkpoint args or 3000.",
+    )
+    parser.add_argument(
+        "--candidate-budgeted-hard-cap",
+        type=int,
+        choices=[0, 1],
+        default=None,
+        help="Action-mode budgeted selector hard cap; defaults to checkpoint args or 1.",
+    )
+    parser.add_argument(
+        "--candidate-budgeted-usage-penalty",
+        type=float,
+        default=None,
+        help="Action-mode budgeted selector per-UE usage penalty.",
+    )
+    parser.add_argument(
+        "--candidate-budgeted-overcap-penalty",
+        type=float,
+        default=None,
+        help="Action-mode soft-cap over-cap penalty when hard cap is disabled.",
+    )
+    parser.add_argument(
+        "--candidate-budgeted-first-service-bonus",
+        type=float,
+        default=None,
+        help="Action-mode budgeted selector first-service bonus.",
+    )
     return parser.parse_args()
 
 
@@ -826,14 +1272,72 @@ def main() -> int:
     device = torch.device(args.device)
 
     actor, checkpoint = load_actor(checkpoint_path, device)
+    candidate_decode_demand_slack_bytes = float(
+        args.candidate_decode_demand_slack_bytes
+        if args.candidate_decode_demand_slack_bytes is not None
+        else _checkpoint_arg(checkpoint, "candidate_decode_demand_slack_bytes", 3000.0)
+    )
+    candidate_budgeted_hard_cap = int(
+        args.candidate_budgeted_hard_cap
+        if args.candidate_budgeted_hard_cap is not None
+        else _checkpoint_arg(checkpoint, "candidate_budgeted_hard_cap", 1)
+    )
+    candidate_budgeted_usage_penalty = float(
+        args.candidate_budgeted_usage_penalty
+        if args.candidate_budgeted_usage_penalty is not None
+        else _checkpoint_arg(checkpoint, "candidate_budgeted_usage_penalty", 0.35)
+    )
+    candidate_budgeted_overcap_penalty = float(
+        args.candidate_budgeted_overcap_penalty
+        if args.candidate_budgeted_overcap_penalty is not None
+        else _checkpoint_arg(checkpoint, "candidate_budgeted_overcap_penalty", 8.0)
+    )
+    candidate_budgeted_first_service_bonus = float(
+        args.candidate_budgeted_first_service_bonus
+        if args.candidate_budgeted_first_service_bonus is not None
+        else _checkpoint_arg(checkpoint, "candidate_budgeted_first_service_bonus", 0.0)
+    )
+    if candidate_decode_demand_slack_bytes < 0.0:
+        raise ValueError("--candidate-decode-demand-slack-bytes must be non-negative")
+    if candidate_budgeted_hard_cap not in (0, 1):
+        raise ValueError("--candidate-budgeted-hard-cap must be 0 or 1")
+    if candidate_budgeted_usage_penalty < 0.0:
+        raise ValueError("--candidate-budgeted-usage-penalty must be non-negative")
+    if candidate_budgeted_overcap_penalty < 0.0:
+        raise ValueError("--candidate-budgeted-overcap-penalty must be non-negative")
+    candidate_action_operator = (
+        {
+            "name": "candidate_budgeted_greedy_type0",
+            "candidate_decode_demand_slack_bytes": float(candidate_decode_demand_slack_bytes),
+            "candidate_budgeted_hard_cap": int(candidate_budgeted_hard_cap),
+            "candidate_budgeted_usage_penalty": float(candidate_budgeted_usage_penalty),
+            "candidate_budgeted_overcap_penalty": float(candidate_budgeted_overcap_penalty),
+            "candidate_budgeted_first_service_bonus": float(candidate_budgeted_first_service_bonus),
+            "candidate_pfq_anchor_logit_coef": float(
+                getattr(actor.action_head, "candidate_pfq_anchor_logit_coef", 0.0)
+            ),
+        }
+        if args.output_mode == "action"
+        else None
+    )
     wrapper_cls = FixedHGraphActionOnnxWrapper if args.output_mode == "action" else FixedHGraphOnnxWrapper
-    wrapper = wrapper_cls(
-        actor,
-        n_cell=args.n_cell,
-        n_ue=args.n_ue,
-        n_prg=args.n_prg,
-        n_sched_ue=args.n_sched_ue,
-    ).to(device=device)
+    wrapper_kwargs: dict[str, Any] = {
+        "n_cell": args.n_cell,
+        "n_ue": args.n_ue,
+        "n_prg": args.n_prg,
+        "n_sched_ue": args.n_sched_ue,
+    }
+    if args.output_mode == "action":
+        wrapper_kwargs.update(
+            {
+                "candidate_decode_demand_slack_bytes": float(candidate_decode_demand_slack_bytes),
+                "candidate_budgeted_hard_cap": bool(candidate_budgeted_hard_cap),
+                "candidate_budgeted_usage_penalty": float(candidate_budgeted_usage_penalty),
+                "candidate_budgeted_overcap_penalty": float(candidate_budgeted_overcap_penalty),
+                "candidate_budgeted_first_service_bonus": float(candidate_budgeted_first_service_bonus),
+            }
+        )
+    wrapper = wrapper_cls(actor, **wrapper_kwargs).to(device=device)
     wrapper.eval()
 
     actor_config = checkpoint["actor_config"]
@@ -873,10 +1377,12 @@ def main() -> int:
         n_cell=args.n_cell,
         n_ue=args.n_ue,
         n_prg=args.n_prg,
+        prg_feat_dim=int(actor_config["prg_feat_dim"]),
         n_sched_ue=args.n_sched_ue,
         opset=args.opset,
         output_mode=str(args.output_mode),
         use_post_eq_input=bool(args.use_post_eq_input),
+        candidate_action_operator=candidate_action_operator,
         check_result=check_result,
     )
     print(f"[export] ONNX: {out_path}")

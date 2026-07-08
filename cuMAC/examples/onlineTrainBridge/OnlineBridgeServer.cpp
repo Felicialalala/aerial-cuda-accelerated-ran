@@ -221,7 +221,13 @@ std::vector<uint8_t> OnlineBridgeServer::buildStatePayload(const StepState& stat
         sizeof(float) * state.actualUeServedBytes.size() +
         sizeof(float) * state.actualUeGoodputBytes.size() +
         sizeof(int32_t) * state.actualUeTbTxCount.size() +
-        sizeof(int32_t) * state.actualUeTbErrCount.size());
+        sizeof(int32_t) * state.actualUeTbErrCount.size() +
+        sizeof(int32_t) * state.actualUePacketDeliveredPackets.size() +
+        sizeof(int32_t) * state.actualUePacketPendingPackets.size() +
+        sizeof(float) * state.actualUePacketDeliveredBits.size() +
+        sizeof(float) * state.actualUePacketSystemTimeMs.size() +
+        sizeof(float) * state.actualUePacketServiceRateMbps.size() +
+        sizeof(float) * state.actualUePacketServiceRatePerPacketMeanMbps.size());
 
     appendPod(out, state.header);
 
@@ -320,6 +326,36 @@ std::vector<uint8_t> OnlineBridgeServer::buildStatePayload(const StepState& stat
     }
     if (!state.actualUeTbErrCount.empty()) {
         appendRaw(state.actualUeTbErrCount.data(), sizeof(int32_t) * state.actualUeTbErrCount.size());
+    }
+    if (!state.actualUePacketDeliveredPackets.empty()) {
+        appendRaw(
+            state.actualUePacketDeliveredPackets.data(),
+            sizeof(int32_t) * state.actualUePacketDeliveredPackets.size());
+    }
+    if (!state.actualUePacketPendingPackets.empty()) {
+        appendRaw(
+            state.actualUePacketPendingPackets.data(),
+            sizeof(int32_t) * state.actualUePacketPendingPackets.size());
+    }
+    if (!state.actualUePacketDeliveredBits.empty()) {
+        appendRaw(
+            state.actualUePacketDeliveredBits.data(),
+            sizeof(float) * state.actualUePacketDeliveredBits.size());
+    }
+    if (!state.actualUePacketSystemTimeMs.empty()) {
+        appendRaw(
+            state.actualUePacketSystemTimeMs.data(),
+            sizeof(float) * state.actualUePacketSystemTimeMs.size());
+    }
+    if (!state.actualUePacketServiceRateMbps.empty()) {
+        appendRaw(
+            state.actualUePacketServiceRateMbps.data(),
+            sizeof(float) * state.actualUePacketServiceRateMbps.size());
+    }
+    if (!state.actualUePacketServiceRatePerPacketMeanMbps.empty()) {
+        appendRaw(
+            state.actualUePacketServiceRatePerPacketMeanMbps.data(),
+            sizeof(float) * state.actualUePacketServiceRatePerPacketMeanMbps.size());
     }
 
     return out;

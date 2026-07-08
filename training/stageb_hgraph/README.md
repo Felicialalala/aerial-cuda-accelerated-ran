@@ -1,8 +1,60 @@
 # Stage-B Sparse Entity Graph Stack
 
-This directory is the parallel first-version graph stack for the new Stage-B scheduler work.
+This directory is the graph stack for Stage-B scheduler research. The current execution plan is the 7-cell TAR-GNN-PFQ design; the older 3-cell HGraph runs are retained as implementation and mechanism references.
 
-Current retained reference run: `training/stageb_hgraph/runs/online_ppo_seed42_svd_rawbridge_joint_v33_capSlack3000_simpleExecutor_ablation`.
+Canonical docs:
+
+- `Doc/README.md`
+- `Doc/stageB_boundary_intelligent_algorithm_experiment_report.md`
+- `Doc/current_stageB_effective_configuration.md`
+- `Doc/stageB_packet_delay_distribution_analysis.md`
+- `Doc/stageB_7cell_tar_gnn_pfq_design.md`
+- `Doc/archive/hgraph_experiments/stageB_hgraph_3cell_retrospective_20260605.md`
+
+Current active target:
+
+- `3cell + 36UE + RBG16 + SVD + TTL200ms`
+- `ue-placement=coop_boundary`
+- `cell-assoc-mode=strongest`
+- `cell_radius=500`, therefore `ISD/site_spacing=1000m`
+- no explicit `shadow_seed`; simulator log must show `shadow_seed=legacy_shared_rng`
+- `packet_size_bytes=3000`
+- `traffic_arrival_rate=1.0`
+- native gate:
+  - `output/stageB_rrq_pfq_multiseed_compare_coopboundary_assocstrongest_legacyshadow_r500_t4000_w0_s41_s50`
+  - PFQ mean goodput `1520.536 Mbps`, TB BLER `11.778%`, expiry `0.017%`, packet p95 `25.650 ms`
+- training goal: use HGraphPPO to beat boundary PFQ reliable goodput without worsening BLER/expiry; packet delay is a secondary guard because completed-packet delay rises when old packets are rescued
+
+Current long-term 7-cell target:
+
+- `7cell + 84UE + RBG16 + SVD + TTL200ms`
+- `packet_size_bytes=3000`
+- `traffic_arrival_rate=0.85`
+- target: increase `goodput`, clearly reduce `packet_delay_p95`, and increase packet effective service rate against PFQ
+
+Current 3-cell coop-boundary follow-up:
+
+- canonical doc section: `Doc/stageB_7cell_tar_gnn_pfq_design.md`, section `1`
+- scenario: `3cell + ue-placement=coop_boundary + cell-assoc-mode=strongest + SVD + TTL200ms`
+- fixed radius: `cellRadius=500 (ISD=1000m)` for direct comparison with the uniform ISD1000 result
+- `cellRadius=250 (ISD=500m)` is now diagnostic only
+- traffic: `packet_size_bytes=3000`, `traffic_arrival_rate=1.0`
+- topology/traffic/shadow: use `legacyshadow` in labels when no `--shadow-seed` is passed, for example `coopboundary_assocstrongest_legacyshadow_r500_t4000_w0_s41`
+- required signal path: raw/postEq SINR export through `CUMAC_ONLINE_EXPORT_POST_EQ_SINR=1`
+- required PRG features: postEq SINR `top1/p10/mean`, `backlog_weighted_expected_goodput_mbps`, and `low_sinr_hol_ttl_weight`
+- training goal: use HGraph+RL to exceed the stronger same-scenario native reference by converting pending backlog into reliable goodput, not by merely increasing raw PRG utilization
+
+`coop_center`, `coop_boundary nominal`, fixed `shadow41`, and `ISD500` runs are retained as mechanism references only. New formal runs should not use those labels unless the experiment is explicitly diagnostic.
+
+Retained 3-cell reference run: `training/stageb_hgraph/runs/online_ppo_seed42_svd_rawbridge_joint_v33_capSlack3000_simpleExecutor_ablation`.
+
+Current run-directory hygiene:
+
+- keep directories with checkpoints, gate summaries, KPI CSV/JSON, or documented mechanism value
+- remove smoke/skip/build-only artifacts once the result has been superseded
+- remove failed launch directories with no checkpoint and no summary
+- remove `__pycache__` directories
+- new run labels must include placement, association, shadow policy, radius, horizon, warmup, and seed, for example `coopboundary_assocstrongest_legacyshadow_r500_t4000_w0_s41`
 
 It is intentionally separate from `training/gnnrl/`:
 
@@ -21,7 +73,7 @@ It is intentionally separate from `training/gnnrl/`:
   - current HGraph input layout is now:
     - `cell_features[C,5]`
     - `ue_features[U,12]`
-    - `prg_features[C*P,8]`
+    - `prg_features[C*P,12]`
   - consumes existing Stage-B observation dicts:
     - `obs_cell_features`
     - `obs_ue_features`
@@ -481,7 +533,7 @@ The preferred deployment ABI is now `action` mode. It moves the Python evaluator
 - inputs:
   - `obs_cell_features [1,3,5]`
   - `obs_ue_features [1,36,12]`
-  - `obs_prg_features [1,3,17,8]`
+  - `obs_prg_features [1,3,17,12]`
   - `obs_post_eq_sinr [1,36,17]`
   - `obs_edge_index [1,6,2]`
   - `obs_edge_attr [1,6,2]`

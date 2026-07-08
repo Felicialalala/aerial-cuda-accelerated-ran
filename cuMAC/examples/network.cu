@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cctype>
 #include <cstring>
+#include <fstream>
 #include <limits>
 #include <cstdio>
 #include <utility>
@@ -119,6 +120,8 @@ inline int resolveType0AllocToActiveUe(int16_t allocEntry, const uint16_t* sched
 enum class UePlacementMode {
     Uniform,
     Stratified,
+    CooperativeCenter,
+    CooperativeBoundary,
 };
 
 enum class BsTxPatternMode {
@@ -126,14 +129,39 @@ enum class BsTxPatternMode {
     Omnidirectional,
 };
 
+enum class CellAssociationMode {
+    Strongest,
+    Nominal,
+};
+
 struct UePlacementConfig {
     UePlacementMode mode;
     float centerMaxRatio;
     float midMaxRatio;
+    float coopCenterRadiusRatio;
+    float coopCenterJitterRatio;
+    float coopCenterAngleDeg;
+    float coopBoundarySpanRatio;
+    float coopBoundaryInsetRatio;
     bool hasCustomStrataCounts;
     bool enforceVoronoiClip;
     std::array<int, 3> strataCounts;
 };
+
+static const char* uePlacementModeLabel(UePlacementMode mode)
+{
+    switch (mode) {
+        case UePlacementMode::Stratified:
+            return "stratified";
+        case UePlacementMode::CooperativeCenter:
+            return "coop_center";
+        case UePlacementMode::CooperativeBoundary:
+            return "coop_boundary";
+        case UePlacementMode::Uniform:
+        default:
+            return "uniform";
+    }
+}
 
 inline bool equalsIgnoreCase(const char* lhs, const char* rhs)
 {
@@ -190,11 +218,34 @@ static unsigned int getTopologySeed()
 
 static UePlacementConfig getUePlacementConfig()
 {
-    UePlacementConfig cfg{UePlacementMode::Uniform, 0.33f, 0.66f, false, true, {0, 0, 0}};
+    UePlacementConfig cfg{
+        UePlacementMode::Uniform,
+        0.33f,
+        0.66f,
+        0.52f,
+        0.06f,
+        12.0f,
+        0.28f,
+        0.02f,
+        false,
+        true,
+        {0, 0, 0}};
 
     const char* envMode = std::getenv("CUMAC_UE_PLACEMENT_MODE");
-    if (envMode != nullptr && envMode[0] != '\0' && equalsIgnoreCase(envMode, "stratified")) {
-        cfg.mode = UePlacementMode::Stratified;
+    if (envMode != nullptr && envMode[0] != '\0') {
+        if (equalsIgnoreCase(envMode, "stratified")) {
+            cfg.mode = UePlacementMode::Stratified;
+        } else if (equalsIgnoreCase(envMode, "coop_center") ||
+                   equalsIgnoreCase(envMode, "cooperative") ||
+                   equalsIgnoreCase(envMode, "coop") ||
+                   equalsIgnoreCase(envMode, "coord_center")) {
+            cfg.mode = UePlacementMode::CooperativeCenter;
+        } else if (equalsIgnoreCase(envMode, "coop_boundary") ||
+                   equalsIgnoreCase(envMode, "cooperative_boundary") ||
+                   equalsIgnoreCase(envMode, "coop_edge") ||
+                   equalsIgnoreCase(envMode, "boundary_band")) {
+            cfg.mode = UePlacementMode::CooperativeBoundary;
+        }
     }
 
     const char* envSplits = std::getenv("CUMAC_UE_RADIUS_SPLITS");
@@ -220,12 +271,158 @@ static UePlacementConfig getUePlacementConfig()
         }
     }
 
+    const char* envCoopRadius = std::getenv("CUMAC_UE_COOP_RADIUS_RATIO");
+    if (envCoopRadius != nullptr && envCoopRadius[0] != '\0') {
+        char* endPtr = nullptr;
+        const float parsed = std::strtof(envCoopRadius, &endPtr);
+        if (endPtr != envCoopRadius && parsed > 0.0f) {
+            cfg.coopCenterRadiusRatio = parsed;
+        }
+    }
+
+    const char* envCoopJitter = std::getenv("CUMAC_UE_COOP_JITTER_RATIO");
+    if (envCoopJitter != nullptr && envCoopJitter[0] != '\0') {
+        char* endPtr = nullptr;
+        const float parsed = std::strtof(envCoopJitter, &endPtr);
+        if (endPtr != envCoopJitter && parsed >= 0.0f) {
+            cfg.coopCenterJitterRatio = parsed;
+        }
+    }
+
+    const char* envCoopAngle = std::getenv("CUMAC_UE_COOP_ANGLE_DEG");
+    if (envCoopAngle != nullptr && envCoopAngle[0] != '\0') {
+        char* endPtr = nullptr;
+        const float parsed = std::strtof(envCoopAngle, &endPtr);
+        if (endPtr != envCoopAngle && parsed >= 0.0f && parsed <= 60.0f) {
+            cfg.coopCenterAngleDeg = parsed;
+        }
+    }
+
+    const char* envCoopBoundarySpan = std::getenv("CUMAC_UE_COOP_BOUNDARY_SPAN_RATIO");
+    if (envCoopBoundarySpan != nullptr && envCoopBoundarySpan[0] != '\0') {
+        char* endPtr = nullptr;
+        const float parsed = std::strtof(envCoopBoundarySpan, &endPtr);
+        if (endPtr != envCoopBoundarySpan && parsed >= 0.0f) {
+            cfg.coopBoundarySpanRatio = parsed;
+        }
+    }
+
+    const char* envCoopBoundaryInset = std::getenv("CUMAC_UE_COOP_BOUNDARY_INSET_RATIO");
+    if (envCoopBoundaryInset != nullptr && envCoopBoundaryInset[0] != '\0') {
+        char* endPtr = nullptr;
+        const float parsed = std::strtof(envCoopBoundaryInset, &endPtr);
+        if (endPtr != envCoopBoundaryInset && parsed >= 0.0f) {
+            cfg.coopBoundaryInsetRatio = parsed;
+        }
+    }
+
     const char* envVoronoiClip = std::getenv("CUMAC_UE_VORONOI_CLIP");
     if (envVoronoiClip != nullptr && envVoronoiClip[0] != '\0') {
         cfg.enforceVoronoiClip = std::atoi(envVoronoiClip) != 0;
     }
 
     return cfg;
+}
+
+static CellAssociationMode getCellAssociationMode()
+{
+    const char* envMode = std::getenv("CUMAC_CELL_ASSOC_MODE");
+    if (envMode != nullptr && envMode[0] != '\0') {
+        if (equalsIgnoreCase(envMode, "nominal") ||
+            equalsIgnoreCase(envMode, "placement") ||
+            equalsIgnoreCase(envMode, "fixed_nominal")) {
+            return CellAssociationMode::Nominal;
+        }
+    }
+    return CellAssociationMode::Strongest;
+}
+
+static bool getOptionalUnsignedEnv(const char* name, unsigned int& value)
+{
+    const char* env = std::getenv(name);
+    if (env == nullptr || env[0] == '\0') {
+        return false;
+    }
+
+    char* endPtr = nullptr;
+    unsigned long parsed = std::strtoul(env, &endPtr, 10);
+    if (endPtr == env || (endPtr != nullptr && *endPtr != '\0')) {
+        return false;
+    }
+    value = static_cast<unsigned int>(parsed);
+    return true;
+}
+
+static bool shouldDumpTopology(UePlacementMode placementMode)
+{
+    const char* env = std::getenv("CUMAC_TOPOLOGY_DUMP");
+    if (env != nullptr && env[0] != '\0') {
+        return std::atoi(env) != 0;
+    }
+    return placementMode == UePlacementMode::CooperativeCenter ||
+           placementMode == UePlacementMode::CooperativeBoundary;
+}
+
+static void dumpTopologyCsv(
+    const networkData* netData,
+    const char* placementLabel,
+    unsigned int topologySeed,
+    float siteSpacing)
+{
+    std::ofstream file("ue_topology.csv", std::fstream::out);
+    if (!file.is_open()) {
+        return;
+    }
+
+    file << "node_type,cell_id,ue_local_id,ue_id,x_m,y_m,z_m,serving_cell_id,"
+            "nearest_cell_id,d_serving_m,d_nearest_other_m,placement,topology_seed,site_spacing_m,cell_radius_m\n";
+    for (int cIdx = 0; cIdx < netData->numCell; ++cIdx) {
+        file << "bs," << cIdx << ",-1,-1,"
+             << netData->bsPos[cIdx][0] << ','
+             << netData->bsPos[cIdx][1] << ','
+             << netData->bsPos[cIdx][2] << ','
+             << cIdx << ',' << cIdx << ",0,0,"
+             << placementLabel << ','
+             << topologySeed << ','
+             << siteSpacing << ','
+             << netData->cellRadius << '\n';
+    }
+
+    for (int uIdx = 0; uIdx < netData->numCoorCell * netData->numActiveUesPerCell; ++uIdx) {
+        const int servingCellIdx = uIdx / netData->numActiveUesPerCell;
+        const int ueLocalIdx = uIdx % netData->numActiveUesPerCell;
+        const float ueX = netData->uePos[uIdx][0];
+        const float ueY = netData->uePos[uIdx][1];
+        float servingDist = 0.0f;
+        float nearestOtherDist = std::numeric_limits<float>::infinity();
+        int nearestCellIdx = servingCellIdx;
+        for (int cIdx = 0; cIdx < netData->numCoorCell; ++cIdx) {
+            const float dx = ueX - netData->bsPos[cIdx][0];
+            const float dy = ueY - netData->bsPos[cIdx][1];
+            const float dist = std::sqrt(dx * dx + dy * dy);
+            if (cIdx == servingCellIdx) {
+                servingDist = dist;
+            } else if (dist < nearestOtherDist) {
+                nearestOtherDist = dist;
+                nearestCellIdx = cIdx;
+            }
+        }
+
+        file << "ue," << servingCellIdx << ','
+             << ueLocalIdx << ','
+             << uIdx << ','
+             << ueX << ','
+             << ueY << ','
+             << netData->uePos[uIdx][2] << ','
+             << servingCellIdx << ','
+             << nearestCellIdx << ','
+             << servingDist << ','
+             << nearestOtherDist << ','
+             << placementLabel << ','
+             << topologySeed << ','
+             << siteSpacing << ','
+             << netData->cellRadius << '\n';
+    }
 }
 
 static BsTxPatternMode getBsTxPatternMode()
@@ -280,6 +477,144 @@ static int getPhyTraceEnabled()
         return std::atoi(env) != 0 ? 1 : 0;
     }();
     return enabled;
+}
+
+static int getActiveRbgPowerEnabled()
+{
+    static int enabled = []() {
+        const char* env = std::getenv("CUMAC_ACTIVE_RBG_POWER");
+        if (env == nullptr || env[0] == '\0') {
+            return 0;
+        }
+        return std::atoi(env) != 0 ? 1 : 0;
+    }();
+    return enabled;
+}
+
+static float getActiveRbgPowerMaxBoost()
+{
+    static float maxBoost = []() {
+        const char* env = std::getenv("CUMAC_ACTIVE_RBG_POWER_MAX_BOOST_DB");
+        if (env == nullptr || env[0] == '\0') {
+            return std::numeric_limits<float>::infinity();
+        }
+        char* endPtr = nullptr;
+        const float db = std::strtof(env, &endPtr);
+        if (endPtr == env || db < 0.0f) {
+            return std::numeric_limits<float>::infinity();
+        }
+        return std::pow(10.0f, db / 10.0f);
+    }();
+    return maxBoost;
+}
+
+static std::vector<float> buildType0ActiveRbgPowerBoost(
+    const int16_t* allocSol,
+    int totNumCell,
+    int nPrbGrp)
+{
+    std::vector<float> boost(static_cast<size_t>(totNumCell), 1.0f);
+    if (getActiveRbgPowerEnabled() == 0 || allocSol == nullptr || totNumCell <= 0 || nPrbGrp <= 0) {
+        return boost;
+    }
+
+    const float maxBoost = getActiveRbgPowerMaxBoost();
+    for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
+        int activeRbg = 0;
+        for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
+            if (allocSol[rbgIdx * totNumCell + cIdx] >= 0) {
+                activeRbg++;
+            }
+        }
+        if (activeRbg > 0) {
+            boost[static_cast<size_t>(cIdx)] =
+                std::min(static_cast<float>(nPrbGrp) / static_cast<float>(activeRbg), maxBoost);
+        }
+    }
+    return boost;
+}
+
+static std::vector<float> buildType1ActiveRbgPowerBoost(
+    const int16_t* allocSol,
+    const uint8_t* cellAssoc,
+    int nUe,
+    int totNumCell,
+    int nPrbGrp)
+{
+    std::vector<float> boost(static_cast<size_t>(totNumCell), 1.0f);
+    if (getActiveRbgPowerEnabled() == 0 || allocSol == nullptr || cellAssoc == nullptr ||
+        nUe <= 0 || totNumCell <= 0 || nPrbGrp <= 0) {
+        return boost;
+    }
+
+    const float maxBoost = getActiveRbgPowerMaxBoost();
+    std::vector<uint8_t> active(static_cast<size_t>(totNumCell) * static_cast<size_t>(nPrbGrp), 0U);
+    for (int ueIdx = 0; ueIdx < nUe; ueIdx++) {
+        int assocCellIdx = -1;
+        for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
+            if (cellAssoc[cIdx * nUe + ueIdx]) {
+                assocCellIdx = cIdx;
+                break;
+            }
+        }
+        if (assocCellIdx < 0) {
+            continue;
+        }
+        const int start = std::max(0, static_cast<int>(allocSol[2 * ueIdx]));
+        const int end = std::min(nPrbGrp, static_cast<int>(allocSol[2 * ueIdx + 1]));
+        for (int rbgIdx = start; rbgIdx < end; rbgIdx++) {
+            active[static_cast<size_t>(assocCellIdx) * static_cast<size_t>(nPrbGrp) +
+                   static_cast<size_t>(rbgIdx)] = 1U;
+        }
+    }
+
+    for (int cIdx = 0; cIdx < totNumCell; cIdx++) {
+        int activeRbg = 0;
+        for (int rbgIdx = 0; rbgIdx < nPrbGrp; rbgIdx++) {
+            activeRbg += active[static_cast<size_t>(cIdx) * static_cast<size_t>(nPrbGrp) +
+                                static_cast<size_t>(rbgIdx)] != 0U ? 1 : 0;
+        }
+        if (activeRbg > 0) {
+            boost[static_cast<size_t>(cIdx)] =
+                std::min(static_cast<float>(nPrbGrp) / static_cast<float>(activeRbg), maxBoost);
+        }
+    }
+    return boost;
+}
+
+static void addAaHplusBWithPowerBoost(
+    cpuMatAlg* matAlg,
+    cuComplex* matrix,
+    int rows,
+    int cols,
+    float boost,
+    cuComplex* dst)
+{
+    if (boost <= 0.0f || std::abs(boost - 1.0f) < 1.0e-6f) {
+        matAlg->matMultiplication_aaHplusb(matrix, rows, cols, dst);
+        return;
+    }
+
+    std::array<cuComplex, maxNumBsAntConst * maxNumUeAntConst> scaled{};
+    const int count = rows * cols;
+    const float scale = std::sqrt(boost);
+    for (int idx = 0; idx < count; idx++) {
+        scaled[static_cast<size_t>(idx)].x = matrix[idx].x * scale;
+        scaled[static_cast<size_t>(idx)].y = matrix[idx].y * scale;
+    }
+    matAlg->matMultiplication_aaHplusb(scaled.data(), rows, cols, dst);
+}
+
+static void scaleSquareMatrix(cuComplex* matrix, int dim, float boost)
+{
+    if (boost <= 0.0f || std::abs(boost - 1.0f) < 1.0e-6f) {
+        return;
+    }
+    const int count = dim * dim;
+    for (int idx = 0; idx < count; idx++) {
+        matrix[idx].x *= boost;
+        matrix[idx].y *= boost;
+    }
 }
 
 static inline int sanitizeMcsIndex(int mcs)
@@ -1424,6 +1759,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 }
             }
         }
+        const std::vector<float> activeRbgPowerBoost =
+            buildType1ActiveRbgPowerBoost(allocSol.get(), cellAssoc.get(), nUe, totNumCell, nPrbGrp);
 
         // determine CRC and update average data rate
         for (int ueIdx = 0; ueIdx<nUe; ueIdx++) {
@@ -1466,7 +1803,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 continue;
 
                             uint32_t hInterfMatStart = hTemp+ l*nBsAnt*nUeAnt;
-                            matAlg->matMultiplication_aaHplusb(&estH_fr[hInterfMatStart], nUeAnt, nBsAnt, CMat);
+                            addAaHplusBWithPowerBoost(
+                                matAlg.get(), &estH_fr[hInterfMatStart], nUeAnt, nBsAnt,
+                                activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                         }
                         matAlg->matInverseEigen(CMat, nUeAnt, CInvMat);
 
@@ -1481,6 +1820,7 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             matAlg->matMultiplication_aHb(BMat, nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                             matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, BMat, nBsAnt, EMat);
                         }
+                        scaleSquareMatrix(EMat, nBsAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[ueIdx])]);
 
                         for (int rowIdx = 0; rowIdx < nBsAnt; rowIdx++) {
                             EMat[rowIdx*nBsAnt+rowIdx].x += 1.0;
@@ -1514,7 +1854,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 continue;
         
                             uint32_t hInterfMatStart = hTemp+ uePrimeIdx*totNumCell*nBsAnt*nUeAnt;
-                            matAlg->matMultiplication_aaHplusb(&estH_fr[hInterfMatStart], nBsAnt, nUeAnt, CMat);
+                            addAaHplusBWithPowerBoost(
+                                matAlg.get(), &estH_fr[hInterfMatStart], nBsAnt, nUeAnt,
+                                activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                         }
                         matAlg->matInverseEigen(CMat, nBsAnt, CInvMat);
 
@@ -1530,6 +1872,7 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             matAlg->matMultiplication_aHb(BMat, nBsAnt, nUeAnt, CInvMat, nBsAnt, DMat);
                             matAlg->matMultiplication_ab(DMat, nUeAnt, nBsAnt, BMat, nUeAnt, EMat);
                         }
+                        scaleSquareMatrix(EMat, nUeAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[ueIdx])]);
 
                         for (int rowIdx = 0; rowIdx < nUeAnt; rowIdx++) {
                             EMat[rowIdx*nUeAnt+rowIdx].x += 1.0;
@@ -1608,6 +1951,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 }
             }
         }
+        const std::vector<float> activeRbgPowerBoost =
+            buildType0ActiveRbgPowerBoost(allocSol.get(), totNumCell, nPrbGrp);
 
         // determine CRC and update average data rate
         for (int ueIdx = 0; ueIdx < nUe; ueIdx++) {
@@ -1670,7 +2015,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 continue;
 
                             uint32_t hInterfMatStart = hTemp + l * nBsAnt * nUeAnt;
-                            matAlg->matMultiplication_aaHplusb(&estH_fr[hInterfMatStart], nUeAnt, nBsAnt, CMat);
+                            addAaHplusBWithPowerBoost(
+                                matAlg.get(), &estH_fr[hInterfMatStart], nUeAnt, nBsAnt,
+                                activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                         }
                         matAlg->matInverseEigen(CMat, nUeAnt, CInvMat);
 
@@ -1685,6 +2032,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             matAlg->matMultiplication_aHb(BMat, nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                             matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, BMat, nBsAnt, EMat);
                         }
+                        scaleSquareMatrix(
+                            EMat, nBsAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[activeUeId])]);
 
                         for (int rowIdx = 0; rowIdx < nBsAnt; rowIdx++) {
                             EMat[rowIdx*nBsAnt+rowIdx].x += 1.0;
@@ -1720,7 +2069,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 continue;
         
                             uint32_t hInterfMatStart = hTemp + uePrimeIdx * totNumCell * nBsAnt * nUeAnt;
-                            matAlg->matMultiplication_aaHplusb(&estH_fr[hInterfMatStart], nBsAnt, nUeAnt, CMat);
+                            addAaHplusBWithPowerBoost(
+                                matAlg.get(), &estH_fr[hInterfMatStart], nBsAnt, nUeAnt,
+                                activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                         }
                         matAlg->matInverseEigen(CMat, nBsAnt, CInvMat);
 
@@ -1736,6 +2087,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                             matAlg->matMultiplication_aHb(BMat, nBsAnt, nUeAnt, CInvMat, nBsAnt, DMat);
                             matAlg->matMultiplication_ab(DMat, nUeAnt, nBsAnt, BMat, nUeAnt, EMat);
                         }
+                        scaleSquareMatrix(
+                            EMat, nUeAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[activeUeId])]);
 
                         for (int rowIdx = 0; rowIdx < nUeAnt; rowIdx++) {
                             EMat[rowIdx*nUeAnt+rowIdx].x += 1.0;
@@ -1881,6 +2234,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 }
             }
         }
+        const std::vector<float> activeRbgPowerBoost =
+            buildType1ActiveRbgPowerBoost(schdSolCpu->allocSol, cellGrpPrmsCpu->cellAssoc, nUe, totNumCell, nPrbGrp);
 
         // determine CRC and update average data rate
         for (int ueIdx = 0; ueIdx<nUe; ueIdx++) {
@@ -1925,7 +2280,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                     continue;
         
                                 uint32_t hInterfMatStart = hTemp+ l*nBsAnt*nUeAnt;
-                                matAlg->matMultiplication_aaHplusb(&cellGrpPrmsCpu->estH_fr[hInterfMatStart], nUeAnt, nBsAnt, CMat);
+                                addAaHplusBWithPowerBoost(
+                                    matAlg.get(), &cellGrpPrmsCpu->estH_fr[hInterfMatStart], nUeAnt, nBsAnt,
+                                    activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                             }
                             matAlg->matInverseEigen(CMat, nUeAnt, CInvMat);
         
@@ -1941,6 +2298,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 matAlg->matMultiplication_aHb(BMat, nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                                 matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, BMat, nBsAnt, EMat);
                             }
+                            scaleSquareMatrix(
+                                EMat, nBsAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[ueIdx])]);
         
                             for (int rowIdx = 0; rowIdx < nBsAnt; rowIdx++) {
                                 EMat[rowIdx*nBsAnt+rowIdx].x += 1.0;
@@ -1974,7 +2333,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                     continue;
         
                                 uint32_t hInterfMatStart = hTemp+ uePrimeIdx*totNumCell*nBsAnt*nUeAnt;
-                                matAlg->matMultiplication_aaHplusb(&cellGrpPrmsCpu->estH_fr[hInterfMatStart], nBsAnt, nUeAnt, CMat);
+                                addAaHplusBWithPowerBoost(
+                                    matAlg.get(), &cellGrpPrmsCpu->estH_fr[hInterfMatStart], nBsAnt, nUeAnt,
+                                    activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                             }
                             matAlg->matInverseEigen(CMat, nBsAnt, CInvMat);
 
@@ -1990,6 +2351,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 matAlg->matMultiplication_aHb(BMat, nBsAnt, nUeAnt, CInvMat, nBsAnt, DMat);
                                 matAlg->matMultiplication_ab(DMat, nUeAnt, nBsAnt, BMat, nUeAnt, EMat);
                             }
+                            scaleSquareMatrix(
+                                EMat, nUeAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[ueIdx])]);
 
                             for (int rowIdx = 0; rowIdx < nUeAnt; rowIdx++) {
                                 EMat[rowIdx*nUeAnt+rowIdx].x += 1.0;
@@ -2068,6 +2431,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                 }
             }
         }
+        const std::vector<float> activeRbgPowerBoost =
+            buildType0ActiveRbgPowerBoost(schdSolCpu->allocSol, totNumCell, nPrbGrp);
 
         // determine CRC and update average data rate
         for (int ueIdx = 0; ueIdx < nUe; ueIdx++) {
@@ -2138,7 +2503,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                     continue;
         
                                 uint32_t hInterfMatStart = hTemp + l * nBsAnt * nUeAnt;
-                                matAlg->matMultiplication_aaHplusb(&cellGrpPrmsCpu->estH_fr[hInterfMatStart], nUeAnt, nBsAnt, CMat);
+                                addAaHplusBWithPowerBoost(
+                                    matAlg.get(), &cellGrpPrmsCpu->estH_fr[hInterfMatStart], nUeAnt, nBsAnt,
+                                    activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                             }
                             matAlg->matInverseEigen(CMat, nUeAnt, CInvMat);
         
@@ -2154,6 +2521,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 matAlg->matMultiplication_aHb(BMat, nUeAnt, nBsAnt, CInvMat, nUeAnt, DMat);
                                 matAlg->matMultiplication_ab(DMat, nBsAnt, nUeAnt, BMat, nBsAnt, EMat);
                             }
+                            scaleSquareMatrix(
+                                EMat, nBsAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[activeUeId])]);
         
                             for (int rowIdx = 0; rowIdx < nBsAnt; rowIdx++) {
                                 EMat[rowIdx*nBsAnt+rowIdx].x += 1.0;
@@ -2189,7 +2558,9 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                     continue;
         
                                 uint32_t hInterfMatStart = hTemp + uePrimeIdx * totNumCell * nBsAnt * nUeAnt;
-                                matAlg->matMultiplication_aaHplusb(&cellGrpPrmsCpu->estH_fr[hInterfMatStart], nBsAnt, nUeAnt, CMat);
+                                addAaHplusBWithPowerBoost(
+                                    matAlg.get(), &cellGrpPrmsCpu->estH_fr[hInterfMatStart], nBsAnt, nUeAnt,
+                                    activeRbgPowerBoost[static_cast<size_t>(l)], CMat);
                             }
                             matAlg->matInverseEigen(CMat, nBsAnt, CInvMat);
 
@@ -2205,6 +2576,8 @@ void network::phyAbstract(uint8_t gpuInd, int slotIdx)
                                 matAlg->matMultiplication_aHb(BMat, nBsAnt, nUeAnt, CInvMat, nBsAnt, DMat);
                                 matAlg->matMultiplication_ab(DMat, nUeAnt, nBsAnt, BMat, nUeAnt, EMat);
                             }
+                            scaleSquareMatrix(
+                                EMat, nUeAnt, activeRbgPowerBoost[static_cast<size_t>(assocCellIdx[activeUeId])]);
 
                             for (int rowIdx = 0; rowIdx < nUeAnt; rowIdx++) {
                                 EMat[rowIdx*nUeAnt+rowIdx].x += 1.0;
@@ -3815,13 +4188,24 @@ void network::genNetTopology()
         }
     }
 
-    printf("Topology configuration: cluster_layout=%s, seed=%u, ue_placement=%s, tx_pattern=%s, radius_splits=(%.2f, %.2f), strata_counts=(%d,%d,%d), voronoi_clip=%s\n",
+    if ((placementCfg.mode == UePlacementMode::CooperativeCenter ||
+         placementCfg.mode == UePlacementMode::CooperativeBoundary) &&
+        netData->numCoorCell != 3) {
+        throw std::runtime_error("cooperative UE placement currently requires the 3cell_triangle topology");
+    }
+
+    printf("Topology configuration: cluster_layout=%s, seed=%u, ue_placement=%s, tx_pattern=%s, radius_splits=(%.2f, %.2f), coop_center=(radius_ratio=%.3f,jitter_ratio=%.3f,angle_deg=%.1f), coop_boundary=(span_ratio=%.3f,inset_ratio=%.3f), strata_counts=(%d,%d,%d), voronoi_clip=%s\n",
            coordinatedSiteLayoutLabel(netData->numCell),
            seed,
-           placementCfg.mode == UePlacementMode::Stratified ? "stratified" : "uniform",
+           uePlacementModeLabel(placementCfg.mode),
            bsTxPattern == BsTxPatternMode::Omnidirectional ? "omni" : "sectorized",
            placementCfg.centerMaxRatio,
            placementCfg.midMaxRatio,
+           placementCfg.coopCenterRadiusRatio,
+           placementCfg.coopCenterJitterRatio,
+           placementCfg.coopCenterAngleDeg,
+           placementCfg.coopBoundarySpanRatio,
+           placementCfg.coopBoundaryInsetRatio,
            strataCounts[0],
            strataCounts[1],
            strataCounts[2],
@@ -3838,6 +4222,17 @@ void network::genNetTopology()
             orientation = std::atan2(-coorY, -coorX);
         }
         netData->cellOrien[cIdx] = orientation;
+    }
+
+    float clusterCenterX = 0.0f;
+    float clusterCenterY = 0.0f;
+    if (placementCfg.mode == UePlacementMode::CooperativeCenter) {
+        for (int cIdx = 0; cIdx < netData->numCoorCell; ++cIdx) {
+            clusterCenterX += netData->bsPos[cIdx][0];
+            clusterCenterY += netData->bsPos[cIdx][1];
+        }
+        clusterCenterX /= static_cast<float>(netData->numCoorCell);
+        clusterCenterY /= static_cast<float>(netData->numCoorCell);
     }
 
     for (int cIdx = 0; cIdx < netData->numCoorCell; ++cIdx) {
@@ -3875,7 +4270,57 @@ void network::genNetTopology()
             constexpr int maxPlacementAttempts = 512;
             for (int attemptIdx = 0; attemptIdx < maxPlacementAttempts; ++attemptIdx) {
                 float randomAngle = 0.0f;
-                if (bsTxPattern == BsTxPatternMode::Omnidirectional) {
+                float randomDistance = 0.0f;
+                if (placementCfg.mode == UePlacementMode::CooperativeCenter) {
+                    const float baseAngle = std::atan2(clusterCenterY - coorY, clusterCenterX - coorX);
+                    const float angleHalfWidthRad = placementCfg.coopCenterAngleDeg * static_cast<float>(M_PI) / 180.0f;
+                    randomAngle = baseAngle + angleHalfWidthRad * (2.0f * uniformRealDist(randomEngine) - 1.0f);
+                    const float lowRatio = std::max(0.0f, placementCfg.coopCenterRadiusRatio - placementCfg.coopCenterJitterRatio);
+                    const float highRatio = placementCfg.coopCenterRadiusRatio + placementCfg.coopCenterJitterRatio;
+                    const float lowDist = std::max(netData->minD2Bs, lowRatio * siteSpacing);
+                    const float highDist = std::max(lowDist, highRatio * siteSpacing);
+                    randomDistance = lowDist + (highDist - lowDist) * uniformRealDist(randomEngine);
+                } else if (placementCfg.mode == UePlacementMode::CooperativeBoundary) {
+                    int pairOrdinal = uIdx % std::max(1, netData->numCoorCell - 1);
+                    int neighborCellIdx = 0;
+                    for (int otherCellIdx = 0; otherCellIdx < netData->numCoorCell; ++otherCellIdx) {
+                        if (otherCellIdx == cIdx) {
+                            continue;
+                        }
+                        if (pairOrdinal == 0) {
+                            neighborCellIdx = otherCellIdx;
+                            break;
+                        }
+                        --pairOrdinal;
+                    }
+
+                    const float neighborX = netData->bsPos[neighborCellIdx][0];
+                    const float neighborY = netData->bsPos[neighborCellIdx][1];
+                    const float pairDx = neighborX - coorX;
+                    const float pairDy = neighborY - coorY;
+                    const float pairDist = std::max(std::sqrt(pairDx * pairDx + pairDy * pairDy), 1.0e-6f);
+                    const float unitToNeighborX = pairDx / pairDist;
+                    const float unitToNeighborY = pairDy / pairDist;
+                    const float tangentX = -unitToNeighborY;
+                    const float tangentY = unitToNeighborX;
+                    const float boundaryMidX = 0.5f * (coorX + neighborX);
+                    const float boundaryMidY = 0.5f * (coorY + neighborY);
+                    const float span = std::max(0.0f, placementCfg.coopBoundarySpanRatio) * siteSpacing;
+                    const float insetMax = std::max(0.0f, placementCfg.coopBoundaryInsetRatio) * siteSpacing;
+                    const float alongBoundary = span * (2.0f * uniformRealDist(randomEngine) - 1.0f);
+                    const float servingInset = insetMax * uniformRealDist(randomEngine);
+                    const float ueX = boundaryMidX + tangentX * alongBoundary - unitToNeighborX * servingInset;
+                    const float ueY = boundaryMidY + tangentY * alongBoundary - unitToNeighborY * servingInset;
+                    if (placementCfg.enforceVoronoiClip &&
+                        !isInsideServingVoronoiRegion(netData.get(), cIdx, ueX, ueY)) {
+                        continue;
+                    }
+
+                    netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][0] = ueX;
+                    netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][1] = ueY;
+                    placed = true;
+                    break;
+                } else if (bsTxPattern == BsTxPatternMode::Omnidirectional) {
                     randomAngle = 2.0f * static_cast<float>(M_PI) * uniformRealDist(randomEngine) - static_cast<float>(M_PI);
                 } else {
                     randomAngle = 2.0f * static_cast<float>(M_PI) * uniformRealDist(randomEngine) / 3.0f
@@ -3889,8 +4334,10 @@ void network::genNetTopology()
                     continue;
                 }
 
-                const float randomDistance = std::sqrt(innerDist * innerDist +
-                                                       (outerDist * outerDist - innerDist * innerDist) * uniformRealDist(randomEngine));
+                if (placementCfg.mode != UePlacementMode::CooperativeCenter) {
+                    randomDistance = std::sqrt(innerDist * innerDist +
+                                               (outerDist * outerDist - innerDist * innerDist) * uniformRealDist(randomEngine));
+                }
                 const float ueX = dirX * randomDistance + coorX;
                 const float ueY = dirY * randomDistance + coorY;
                 if (placementCfg.enforceVoronoiClip &&
@@ -3910,6 +4357,10 @@ void network::genNetTopology()
             netData->uePos[cIdx * netData->numActiveUesPerCell + uIdx][2] = netData->ueHeight;
         }
     }
+
+    if (shouldDumpTopology(placementCfg.mode)) {
+        dumpTopologyCsv(netData.get(), uePlacementModeLabel(placementCfg.mode), seed, siteSpacing);
+    }
 }
 
 void network::initStrongestCellAssociation()
@@ -3918,6 +4369,7 @@ void network::initStrongestCellAssociation()
         return;
     }
 
+    const CellAssociationMode assocMode = getCellAssociationMode();
     std::fill(cellAssoc.get(), cellAssoc.get() + totNumCell*nUe, static_cast<uint8_t>(0));
     std::fill(cellAssocActUe.get(), cellAssocActUe.get() + totNumCell*nActiveUe, static_cast<uint8_t>(0));
     const bool cpuAssocReady = cellGrpPrmsCpu != nullptr &&
@@ -3935,12 +4387,17 @@ void network::initStrongestCellAssociation()
     std::vector<int> strongestCellPerActiveUe(nActiveUe, 0);
     for (int uIdx = 0; uIdx < nActiveUe; ++uIdx) {
         int bestCellIdx = 0;
-        float bestRxPowDb = -std::numeric_limits<float>::infinity();
-        for (int cIdx = 0; cIdx < nCell; ++cIdx) {
-            const float rxPowDb = netData->rxSigPowDB[cIdx * nActiveUe + uIdx];
-            if (rxPowDb >= bestRxPowDb) {
-                bestRxPowDb = rxPowDb;
-                bestCellIdx = cIdx;
+        if (assocMode == CellAssociationMode::Nominal) {
+            bestCellIdx = std::min(static_cast<int>(uIdx / netData->numActiveUesPerCell),
+                                   static_cast<int>(nCell) - 1);
+        } else {
+            float bestRxPowDb = -std::numeric_limits<float>::infinity();
+            for (int cIdx = 0; cIdx < nCell; ++cIdx) {
+                const float rxPowDb = netData->rxSigPowDB[cIdx * nActiveUe + uIdx];
+                if (rxPowDb >= bestRxPowDb) {
+                    bestRxPowDb = rxPowDb;
+                    bestCellIdx = cIdx;
+                }
             }
         }
 
@@ -3968,6 +4425,13 @@ void network::initStrongestCellAssociation()
 void network::genLSFading()
 {
     std::lognormal_distribution<float> ln_distribution(0.0, netData->sfStd);
+    unsigned int shadowSeed = 0;
+    std::default_random_engine shadowRandomEngine;
+    std::default_random_engine* lsfRandomEngine = &randomEngine;
+    if (getOptionalUnsignedEnv("CUMAC_SHADOW_SEED", shadowSeed)) {
+        shadowRandomEngine.seed(shadowSeed);
+        lsfRandomEngine = &shadowRandomEngine;
+    }
     const BsTxPatternMode bsTxPattern = getBsTxPatternMode();
 
     // for testing
@@ -4005,7 +4469,7 @@ void network::genLSFading()
             }
             // pathloss + shadow fading
             float PL = 32.4+20.0*log10(netData->carrierFreq)+30.0*log10(distanceBsUe_3D);
-            float SF=10.0*log10(ln_distribution(randomEngine));
+            float SF=10.0*log10(ln_distribution(*lsfRandomEngine));
 
             netData->rxSigPowDB[cIdx * nActiveUe + uIdx] = netData->bsTxPower_perAntPrg + antGain - PL - SF;
             netData->rxSigPowDB_UL[cIdx * nActiveUe + uIdx] = netData->ueTxPower_perAntPrg + antGain - PL - SF;

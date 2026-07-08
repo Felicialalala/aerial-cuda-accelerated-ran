@@ -25,7 +25,11 @@ struct ObservationFeatureLayout {
     // 5 neighborMeanTop1SinrDb
     // 6 samePrgConflictRatio
     // 7 iciProxy
-    static constexpr uint32_t kPrgFeatDim = 8U;
+    // 8 postEqP10SinrDb
+    // 9 postEqMeanSinrDb
+    // 10 backlogWeightedExpectedGoodputMbps
+    // 11 lowSinrHolTtlWeight
+    static constexpr uint32_t kPrgFeatDim = 12U;
 };
 
 struct ObservationExtras {

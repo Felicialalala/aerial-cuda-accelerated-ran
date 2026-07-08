@@ -22,6 +22,7 @@ from .online_protocol import (
     MSG_STEP_RSP,
     STATE_FLAG_HAS_ACCEPTED_PRE_PDSCH_UE_DIAGNOSTICS,
     STATE_FLAG_HAS_ACTUAL_UE_DIAGNOSTICS,
+    STATE_FLAG_HAS_ACTUAL_UE_PACKET_DIAGNOSTICS,
     STATE_FLAG_HAS_NATIVE_REJECT_DIAGNOSTICS,
     STATE_FLAG_HAS_NATIVE_SLOT_LAYOUT_DIAGNOSTICS,
     STATE_FLAG_HAS_POST_EQ_SINR,
@@ -176,6 +177,24 @@ class BridgeEnvClient:
             actual_ue_tb_tx_count = take(_I32, dims.n_active_ue, (dims.n_active_ue,))
             actual_ue_tb_err_count = take(_I32, dims.n_active_ue, (dims.n_active_ue,))
 
+        actual_ue_packet_delivered_packets = None
+        actual_ue_packet_pending_packets = None
+        actual_ue_packet_delivered_bits = None
+        actual_ue_packet_system_time_ms = None
+        actual_ue_packet_service_rate_mbps = None
+        actual_ue_packet_service_rate_per_packet_mean_mbps = None
+        if header.state_flags & STATE_FLAG_HAS_ACTUAL_UE_PACKET_DIAGNOSTICS:
+            actual_ue_packet_delivered_packets = take(_I32, dims.n_active_ue, (dims.n_active_ue,))
+            actual_ue_packet_pending_packets = take(_I32, dims.n_active_ue, (dims.n_active_ue,))
+            actual_ue_packet_delivered_bits = take(_F32, dims.n_active_ue, (dims.n_active_ue,))
+            actual_ue_packet_system_time_ms = take(_F32, dims.n_active_ue, (dims.n_active_ue,))
+            actual_ue_packet_service_rate_mbps = take(_F32, dims.n_active_ue, (dims.n_active_ue,))
+            actual_ue_packet_service_rate_per_packet_mean_mbps = take(
+                _F32,
+                dims.n_active_ue,
+                (dims.n_active_ue,),
+            )
+
         if off != len(payload):
             raise RuntimeError(f"state payload parse mismatch: parsed={off} total={len(payload)}")
 
@@ -223,6 +242,9 @@ class BridgeEnvClient:
             ),
             "actual_ue_diagnostics_available": bool(
                 header.state_flags & STATE_FLAG_HAS_ACTUAL_UE_DIAGNOSTICS
+            ),
+            "actual_ue_packet_diagnostics_available": bool(
+                header.state_flags & STATE_FLAG_HAS_ACTUAL_UE_PACKET_DIAGNOSTICS
             ),
         }
         if accepted_pre_pdsch_ue_prg_count is not None:
@@ -272,6 +294,37 @@ class BridgeEnvClient:
                     "actual_ue_goodput_bytes": actual_ue_goodput_bytes.astype(np.float32, copy=False),
                     "actual_ue_tb_tx_count": actual_ue_tb_tx_count.astype(np.int32, copy=False),
                     "actual_ue_tb_err_count": actual_ue_tb_err_count.astype(np.int32, copy=False),
+                }
+            )
+        if actual_ue_packet_delivered_packets is not None:
+            info.update(
+                {
+                    "actual_ue_packet_delivered_packets": actual_ue_packet_delivered_packets.astype(
+                        np.int32,
+                        copy=False,
+                    ),
+                    "actual_ue_packet_pending_packets": actual_ue_packet_pending_packets.astype(
+                        np.int32,
+                        copy=False,
+                    ),
+                    "actual_ue_packet_delivered_bits": actual_ue_packet_delivered_bits.astype(
+                        np.float32,
+                        copy=False,
+                    ),
+                    "actual_ue_packet_system_time_ms": actual_ue_packet_system_time_ms.astype(
+                        np.float32,
+                        copy=False,
+                    ),
+                    "actual_ue_packet_service_rate_mbps": actual_ue_packet_service_rate_mbps.astype(
+                        np.float32,
+                        copy=False,
+                    ),
+                    "actual_ue_packet_service_rate_per_packet_mean_mbps": (
+                        actual_ue_packet_service_rate_per_packet_mean_mbps.astype(
+                            np.float32,
+                            copy=False,
+                        )
+                    ),
                 }
             )
         return obs, float(header.reward_scalar), bool(header.done), info

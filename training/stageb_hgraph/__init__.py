@@ -10,6 +10,7 @@ from .graph_ops import (
     decode_prg_choices_to_type0,
     joint_targets_from_type0_actions,
     pack_prg_candidates,
+    select_and_decode_budgeted_candidate_actions,
 )
 from .mask_checker import GraphMaskChecker, MaskCheckReport
 from .model import HGraphModelConfig, StageBHGraphPolicy, build_model_from_config
@@ -51,5 +52,6 @@ __all__ = [
     "extract_reward_metrics",
     "joint_targets_from_type0_actions",
     "pack_prg_candidates",
+    "select_and_decode_budgeted_candidate_actions",
     "PfqPassthroughTeacher",
 ]

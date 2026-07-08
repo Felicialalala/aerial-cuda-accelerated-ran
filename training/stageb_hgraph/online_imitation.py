@@ -33,6 +33,11 @@ from training.gnnrl.masks import (
 from training.stageb_hgraph.bridge_env import BridgeEnvClient, BridgeEnvConfig
 from training.stageb_hgraph.edge_generator import EdgeGeneratorConfig, SparseEdgeGenerator
 from training.stageb_hgraph.feature_snapshot import FeatureSnapshotBuilder, SnapshotBuilderConfig
+from training.stageb_hgraph.graph_ops import (
+    build_prg_candidate_valid_mask,
+    joint_candidate_targets_from_type0_actions,
+    pack_prg_candidates,
+)
 from training.stageb_hgraph.model import HGraphModelConfig, StageBHGraphPolicy
 from training.stageb_hgraph.teacher import HeuristicTeacherConfig, build_joint_teacher
 
@@ -304,6 +309,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--hidden-dim", type=int, default=128)
     p.add_argument("--message-layers", type=int, default=2)
     p.add_argument("--dropout", type=float, default=0.0)
+    p.add_argument(
+        "--action-head-mode",
+        choices=["slot", "candidate"],
+        default="slot",
+        help="slot trains legacy PRG->slot logits; candidate trains PRG->candidate UE logits before Type-0 decode",
+    )
+    p.add_argument("--candidate-blank-logit-bias", type=float, default=0.0)
+    p.add_argument("--candidate-success-logit-scale", type=float, default=1.0)
+    p.add_argument("--candidate-blank-success-scale", type=float, default=1.0)
+    p.add_argument("--candidate-pfq-anchor-logit-coef", type=float, default=1.0)
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--weight-decay", type=float, default=1e-5)
     p.add_argument("--grad-clip", type=float, default=5.0)
@@ -327,6 +342,8 @@ def main() -> int:
         raise ValueError("--max-steps must be >= 0")
     if args.ue_prg_diversity_extra < 0:
         raise ValueError("--ue-prg-diversity-extra must be >= 0")
+    if args.candidate_pfq_anchor_logit_coef < 0.0:
+        raise ValueError("--candidate-pfq-anchor-logit-coef must be >= 0")
     explicit_seed_list = _parse_seed_list(args.seed_list)
     if args.topology_seed_mode == "list_cycle" and not explicit_seed_list:
         raise ValueError("--topology-seed-mode list_cycle requires --seed-list")
@@ -365,6 +382,11 @@ def main() -> int:
             message_layers=int(args.message_layers),
             dropout=float(args.dropout),
             max_prg_candidates=max_prg_candidates,
+            action_head_mode=str(args.action_head_mode),
+            candidate_blank_logit_bias=float(args.candidate_blank_logit_bias),
+            candidate_success_logit_scale=float(args.candidate_success_logit_scale),
+            candidate_blank_success_scale=float(args.candidate_blank_success_scale),
+            candidate_pfq_anchor_logit_coef=float(args.candidate_pfq_anchor_logit_coef),
         )
     ).to(device)
     optimizer = torch.optim.AdamW(
@@ -424,20 +446,46 @@ def main() -> int:
                         teacher_target_ue.unsqueeze(0),
                         ue_valid,
                     )
-                    selected_slot_mask = build_slot_selection_mask(
-                        teacher_target_ue.unsqueeze(0),
-                        action_mask_ue,
-                        n_cell=meta.n_cell,
-                        action_mask_cell_ue=action_mask_cell_ue,
-                    )
-                    prg_logits, prg_valid = apply_prg_action_mask(
-                        prg_logits_raw,
-                        meta.action_mask_prg_cell.to(device=device, dtype=torch.bool).reshape(1, meta.n_cell, meta.n_prg),
-                        n_cell=meta.n_cell,
-                        action_mask_cell_ue=action_mask_cell_ue,
-                        action_mask_ue=action_mask_ue,
-                        selected_slot_mask=selected_slot_mask,
-                    )
+                    if "candidate_prg_logits" in out:
+                        packed = pack_prg_candidates(
+                            graph,
+                            max_candidates=max(0, int(out["candidate_prg_logits"].shape[-1]) - 1),
+                            fixed_width=True,
+                        )
+                        teacher_target_ue, teacher_target_prg = joint_candidate_targets_from_type0_actions(
+                            graph,
+                            packed,
+                            action_ue_select=teacher_out["action_ue_select"].to(device=device, dtype=torch.long),
+                            action_prg_alloc=teacher_out["action_prg_alloc"].to(device=device, dtype=torch.long),
+                        )
+                        teacher_target_ue = teacher_target_ue.to(device=device, dtype=torch.long)
+                        teacher_target_prg = teacher_target_prg.to(device=device, dtype=torch.long)
+                        ue_target, ue_bad = sanitize_targets(
+                            teacher_target_ue.unsqueeze(0),
+                            ue_valid,
+                        )
+                        candidate_valid, _selected_slot_mask, _selected_ue_mask = build_prg_candidate_valid_mask(
+                            graph,
+                            packed,
+                            teacher_target_ue,
+                        )
+                        prg_valid = candidate_valid.to(device=device, dtype=torch.bool).unsqueeze(0)
+                        prg_logits = out["candidate_prg_logits"].unsqueeze(0).masked_fill(~prg_valid, -1.0e9)
+                    else:
+                        selected_slot_mask = build_slot_selection_mask(
+                            teacher_target_ue.unsqueeze(0),
+                            action_mask_ue,
+                            n_cell=meta.n_cell,
+                            action_mask_cell_ue=action_mask_cell_ue,
+                        )
+                        prg_logits, prg_valid = apply_prg_action_mask(
+                            prg_logits_raw,
+                            meta.action_mask_prg_cell.to(device=device, dtype=torch.bool).reshape(1, meta.n_cell, meta.n_prg),
+                            n_cell=meta.n_cell,
+                            action_mask_cell_ue=action_mask_cell_ue,
+                            action_mask_ue=action_mask_ue,
+                            selected_slot_mask=selected_slot_mask,
+                        )
                     prg_target, prg_bad = sanitize_targets(
                         teacher_target_prg.unsqueeze(0),
                         prg_valid,
@@ -492,6 +540,13 @@ def main() -> int:
                         "prg_bad_target_ratio": float(prg_bad.float().mean().item()),
                         "teacher_blank_ratio": float(teacher_out["teacher_blank_ratio"].item()),
                         "reward_raw": float(reward_raw),
+                        "action_head_mode": str(args.action_head_mode),
+                        "candidate_pfq_anchor_logit_mean": (
+                            float(out["candidate_pfq_anchor_logits"].detach().mean().item())
+                            if "candidate_pfq_anchor_logits" in out
+                            and int(out["candidate_pfq_anchor_logits"].numel()) > 0
+                            else 0.0
+                        ),
                         "candidate_mode": graph.snapshot.static_meta.candidate_mode,
                         "post_eq_layer_dim": (
                             int(graph.snapshot.static_meta.post_eq_sinr.shape[-1])
@@ -501,11 +556,19 @@ def main() -> int:
                         ),
                         "n_edges_up": int(graph.edges["E_UP"].num_edges),
                         "n_edges_pp": int(graph.edges["E_PP"].num_edges),
-                        "prg_prev_assigned_ratio": float(prg_feat[:, 8].mean().item()),
+                        "prg_prev_assigned_ratio": float(prg_feat[:, 2].mean().item()),
                         "prg_top1_sinr_db_mean": float(prg_feat[:, 0].mean().item()),
-                        "prg_same_prg_conflict_ratio_mean": float(prg_feat[:, 4].mean().item()),
-                        "prg_ici_proxy_mean": float(prg_feat[:, 5].mean().item()),
+                        "prg_same_prg_conflict_ratio_mean": float(prg_feat[:, 6].mean().item()),
+                        "prg_ici_proxy_mean": float(prg_feat[:, 7].mean().item()),
                     }
+                    if prg_feat.shape[1] > 8:
+                        row["prg_post_eq_p10_sinr_db_mean"] = float(prg_feat[:, 8].mean().item())
+                    if prg_feat.shape[1] > 9:
+                        row["prg_post_eq_mean_sinr_db_mean"] = float(prg_feat[:, 9].mean().item())
+                    if prg_feat.shape[1] > 10:
+                        row["prg_backlog_weighted_expected_goodput_mbps_mean"] = float(prg_feat[:, 10].mean().item())
+                    if prg_feat.shape[1] > 11:
+                        row["prg_low_sinr_hol_ttl_weight_mean"] = float(prg_feat[:, 11].mean().item())
                     f_jsonl.write(json.dumps(row, ensure_ascii=True) + "\n")
                     all_rows.append(row)
                     episode_rows.append(row)
@@ -516,6 +579,7 @@ def main() -> int:
                             f"loss={row['loss']:.4f} ue_acc={row['ue_acc']:.3f} prg_acc={row['prg_acc']:.3f} "
                             f"blank={row['teacher_blank_ratio']:.3f} reward={row['reward_raw']:.4f} "
                             f"mode={row['candidate_mode']} L={row['post_eq_layer_dim']} "
+                            f"pfqA={row['candidate_pfq_anchor_logit_mean']:.3f} "
                             f"top1_mu={row['prg_top1_sinr_db_mean']:.2f} "
                             f"prev_on={row['prg_prev_assigned_ratio']:.3f}"
                         )
@@ -552,6 +616,8 @@ def main() -> int:
                 checkpoint = {
                     "model_state": model.state_dict(),
                     "model_config": model.model_config_dict(),
+                    "actor_state": model.state_dict(),
+                    "actor_config": model.model_config_dict(),
                     "train_args": vars(args),
                     "episode": episode_idx,
                     "global_step": global_step,
@@ -573,6 +639,8 @@ def main() -> int:
         "resolved_topology_seed_mode": runner.resolved_topology_seed_mode,
         "device": str(device),
         "teacher_mode": args.teacher_mode,
+        "action_head_mode": str(args.action_head_mode),
+        "candidate_pfq_anchor_logit_coef": float(args.candidate_pfq_anchor_logit_coef),
         "sim_bin": args.sim_bin,
         "sim_args": args.sim_args,
         "sim_cwd": args.sim_cwd,

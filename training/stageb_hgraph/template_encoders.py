@@ -79,22 +79,38 @@ class UeTemplateEncoder(nn.Module):
 
 
 class PrgTemplateEncoder(nn.Module):
-    """Structured PRG encoder over raw bridge 8-D PRG features."""
+    """Structured PRG encoder over raw bridge PRG features."""
 
-    def __init__(self, in_dim: int = 8, hidden_dim: int = 64, out_dim: int = 64):
+    def __init__(self, in_dim: int = 12, hidden_dim: int = 64, out_dim: int = 64):
         super().__init__()
-        third = hidden_dim // 3
-        self.value_branch = nn.Sequential(nn.Linear(3, third), nn.GELU())
-        self.conflict_branch = nn.Sequential(nn.Linear(3, third), nn.GELU())
-        self.availability_branch = nn.Sequential(nn.Linear(2, hidden_dim - 2 * third), nn.GELU())
+        self.in_dim = int(in_dim)
+        if self.in_dim >= 12:
+            quarter = hidden_dim // 4
+            self.value_branch = nn.Sequential(nn.Linear(4, quarter), nn.GELU())
+            self.conflict_branch = nn.Sequential(nn.Linear(4, quarter), nn.GELU())
+            self.availability_branch = nn.Sequential(nn.Linear(2, quarter), nn.GELU())
+            self.tail_branch = nn.Sequential(nn.Linear(2, hidden_dim - 3 * quarter), nn.GELU())
+        else:
+            third = hidden_dim // 3
+            self.value_branch = nn.Sequential(nn.Linear(3, third), nn.GELU())
+            self.conflict_branch = nn.Sequential(nn.Linear(3, third), nn.GELU())
+            self.availability_branch = nn.Sequential(nn.Linear(2, hidden_dim - 2 * third), nn.GELU())
+            self.tail_branch = None
         self.proj = nn.Linear(hidden_dim, out_dim)
         self.residual = _ResidualMlp(out_dim, hidden_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         flat, leading = _flatten_last(x)
-        value_h = self.value_branch(flat[:, [0, 1, 2]])
-        conflict_h = self.conflict_branch(flat[:, [4, 5, 6]])
-        availability_h = self.availability_branch(flat[:, [3, 7]])
-        h = self.proj(torch.cat([value_h, conflict_h, availability_h], dim=-1))
+        if self.in_dim >= 12:
+            value_h = self.value_branch(flat[:, [0, 1, 8, 9]])
+            conflict_h = self.conflict_branch(flat[:, [4, 5, 6, 7]])
+            availability_h = self.availability_branch(flat[:, [2, 3]])
+            tail_h = self.tail_branch(flat[:, [10, 11]])
+            h = self.proj(torch.cat([value_h, conflict_h, availability_h, tail_h], dim=-1))
+        else:
+            value_h = self.value_branch(flat[:, [0, 1, 2]])
+            conflict_h = self.conflict_branch(flat[:, [4, 5, 6]])
+            availability_h = self.availability_branch(flat[:, [3, 7]])
+            h = self.proj(torch.cat([value_h, conflict_h, availability_h], dim=-1))
         h = self.residual(h)
         return _restore_last(h, leading)

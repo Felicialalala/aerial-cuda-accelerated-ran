@@ -216,6 +216,7 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
         std::cerr << "[GNNRL_MODEL] action output mode requires obs_post_eq_sinr for the fixed HGraph action ABI; enabling usePostEqInput\n";
         m_cfg.usePostEqInput = true;
     }
+    m_cfg.candidateDecodeDemandSlackBytes = clampMin(m_cfg.candidateDecodeDemandSlackBytes, 0.0f);
 
     m_nCell = cellGrpPrmsCpu->nCell;
     m_nActiveUe = cellGrpPrmsCpu->nActiveUe;
@@ -254,6 +255,7 @@ bool GnnRlPolicyRuntime::initialize(const cumacCellGrpPrms* cellGrpPrmsCpu)
               << " noPrgBias=" << m_cfg.noPrgBias
               << " minPrgRatio=" << m_cfg.minPrgRatio
               << " maxPrgSharePerUe=" << maxPrgShareToString(m_cfg.maxPrgSharePerUe)
+              << " candidateDecodeDemandSlackBytes=" << m_cfg.candidateDecodeDemandSlackBytes
               << "\n";
     if (m_cfg.decodeMode == DecodeMode::Sample) {
         std::cerr << "[GNNRL_MODEL] sample decode follows online PPO action sampling semantics; "
@@ -1083,7 +1085,8 @@ std::vector<uint32_t> GnnRlPolicyRuntime::estimateUePrgDemandCap() const
         const float spectralEff = std::log2(1.0f + qualityLin);
         const float scale = std::max(0.5f, std::min(4.0f, spectralEff / 2.0f));
         const float estBytesPerPrg = std::max(1200.0f, std::min(12000.0f, 3000.0f * scale));
-        float demandBytes = bufferBytes + 3000.0f;
+        const float demandSlackBytes = clampMin(m_cfg.candidateDecodeDemandSlackBytes, 0.0f);
+        float demandBytes = bufferBytes + demandSlackBytes;
         if (newData > 0.5f && demandBytes <= 0.0f) {
             demandBytes = estBytesPerPrg;
         }

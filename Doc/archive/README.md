@@ -6,6 +6,7 @@
 
 - `platform/`：Aerial 平台能力、天线/precoding、PRG/RBG、候选状态字段审计。
 - `hgraph_design/`：HGraph 设计过程、scalable PPO 方案和 v33 训练/评测过程记录。
+- `hgraph_experiments/`：HGraph v34-v50 多轮优化、训练、评估的完整流水日志和 3cell retrospective。
 - `legacy_gnnrl/`：旧 GNNRL offline/online/replay/ONNX 文档和 readiness checklist。
 - `plans/`：早期总体实施计划、UE/PRG 接管路线、历史 RL+GNN MVP。
 - `meeting_notes/`：第一次/第二次会后确认材料。

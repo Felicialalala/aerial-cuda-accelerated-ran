@@ -17,6 +17,7 @@ TTI_COUNT=2000
 DL_UL="dl"
 FADING_MODE=0
 TOPOLOGY_SCENARIO="3cell"
+CELL_RADIUS=500
 UE_PER_CELL=12
 TOTAL_UE_COUNT=""
 TOPOLOGY_SEED=42
@@ -57,10 +58,16 @@ SIM_WAIT_TIMEOUT=10.0
 SIM_LOG_MODE="file"
 ONLINE_PERSISTENT=1
 UE_PRG_TOPK=4
+UE_PRG_DIVERSITY_EXTRA=0
 TB_ERR_EMA_ALPHA=0.10
 HIDDEN_DIM=128
 MESSAGE_LAYERS=2
 DROPOUT=0.0
+ACTION_HEAD_MODE="slot"
+CANDIDATE_BLANK_LOGIT_BIAS=0.0
+CANDIDATE_SUCCESS_LOGIT_SCALE=1.0
+CANDIDATE_BLANK_SUCCESS_SCALE=1.0
+CANDIDATE_PFQ_ANCHOR_LOGIT_COEF=1.0
 LR=3e-4
 WEIGHT_DECAY=1e-5
 GRAD_CLIP=5.0
@@ -87,6 +94,7 @@ Stage-B scenario options:
   --mode <dl|ul>
   --fading-mode <0|1|2|3|4>
   --topology-scenario <m>     7cell | 3cell
+  --cell-radius <m>           Cell radius in meters (ISD/site spacing is 2x this value)
   --ue-per-cell <n>
   --total-ue-count <n>
   --topology-seed <n>
@@ -128,10 +136,16 @@ Online imitation options:
   --sim-log-mode <m>          file | inherit
   --online-persistent <0|1>
   --ue-prg-topk <n>
+  --ue-prg-diversity-extra <n>
   --tb-err-ema-alpha <v>
   --hidden-dim <n>
   --message-layers <n>
   --dropout <v>
+  --action-head-mode <m>      slot | candidate
+  --candidate-blank-logit-bias <v>
+  --candidate-success-logit-scale <v>
+  --candidate-blank-success-scale <v>
+  --candidate-pfq-anchor-logit-coef <v>
   --lr <v>
   --weight-decay <v>
   --grad-clip <v>
@@ -154,6 +168,7 @@ while [[ $# -gt 0 ]]; do
         --mode) DL_UL="$2"; shift 2 ;;
         --fading-mode) FADING_MODE="$2"; shift 2 ;;
         --topology-scenario) TOPOLOGY_SCENARIO="$2"; shift 2 ;;
+        --cell-radius) CELL_RADIUS="$2"; shift 2 ;;
         --ue-per-cell) UE_PER_CELL="$2"; shift 2 ;;
         --total-ue-count|--ue-count) TOTAL_UE_COUNT="$2"; shift 2 ;;
         --topology-seed) TOPOLOGY_SEED="$2"; shift 2 ;;
@@ -193,10 +208,16 @@ while [[ $# -gt 0 ]]; do
         --sim-log-mode) SIM_LOG_MODE="$2"; shift 2 ;;
         --online-persistent) ONLINE_PERSISTENT="$2"; shift 2 ;;
         --ue-prg-topk) UE_PRG_TOPK="$2"; shift 2 ;;
+        --ue-prg-diversity-extra) UE_PRG_DIVERSITY_EXTRA="$2"; shift 2 ;;
         --tb-err-ema-alpha) TB_ERR_EMA_ALPHA="$2"; shift 2 ;;
         --hidden-dim) HIDDEN_DIM="$2"; shift 2 ;;
         --message-layers) MESSAGE_LAYERS="$2"; shift 2 ;;
         --dropout) DROPOUT="$2"; shift 2 ;;
+        --action-head-mode) ACTION_HEAD_MODE="$2"; shift 2 ;;
+        --candidate-blank-logit-bias) CANDIDATE_BLANK_LOGIT_BIAS="$2"; shift 2 ;;
+        --candidate-success-logit-scale) CANDIDATE_SUCCESS_LOGIT_SCALE="$2"; shift 2 ;;
+        --candidate-blank-success-scale) CANDIDATE_BLANK_SUCCESS_SCALE="$2"; shift 2 ;;
+        --candidate-pfq-anchor-logit-coef) CANDIDATE_PFQ_ANCHOR_LOGIT_COEF="$2"; shift 2 ;;
         --lr) LR="$2"; shift 2 ;;
         --weight-decay) WEIGHT_DECAY="$2"; shift 2 ;;
         --grad-clip) GRAD_CLIP="$2"; shift 2 ;;
@@ -276,6 +297,7 @@ BUILD_ARGS=(
     --mode "${DL_UL}"
     --fading-mode "${FADING_MODE}"
     --topology-scenario "${TOPOLOGY_SCENARIO}"
+    --cell-radius "${CELL_RADIUS}"
     --ue-per-cell "${UE_PER_CELL}"
     --topology-seed "${TOPOLOGY_SEED}"
     --ue-placement "${UE_PLACEMENT}"
@@ -378,11 +400,11 @@ fi
 echo "[Stage-B HGraph] sim_bin=${BIN}"
 echo "[Stage-B HGraph] sim_cwd=${SIM_CWD}"
 echo "[Stage-B HGraph] sim_args=${SIM_ARGS}"
-echo "[Stage-B HGraph] ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
+echo "[Stage-B HGraph] cell_radius_m=${CELL_RADIUS} site_spacing_m=$((2 * CELL_RADIUS)) ue_per_cell=${UE_PER_CELL} total_ue_count=${TOTAL_UE_COUNT}"
 echo "[Stage-B HGraph] topology_seed_mode=${TOPOLOGY_SEED_MODE} topology_seed=${TOPOLOGY_SEED} seed_list=${SEED_LIST:-none}"
 echo "[Stage-B HGraph] episode_horizon=${EPISODE_HORIZON} max_steps=${MAX_STEPS} episodes=${EPISODES}"
 echo "[Stage-B HGraph] prbs_per_group=${PRBS_PER_GROUP} packet_size_bytes=${PACKET_SIZE_BYTES} packet_ttl_ms=${PACKET_TTL_MS} precoding=${PRECODING}"
-echo "[Stage-B HGraph] teacher_mode=${TEACHER_MODE} hidden_dim=${HIDDEN_DIM} message_layers=${MESSAGE_LAYERS} lr=${LR}"
+echo "[Stage-B HGraph] teacher_mode=${TEACHER_MODE} action_head_mode=${ACTION_HEAD_MODE} hidden_dim=${HIDDEN_DIM} message_layers=${MESSAGE_LAYERS} lr=${LR}"
 
 CMD=(
     "${PYTHON_BIN}" "${IMITATION_SCRIPT}"
@@ -402,10 +424,16 @@ CMD=(
     --seed-list "${SEED_LIST}"
     --out-dir "${OUT_DIR}"
     --ue-prg-topk "${UE_PRG_TOPK}"
+    --ue-prg-diversity-extra "${UE_PRG_DIVERSITY_EXTRA}"
     --tb-err-ema-alpha "${TB_ERR_EMA_ALPHA}"
     --hidden-dim "${HIDDEN_DIM}"
     --message-layers "${MESSAGE_LAYERS}"
     --dropout "${DROPOUT}"
+    --action-head-mode "${ACTION_HEAD_MODE}"
+    --candidate-blank-logit-bias "${CANDIDATE_BLANK_LOGIT_BIAS}"
+    --candidate-success-logit-scale "${CANDIDATE_SUCCESS_LOGIT_SCALE}"
+    --candidate-blank-success-scale "${CANDIDATE_BLANK_SUCCESS_SCALE}"
+    --candidate-pfq-anchor-logit-coef "${CANDIDATE_PFQ_ANCHOR_LOGIT_COEF}"
     --lr "${LR}"
     --weight-decay "${WEIGHT_DECAY}"
     --grad-clip "${GRAD_CLIP}"

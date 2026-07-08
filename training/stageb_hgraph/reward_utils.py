@@ -67,6 +67,7 @@ def extract_reward_metrics(info: Mapping) -> Dict[str, float]:
             if len(reward_terms) >= 17
             else 0.0
         )
+        packet_delay_mean_ms = packet_system_time_ms / max(packet_completed_count, 1.0)
     except Exception:
         throughput_mbps = 0.0
         total_buffer_mb = 0.0
@@ -85,6 +86,7 @@ def extract_reward_metrics(info: Mapping) -> Dict[str, float]:
         packet_system_time_ms = 0.0
         packet_effective_service_rate_mbps = 0.0
         packet_effective_service_rate_per_packet_mean_mbps = 0.0
+        packet_delay_mean_ms = 0.0
 
     return {
         "goodput_mbps": goodput_mbps,
@@ -102,6 +104,7 @@ def extract_reward_metrics(info: Mapping) -> Dict[str, float]:
         "packet_completed_count": packet_completed_count,
         "packet_delivered_bits": packet_delivered_bits,
         "packet_system_time_ms": packet_system_time_ms,
+        "packet_delay_mean_ms": packet_delay_mean_ms,
         "packet_effective_service_rate_mbps": packet_effective_service_rate_mbps,
         "packet_effective_service_rate_per_packet_mean_mbps": packet_effective_service_rate_per_packet_mean_mbps,
     }
@@ -201,57 +204,218 @@ def compute_stageb_blankaware_reward(
     actual_unserved_demand_ue_count: float = 0.0,
     backlog_debt_weight: float = 0.0,
     packet_rate_weight: float = 0.0,
+    packet_per_packet_rate_weight: float = 0.0,
     packet_completion_weight: float = 0.0,
+    packet_delay_weight: float = 0.0,
+    ue_macro_rate_proxy_weight: float = 0.0,
+    ue_p10_rate_proxy_gap_weight: float = 0.0,
+    ue_macro_packet_rate_weight: float = 0.0,
+    ue_p10_packet_rate_gap_weight: float = 0.0,
     packet_rate_scale_mbps: float = 10.0,
+    packet_per_packet_rate_scale_mbps: float = 24.0,
     packet_completion_scale: float = 36.0,
+    packet_delay_scale_ms: float = 10.0,
+    ue_rate_proxy_scale_mbps: float = 8.0,
+    ue_p10_rate_proxy_target_mbps: float = 0.0,
+    ue_packet_rate_scale_mbps: float = 8.0,
+    ue_p10_packet_rate_target_mbps: float = 0.0,
+    ue_macro_rate_proxy_mbps: float = 0.0,
+    ue_p10_rate_proxy_mbps: float = 0.0,
+    ue_macro_packet_rate_mbps: float = 0.0,
+    ue_p10_packet_rate_mbps: float = 0.0,
     aged_backlog_weight: float = 0.0,
     aged_backlog_bytes: float = 0.0,
     aged_backlog_streak: float = 0.0,
+    unserved_ue_weight: float = 0.0,
+    total_ue_count: float = 1.0,
+    service_gap_weight: float = 0.0,
+    service_rate_p10: float = 1.0,
+    service_rate_target: float = 0.0,
+    util_floor_weight: float = 0.0,
+    util_floor_target: float = 0.0,
+    util_floor_tb_err_guard: float = 1.0,
+    util_floor_tb_err_softness: float = 0.0,
+    missed_safe_opportunity_count: float = 0.0,
+    missed_safe_opportunity_weight: float = 0.0,
+    missed_safe_opportunity_scale: float = 51.0,
+    prg_efficiency_weight: float = -1.0,
+    harmful_packing_weight: float = -1.0,
+    tb_err_target: float = -1.0,
+    tb_err_over_target_weight: float = 0.0,
+    tb_err_goodput_gate_weight: float = 0.0,
+    tail_potential_before: float = 0.0,
+    tail_potential_after: float = 0.0,
+    tail_delta_weight: float = 0.0,
+    tail_pressure_weight: float = 0.0,
+    tail_delta_clip: float = 1.0,
+    tail_potential_discount: float = 1.0,
+    expiry_potential_before: float = 0.0,
+    expiry_potential_after: float = 0.0,
+    expiry_delta_weight: float = 0.0,
+    expiry_pressure_weight: float = 0.0,
+    expiry_delta_clip: float = 1.0,
+    expiry_potential_discount: float = 1.0,
+    rescue_credit: float = 0.0,
+    rescue_miss: float = 0.0,
+    rescue_credit_weight: float = 0.0,
+    rescue_miss_weight: float = 0.0,
 ) -> Dict[str, float]:
+    prg_utilization_ratio = float(reward_metrics.get("prg_utilization_ratio", 0.0))
+    tb_err_rate = float(reward_metrics.get("tb_err_rate", 0.0))
     active_prg_goodput_efficiency = _compute_active_prg_goodput_efficiency(
         float(reward_metrics.get("goodput_spectral_efficiency_bpshz", 0.0)),
-        float(reward_metrics.get("prg_utilization_ratio", 0.0)),
+        prg_utilization_ratio,
     )
     harmful_packing_penalty = _compute_harmful_packing_penalty(
         float(reward_metrics.get("throughput_mbps", 0.0)),
         float(reward_metrics.get("goodput_mbps", 0.0)),
-        float(reward_metrics.get("prg_utilization_ratio", 0.0)),
+        prg_utilization_ratio,
         float(reward_metrics.get("prg_reuse_ratio", 0.0)),
     )
     # Preserve current behavior under the existing CLI defaults while letting
     # HGraph PPO reward_cfg actually control the blank-aware objective.
     goodput_coef = 0.05 * (float(goodput_weight) / 1.0)
-    efficiency_coef = 0.25 * (float(ici_weight) / 1.0)
+    default_efficiency_coef = 0.25 * (float(ici_weight) / 1.0)
     tb_err_coef = 2.0 * (float(tb_err_weight) / 8.0)
     expiry_coef = 4.0 * (float(expiry_weight) / 6.0)
-    packing_coef = 10.0 * (float(conflict_weight) / 1.0)
+    default_packing_coef = 10.0 * (float(conflict_weight) / 1.0)
+    efficiency_coef = (
+        max(0.0, float(prg_efficiency_weight))
+        if float(prg_efficiency_weight) >= 0.0
+        else default_efficiency_coef
+    )
+    packing_coef = (
+        max(0.0, float(harmful_packing_weight))
+        if float(harmful_packing_weight) >= 0.0
+        else default_packing_coef
+    )
     fairness_coef = 0.25 * (float(urgent_backlog_weight) / 0.5)
     backlog_debt_coef = max(0.0, float(backlog_debt_weight))
     backlog_debt_penalty = math.log1p(max(0.0, float(actual_unserved_backlog_bytes)) / 3000.0)
     packet_rate_coef = max(0.0, float(packet_rate_weight))
+    packet_per_packet_rate_coef = max(0.0, float(packet_per_packet_rate_weight))
     packet_completion_coef = max(0.0, float(packet_completion_weight))
+    packet_delay_coef = max(0.0, float(packet_delay_weight))
+    ue_macro_rate_proxy_coef = max(0.0, float(ue_macro_rate_proxy_weight))
+    ue_p10_rate_proxy_gap_coef = max(0.0, float(ue_p10_rate_proxy_gap_weight))
+    ue_macro_packet_rate_coef = max(0.0, float(ue_macro_packet_rate_weight))
+    ue_p10_packet_rate_gap_coef = max(0.0, float(ue_p10_packet_rate_gap_weight))
     aged_backlog_coef = max(0.0, float(aged_backlog_weight))
+    unserved_ue_coef = max(0.0, float(unserved_ue_weight))
+    service_gap_coef = max(0.0, float(service_gap_weight))
+    util_floor_coef = max(0.0, float(util_floor_weight))
+    missed_safe_coef = max(0.0, float(missed_safe_opportunity_weight))
     packet_rate_bonus = math.log1p(
         max(0.0, float(reward_metrics.get("packet_effective_service_rate_mbps", 0.0)))
         / max(1.0e-6, float(packet_rate_scale_mbps))
+    )
+    packet_per_packet_rate_bonus = math.log1p(
+        max(
+            0.0,
+            float(reward_metrics.get("packet_effective_service_rate_per_packet_mean_mbps", 0.0)),
+        )
+        / max(1.0e-6, float(packet_per_packet_rate_scale_mbps))
     )
     packet_completion_bonus = math.log1p(
         max(0.0, float(reward_metrics.get("packet_completed_count", 0.0)))
         / max(1.0e-6, float(packet_completion_scale))
     )
+    packet_delay_mean_ms = max(0.0, float(reward_metrics.get("packet_delay_mean_ms", 0.0)))
+    packet_delay_penalty = math.log1p(packet_delay_mean_ms / max(1.0e-6, float(packet_delay_scale_ms)))
+    ue_rate_proxy_scale = max(1.0e-6, float(ue_rate_proxy_scale_mbps))
+    ue_macro_rate_proxy_bonus = math.log1p(
+        max(0.0, float(ue_macro_rate_proxy_mbps)) / ue_rate_proxy_scale
+    )
+    ue_p10_rate_proxy_gap = max(
+        0.0,
+        float(ue_p10_rate_proxy_target_mbps) - float(ue_p10_rate_proxy_mbps),
+    )
+    ue_p10_rate_proxy_gap_penalty = math.log1p(ue_p10_rate_proxy_gap / ue_rate_proxy_scale)
+    ue_packet_rate_scale = max(1.0e-6, float(ue_packet_rate_scale_mbps))
+    ue_macro_packet_rate_bonus = math.log1p(
+        max(0.0, float(ue_macro_packet_rate_mbps)) / ue_packet_rate_scale
+    )
+    ue_p10_packet_rate_gap = max(
+        0.0,
+        float(ue_p10_packet_rate_target_mbps) - float(ue_p10_packet_rate_mbps),
+    )
+    ue_p10_packet_rate_gap_penalty = math.log1p(ue_p10_packet_rate_gap / ue_packet_rate_scale)
     aged_backlog_penalty = math.log1p(max(0.0, float(aged_backlog_bytes)) / 3000.0)
     aged_backlog_penalty *= 1.0 + min(5.0, max(0.0, float(aged_backlog_streak)) / 20.0)
+    unserved_ue_penalty = max(0.0, float(actual_unserved_demand_ue_count)) / max(1.0, float(total_ue_count))
+    service_gap_penalty = max(0.0, float(service_rate_target) - float(service_rate_p10))
+    util_floor_gap = max(0.0, float(util_floor_target) - prg_utilization_ratio)
+    if util_floor_gap <= 0.0 or util_floor_coef <= 0.0:
+        util_floor_gate = 0.0
+    else:
+        tb_guard = float(util_floor_tb_err_guard)
+        tb_softness = max(0.0, float(util_floor_tb_err_softness))
+        if tb_softness <= 0.0:
+            util_floor_gate = 1.0 if tb_err_rate <= tb_guard else 0.0
+        else:
+            util_floor_gate = min(1.0, max(0.0, (tb_guard + tb_softness - tb_err_rate) / tb_softness))
+    util_floor_penalty = util_floor_gate * util_floor_gap
+    missed_safe_penalty = math.log1p(max(0.0, float(missed_safe_opportunity_count))) / math.log1p(
+        max(1.0, float(missed_safe_opportunity_scale))
+    )
+    tb_err_target_value = float(tb_err_target)
+    tb_err_gap = max(0.0, tb_err_rate - tb_err_target_value) if tb_err_target_value >= 0.0 else 0.0
+    tb_err_over_target_coef = max(0.0, float(tb_err_over_target_weight))
+    tb_err_goodput_gate_coef = max(0.0, float(tb_err_goodput_gate_weight))
+    tb_err_goodput_gate_penalty = (
+        goodput_coef
+        * max(0.0, float(reward_metrics.get("goodput_mbps", raw_env_reward)))
+        * tb_err_gap
+        * tb_err_goodput_gate_coef
+    )
+    tail_before = max(0.0, float(tail_potential_before))
+    tail_after = max(0.0, float(tail_potential_after))
+    tail_raw_delta = tail_before - max(0.0, float(tail_potential_discount)) * tail_after
+    tail_clip = max(0.0, float(tail_delta_clip))
+    tail_delta = max(-tail_clip, min(tail_clip, tail_raw_delta)) if tail_clip > 0.0 else tail_raw_delta
+    tail_delta_coef = max(0.0, float(tail_delta_weight))
+    tail_pressure_coef = max(0.0, float(tail_pressure_weight))
+
+    expiry_before = max(0.0, float(expiry_potential_before))
+    expiry_after = max(0.0, float(expiry_potential_after))
+    expiry_raw_delta = expiry_before - max(0.0, float(expiry_potential_discount)) * expiry_after
+    expiry_clip = max(0.0, float(expiry_delta_clip))
+    expiry_delta = (
+        max(-expiry_clip, min(expiry_clip, expiry_raw_delta)) if expiry_clip > 0.0 else expiry_raw_delta
+    )
+    expiry_delta_coef = max(0.0, float(expiry_delta_weight))
+    expiry_pressure_coef = max(0.0, float(expiry_pressure_weight))
+    rescue_credit_coef = max(0.0, float(rescue_credit_weight))
+    rescue_miss_coef = max(0.0, float(rescue_miss_weight))
     shaped_reward = (
         goodput_coef * float(reward_metrics.get("goodput_mbps", raw_env_reward))
         + efficiency_coef * active_prg_goodput_efficiency
-        - tb_err_coef * float(reward_metrics.get("tb_err_rate", 0.0))
+        - tb_err_coef * tb_err_rate
         - expiry_coef * float(reward_metrics.get("expiry_drop_rate", 0.0))
         - packing_coef * harmful_packing_penalty
         + fairness_coef * float(reward_metrics.get("fairness_jain", 0.0))
         - backlog_debt_coef * backlog_debt_penalty
         + packet_rate_coef * packet_rate_bonus
+        + packet_per_packet_rate_coef * packet_per_packet_rate_bonus
         + packet_completion_coef * packet_completion_bonus
+        - packet_delay_coef * packet_delay_penalty
+        + ue_macro_rate_proxy_coef * ue_macro_rate_proxy_bonus
+        - ue_p10_rate_proxy_gap_coef * ue_p10_rate_proxy_gap_penalty
+        + ue_macro_packet_rate_coef * ue_macro_packet_rate_bonus
+        - ue_p10_packet_rate_gap_coef * ue_p10_packet_rate_gap_penalty
         - aged_backlog_coef * aged_backlog_penalty
+        - unserved_ue_coef * unserved_ue_penalty
+        - service_gap_coef * service_gap_penalty
+        - util_floor_coef * util_floor_penalty
+        - missed_safe_coef * missed_safe_penalty
+        - tb_err_over_target_coef * tb_err_gap
+        - tb_err_goodput_gate_penalty
+        + tail_delta_coef * tail_delta
+        - tail_pressure_coef * tail_after
+        + expiry_delta_coef * expiry_delta
+        - expiry_pressure_coef * expiry_after
+        + rescue_credit_coef * max(0.0, float(rescue_credit))
+        - rescue_miss_coef * max(0.0, float(rescue_miss))
     )
     return {
         "reward_shaped": float(shaped_reward),
@@ -263,18 +427,305 @@ def compute_stageb_blankaware_reward(
         "reward_tb_err_coef": float(tb_err_coef),
         "reward_expiry_coef": float(expiry_coef),
         "reward_packing_coef": float(packing_coef),
+        "reward_prg_efficiency_weight": float(prg_efficiency_weight),
+        "reward_harmful_packing_weight": float(harmful_packing_weight),
         "reward_fairness_coef": float(fairness_coef),
         "reward_backlog_debt_coef": float(backlog_debt_coef),
         "reward_backlog_debt_penalty": float(backlog_debt_penalty),
         "reward_packet_rate_coef": float(packet_rate_coef),
         "reward_packet_rate_bonus": float(packet_rate_bonus),
+        "reward_packet_per_packet_rate_coef": float(packet_per_packet_rate_coef),
+        "reward_packet_per_packet_rate_bonus": float(packet_per_packet_rate_bonus),
         "reward_packet_completion_coef": float(packet_completion_coef),
         "reward_packet_completion_bonus": float(packet_completion_bonus),
+        "reward_packet_delay_coef": float(packet_delay_coef),
+        "reward_packet_delay_mean_ms": float(packet_delay_mean_ms),
+        "reward_packet_delay_penalty": float(packet_delay_penalty),
+        "reward_ue_macro_rate_proxy_coef": float(ue_macro_rate_proxy_coef),
+        "reward_ue_macro_rate_proxy_mbps": float(ue_macro_rate_proxy_mbps),
+        "reward_ue_macro_rate_proxy_bonus": float(ue_macro_rate_proxy_bonus),
+        "reward_ue_p10_rate_proxy_gap_coef": float(ue_p10_rate_proxy_gap_coef),
+        "reward_ue_p10_rate_proxy_mbps": float(ue_p10_rate_proxy_mbps),
+        "reward_ue_p10_rate_proxy_target_mbps": float(ue_p10_rate_proxy_target_mbps),
+        "reward_ue_p10_rate_proxy_gap_mbps": float(ue_p10_rate_proxy_gap),
+        "reward_ue_p10_rate_proxy_gap_penalty": float(ue_p10_rate_proxy_gap_penalty),
+        "reward_ue_macro_packet_rate_coef": float(ue_macro_packet_rate_coef),
+        "reward_ue_macro_packet_rate_mbps": float(ue_macro_packet_rate_mbps),
+        "reward_ue_macro_packet_rate_bonus": float(ue_macro_packet_rate_bonus),
+        "reward_ue_p10_packet_rate_gap_coef": float(ue_p10_packet_rate_gap_coef),
+        "reward_ue_p10_packet_rate_mbps": float(ue_p10_packet_rate_mbps),
+        "reward_ue_p10_packet_rate_target_mbps": float(ue_p10_packet_rate_target_mbps),
+        "reward_ue_p10_packet_rate_gap_mbps": float(ue_p10_packet_rate_gap),
+        "reward_ue_p10_packet_rate_gap_penalty": float(ue_p10_packet_rate_gap_penalty),
         "reward_aged_backlog_coef": float(aged_backlog_coef),
         "reward_aged_backlog_penalty": float(aged_backlog_penalty),
+        "reward_unserved_ue_coef": float(unserved_ue_coef),
+        "reward_unserved_ue_penalty": float(unserved_ue_penalty),
+        "reward_service_gap_coef": float(service_gap_coef),
+        "reward_service_gap_penalty": float(service_gap_penalty),
+        "reward_service_rate_p10": float(service_rate_p10),
+        "reward_service_rate_target": float(service_rate_target),
+        "reward_util_floor_coef": float(util_floor_coef),
+        "reward_util_floor_target": float(util_floor_target),
+        "reward_util_floor_tb_err_guard": float(util_floor_tb_err_guard),
+        "reward_util_floor_tb_err_softness": float(util_floor_tb_err_softness),
+        "reward_util_floor_gate": float(util_floor_gate),
+        "reward_util_floor_gap": float(util_floor_gap),
+        "reward_util_floor_penalty": float(util_floor_penalty),
+        "reward_missed_safe_opportunity_coef": float(missed_safe_coef),
+        "reward_missed_safe_opportunity_count": float(missed_safe_opportunity_count),
+        "reward_missed_safe_opportunity_penalty": float(missed_safe_penalty),
+        "reward_tb_err_target": float(tb_err_target_value),
+        "reward_tb_err_gap": float(tb_err_gap),
+        "reward_tb_err_over_target_coef": float(tb_err_over_target_coef),
+        "reward_tb_err_over_target_penalty": float(tb_err_gap),
+        "reward_tb_err_goodput_gate_coef": float(tb_err_goodput_gate_coef),
+        "reward_tb_err_goodput_gate_penalty": float(tb_err_goodput_gate_penalty),
+        "reward_tail_potential_before": float(tail_before),
+        "reward_tail_potential_after": float(tail_after),
+        "reward_tail_delta_raw": float(tail_raw_delta),
+        "reward_tail_delta": float(tail_delta),
+        "reward_tail_delta_coef": float(tail_delta_coef),
+        "reward_tail_pressure_coef": float(tail_pressure_coef),
+        "reward_tail_delta_clip": float(tail_clip),
+        "reward_tail_potential_discount": float(max(0.0, float(tail_potential_discount))),
+        "reward_expiry_potential_before": float(expiry_before),
+        "reward_expiry_potential_after": float(expiry_after),
+        "reward_expiry_delta_raw": float(expiry_raw_delta),
+        "reward_expiry_delta": float(expiry_delta),
+        "reward_expiry_delta_coef": float(expiry_delta_coef),
+        "reward_expiry_pressure_coef": float(expiry_pressure_coef),
+        "reward_expiry_delta_clip": float(expiry_clip),
+        "reward_expiry_potential_discount": float(max(0.0, float(expiry_potential_discount))),
+        "reward_rescue_credit": float(max(0.0, float(rescue_credit))),
+        "reward_rescue_miss": float(max(0.0, float(rescue_miss))),
+        "reward_rescue_credit_coef": float(rescue_credit_coef),
+        "reward_rescue_miss_coef": float(rescue_miss_coef),
         "reward_packet_completed_count": float(reward_metrics.get("packet_completed_count", 0.0)),
         "reward_packet_effective_service_rate_mbps": float(
             reward_metrics.get("packet_effective_service_rate_mbps", 0.0)
         ),
+        "reward_packet_effective_service_rate_per_packet_mean_mbps": float(
+            reward_metrics.get("packet_effective_service_rate_per_packet_mean_mbps", 0.0)
+        ),
         "reward_actual_unserved_demand_ue_count": float(actual_unserved_demand_ue_count),
+    }
+
+
+def compute_stageb_tailguard_simple_reward(
+    *,
+    raw_env_reward: float,
+    reward_metrics: Mapping[str, float],
+    goodput_weight: float = 1.0,
+    tb_err_weight: float = 1.0,
+    expiry_weight: float = 6.0,
+    actual_unserved_backlog_bytes: float = 0.0,
+    actual_unserved_demand_ue_count: float = 0.0,
+    aged_backlog_bytes: float = 0.0,
+    aged_backlog_streak: float = 0.0,
+    total_ue_count: float = 1.0,
+    service_gap_weight: float = 1.25,
+    service_rate_p10: float = 1.0,
+    service_rate_target: float = 0.75,
+) -> Dict[str, float]:
+    """Three-signal reward: goodput, reliability, and a max-pooled tail guard."""
+
+    goodput_mbps = float(reward_metrics.get("goodput_mbps", raw_env_reward))
+    tb_err_rate = max(0.0, float(reward_metrics.get("tb_err_rate", 0.0)))
+    expiry_drop_rate = max(0.0, float(reward_metrics.get("expiry_drop_rate", 0.0)))
+
+    goodput_norm = min(1.25, max(0.0, goodput_mbps) / 3000.0)
+    reliability_penalty = tb_err_rate + max(0.0, float(expiry_weight)) * expiry_drop_rate
+
+    def _debt_pressure(value_bytes: float) -> float:
+        return min(1.5, math.log1p(max(0.0, float(value_bytes)) / 3000.0) / 6.0)
+
+    target = max(0.05, float(service_rate_target))
+    service_gap_pressure = max(0.0, target - float(service_rate_p10)) / target
+    current_debt_pressure = _debt_pressure(actual_unserved_backlog_bytes)
+    historical_debt_pressure = _debt_pressure(aged_backlog_bytes)
+    streak_pressure = min(1.5, max(0.0, float(aged_backlog_streak)) / 10.0)
+    unserved_pressure = min(
+        1.5,
+        4.0 * max(0.0, float(actual_unserved_demand_ue_count)) / max(1.0, float(total_ue_count)),
+    )
+    tail_pressure = max(
+        service_gap_pressure,
+        current_debt_pressure,
+        historical_debt_pressure,
+        streak_pressure,
+        unserved_pressure,
+    )
+
+    shaped_reward = (
+        max(0.0, float(goodput_weight)) * goodput_norm
+        - max(0.0, float(tb_err_weight)) * reliability_penalty
+        - max(0.0, float(service_gap_weight)) * tail_pressure
+    )
+    return {
+        "reward_shaped": float(shaped_reward),
+        "reward_raw_env": float(raw_env_reward),
+        "reward_goodput_norm": float(goodput_norm),
+        "reward_reliability_penalty": float(reliability_penalty),
+        "reward_tail_pressure": float(tail_pressure),
+        "reward_service_gap_pressure": float(service_gap_pressure),
+        "reward_current_debt_pressure": float(current_debt_pressure),
+        "reward_historical_debt_pressure": float(historical_debt_pressure),
+        "reward_streak_pressure": float(streak_pressure),
+        "reward_unserved_pressure": float(unserved_pressure),
+        "reward_goodput_coef": float(max(0.0, float(goodput_weight))),
+        "reward_reliability_coef": float(max(0.0, float(tb_err_weight))),
+        "reward_tail_coef": float(max(0.0, float(service_gap_weight))),
+        "reward_expiry_multiplier": float(max(0.0, float(expiry_weight))),
+        "reward_service_rate_p10": float(service_rate_p10),
+        "reward_service_rate_target": float(service_rate_target),
+        "reward_actual_unserved_demand_ue_count": float(actual_unserved_demand_ue_count),
+    }
+
+
+def compute_stageb_tailcredit_reward(
+    *,
+    raw_env_reward: float,
+    reward_metrics: Mapping[str, float],
+    goodput_weight: float = 1.0,
+    tb_err_weight: float = 1.0,
+    expiry_weight: float = 6.0,
+    tail_potential_before: float = 0.0,
+    tail_potential_after: float = 0.0,
+    tail_delta_weight: float = 1.0,
+    tail_pressure_weight: float = 0.15,
+    tail_delta_clip: float = 1.0,
+    tail_potential_discount: float = 1.0,
+) -> Dict[str, float]:
+    """Goodput/reliability reward plus local tail-risk potential shaping.
+
+    The tail term is a soft credit-assignment signal: serving high-risk UEs is
+    rewarded when it reduces the tail potential from the pre-action state to
+    the post-action state. A small residual pressure term keeps sustained tail
+    risk visible without turning the reward into a hard scheduling rule.
+    """
+
+    goodput_mbps = float(reward_metrics.get("goodput_mbps", raw_env_reward))
+    tb_err_rate = max(0.0, float(reward_metrics.get("tb_err_rate", 0.0)))
+    expiry_drop_rate = max(0.0, float(reward_metrics.get("expiry_drop_rate", 0.0)))
+
+    goodput_norm = min(1.25, max(0.0, goodput_mbps) / 3000.0)
+    reliability_penalty = tb_err_rate + max(0.0, float(expiry_weight)) * expiry_drop_rate
+
+    before = max(0.0, float(tail_potential_before))
+    after = max(0.0, float(tail_potential_after))
+    raw_delta = before - max(0.0, float(tail_potential_discount)) * after
+    clip = max(0.0, float(tail_delta_clip))
+    tail_delta = max(-clip, min(clip, raw_delta)) if clip > 0.0 else raw_delta
+
+    shaped_reward = (
+        max(0.0, float(goodput_weight)) * goodput_norm
+        - max(0.0, float(tb_err_weight)) * reliability_penalty
+        + max(0.0, float(tail_delta_weight)) * tail_delta
+        - max(0.0, float(tail_pressure_weight)) * after
+    )
+    return {
+        "reward_shaped": float(shaped_reward),
+        "reward_raw_env": float(raw_env_reward),
+        "reward_goodput_norm": float(goodput_norm),
+        "reward_reliability_penalty": float(reliability_penalty),
+        "reward_tail_potential_before": float(before),
+        "reward_tail_potential_after": float(after),
+        "reward_tail_delta_raw": float(raw_delta),
+        "reward_tail_delta": float(tail_delta),
+        "reward_goodput_coef": float(max(0.0, float(goodput_weight))),
+        "reward_reliability_coef": float(max(0.0, float(tb_err_weight))),
+        "reward_tail_delta_coef": float(max(0.0, float(tail_delta_weight))),
+        "reward_tail_pressure_coef": float(max(0.0, float(tail_pressure_weight))),
+        "reward_tail_delta_clip": float(clip),
+        "reward_tail_potential_discount": float(max(0.0, float(tail_potential_discount))),
+        "reward_expiry_multiplier": float(max(0.0, float(expiry_weight))),
+    }
+
+
+def compute_stageb_tailcredit_expiry_reward(
+    *,
+    raw_env_reward: float,
+    reward_metrics: Mapping[str, float],
+    goodput_weight: float = 1.0,
+    tb_err_weight: float = 1.0,
+    expiry_weight: float = 6.0,
+    tail_potential_before: float = 0.0,
+    tail_potential_after: float = 0.0,
+    tail_delta_weight: float = 1.0,
+    tail_pressure_weight: float = 0.15,
+    tail_delta_clip: float = 1.0,
+    tail_potential_discount: float = 1.0,
+    expiry_potential_before: float = 0.0,
+    expiry_potential_after: float = 0.0,
+    expiry_delta_weight: float = 1.0,
+    expiry_pressure_weight: float = 0.25,
+    expiry_delta_clip: float = 1.0,
+    expiry_potential_discount: float = 1.0,
+    rescue_credit: float = 0.0,
+    rescue_miss: float = 0.0,
+    rescue_credit_weight: float = 0.0,
+    rescue_miss_weight: float = 0.0,
+) -> Dict[str, float]:
+    """v5/v6 reward: tail/expiry potential deltas plus optional rescue credit."""
+
+    goodput_mbps = float(reward_metrics.get("goodput_mbps", raw_env_reward))
+    tb_err_rate = max(0.0, float(reward_metrics.get("tb_err_rate", 0.0)))
+    expiry_drop_rate = max(0.0, float(reward_metrics.get("expiry_drop_rate", 0.0)))
+
+    goodput_norm = min(1.25, max(0.0, goodput_mbps) / 3000.0)
+    reliability_penalty = tb_err_rate + max(0.0, float(expiry_weight)) * expiry_drop_rate
+
+    tail_before = max(0.0, float(tail_potential_before))
+    tail_after = max(0.0, float(tail_potential_after))
+    tail_raw_delta = tail_before - max(0.0, float(tail_potential_discount)) * tail_after
+    tail_clip = max(0.0, float(tail_delta_clip))
+    tail_delta = max(-tail_clip, min(tail_clip, tail_raw_delta)) if tail_clip > 0.0 else tail_raw_delta
+
+    expiry_before = max(0.0, float(expiry_potential_before))
+    expiry_after = max(0.0, float(expiry_potential_after))
+    expiry_raw_delta = expiry_before - max(0.0, float(expiry_potential_discount)) * expiry_after
+    expiry_clip = max(0.0, float(expiry_delta_clip))
+    expiry_delta = (
+        max(-expiry_clip, min(expiry_clip, expiry_raw_delta)) if expiry_clip > 0.0 else expiry_raw_delta
+    )
+
+    shaped_reward = (
+        max(0.0, float(goodput_weight)) * goodput_norm
+        - max(0.0, float(tb_err_weight)) * reliability_penalty
+        + max(0.0, float(tail_delta_weight)) * tail_delta
+        - max(0.0, float(tail_pressure_weight)) * tail_after
+        + max(0.0, float(expiry_delta_weight)) * expiry_delta
+        - max(0.0, float(expiry_pressure_weight)) * expiry_after
+        + max(0.0, float(rescue_credit_weight)) * max(0.0, float(rescue_credit))
+        - max(0.0, float(rescue_miss_weight)) * max(0.0, float(rescue_miss))
+    )
+    return {
+        "reward_shaped": float(shaped_reward),
+        "reward_raw_env": float(raw_env_reward),
+        "reward_goodput_norm": float(goodput_norm),
+        "reward_reliability_penalty": float(reliability_penalty),
+        "reward_tail_potential_before": float(tail_before),
+        "reward_tail_potential_after": float(tail_after),
+        "reward_tail_delta_raw": float(tail_raw_delta),
+        "reward_tail_delta": float(tail_delta),
+        "reward_expiry_potential_before": float(expiry_before),
+        "reward_expiry_potential_after": float(expiry_after),
+        "reward_expiry_delta_raw": float(expiry_raw_delta),
+        "reward_expiry_delta": float(expiry_delta),
+        "reward_goodput_coef": float(max(0.0, float(goodput_weight))),
+        "reward_reliability_coef": float(max(0.0, float(tb_err_weight))),
+        "reward_tail_delta_coef": float(max(0.0, float(tail_delta_weight))),
+        "reward_tail_pressure_coef": float(max(0.0, float(tail_pressure_weight))),
+        "reward_tail_delta_clip": float(tail_clip),
+        "reward_tail_potential_discount": float(max(0.0, float(tail_potential_discount))),
+        "reward_expiry_delta_coef": float(max(0.0, float(expiry_delta_weight))),
+        "reward_expiry_pressure_coef": float(max(0.0, float(expiry_pressure_weight))),
+        "reward_expiry_delta_clip": float(expiry_clip),
+        "reward_expiry_potential_discount": float(max(0.0, float(expiry_potential_discount))),
+        "reward_expiry_multiplier": float(max(0.0, float(expiry_weight))),
+        "reward_rescue_credit": float(max(0.0, float(rescue_credit))),
+        "reward_rescue_miss": float(max(0.0, float(rescue_miss))),
+        "reward_rescue_credit_coef": float(max(0.0, float(rescue_credit_weight))),
+        "reward_rescue_miss_coef": float(max(0.0, float(rescue_miss_weight))),
     }

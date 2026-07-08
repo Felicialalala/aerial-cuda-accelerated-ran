@@ -147,6 +147,10 @@ public:
         std::vector<float> top1PerCellPrgDb(prgCellCount, -20.0f);
         std::vector<float> top2GapPerCellPrgDb(prgCellCount, 0.0f);
         std::vector<float> top1WinnerWbSinrDb(prgCellCount, -20.0f);
+        std::vector<float> p10PerCellPrgDb(prgCellCount, -20.0f);
+        std::vector<float> meanPerCellPrgDb(prgCellCount, -20.0f);
+        std::vector<float> backlogWeightedGoodputPerCellPrgMbps(prgCellCount, 0.0f);
+        std::vector<float> lowSinrHolTtlWeightPerCellPrg(prgCellCount, 0.0f);
         std::vector<uint8_t> top1ValidPerCellPrg(prgCellCount, 0U);
 
         for (uint32_t prgIdx = 0; prgIdx < m_nPrg; ++prgIdx) {
@@ -164,6 +168,12 @@ public:
                 uint32_t top1UeIdx = 0U;
                 bool any = false;
                 bool secondFound = false;
+                float sinrDbSum = 0.0f;
+                float backlogWeightedGoodputSum = 0.0f;
+                float backlogWeightSum = 0.0f;
+                float lowSinrHolTtlWeight = 0.0f;
+                std::vector<float> localSinrDb;
+                localSinrDb.reserve(m_nActiveUe);
                 for (uint32_t ueIdx = 0; ueIdx < m_nActiveUe; ++ueIdx) {
                     if (!assocToCell(cellGrpPrmsCpu, cIdx, ueIdx)) {
                         continue;
@@ -183,6 +193,8 @@ public:
                         prgSinrLin /= static_cast<float>(nUeAnt);
                     }
                     const float sinrDb = 10.0f * std::log10(std::max(prgSinrLin, 1.0e-9f));
+                    localSinrDb.push_back(sinrDb);
+                    sinrDbSum += sinrDb;
                     if (!any || sinrDb > top1SinrDb) {
                         top2SinrDb = top1SinrDb;
                         secondFound = any;
@@ -193,12 +205,58 @@ public:
                         top2SinrDb = sinrDb;
                         secondFound = true;
                     }
+                    const float bufferBytes =
+                        (cellGrpUeStatusCpu->bufferSize != nullptr)
+                            ? static_cast<float>(cellGrpUeStatusCpu->bufferSize[ueIdx])
+                            : 0.0f;
+                    if (bufferBytes > 0.0f) {
+                        const float backlogWeight =
+                            std::min(8.0f, std::max(0.0f, std::log2(1.0f + bufferBytes / 3000.0f)));
+                        const float expectedGoodputMbps =
+                            5.76f * std::log2(1.0f + std::max(prgSinrLin, 1.0e-9f));
+                        backlogWeightedGoodputSum += backlogWeight * expectedGoodputMbps;
+                        backlogWeightSum += backlogWeight;
+
+                        constexpr float kLowSinrDb = 5.0f;
+                        constexpr float kLowSinrSpanDb = 12.0f;
+                        constexpr float kHolNormMs = 200.0f;
+                        constexpr float kTtlGuardMs = 20.0f;
+                        const size_t ueExtraBase =
+                            static_cast<size_t>(ueIdx) * ObservationFeatureLayout::kUeExtraFeatDim;
+                        const float holDelayMs = m_snapshot.ueExtraFeatures[ueExtraBase + 0U];
+                        const float ttlSlackMs = m_snapshot.ueExtraFeatures[ueExtraBase + 1U];
+                        const float holScore =
+                            std::min(1.5f, std::max(0.0f, holDelayMs / kHolNormMs));
+                        const float ttlScore =
+                            ttlSlackMs >= 0.0f
+                                ? std::min(1.5f, std::max(0.0f, (kTtlGuardMs - ttlSlackMs) / kTtlGuardMs))
+                                : 0.0f;
+                        const float lowSinrScore =
+                            std::min(1.0f, std::max(0.0f, (kLowSinrDb - sinrDb) / kLowSinrSpanDb));
+                        lowSinrHolTtlWeight = std::max(
+                            lowSinrHolTtlWeight,
+                            std::min(10.0f, backlogWeight * lowSinrScore * (0.5f * holScore + 0.5f * ttlScore)));
+                    }
                 }
                 const float gapDb = (any && secondFound) ? std::max(0.0f, top1SinrDb - top2SinrDb) : 0.0f;
                 const size_t idx = static_cast<size_t>(cIdx) * static_cast<size_t>(m_nPrg) + prgIdx;
+                float p10SinrDb = -20.0f;
+                float meanSinrDb = -20.0f;
+                if (!localSinrDb.empty()) {
+                    std::sort(localSinrDb.begin(), localSinrDb.end());
+                    const size_t p10Idx =
+                        static_cast<size_t>(std::floor(0.10f * static_cast<float>(localSinrDb.size() - 1U)));
+                    p10SinrDb = localSinrDb[std::min(p10Idx, localSinrDb.size() - 1U)];
+                    meanSinrDb = sinrDbSum / static_cast<float>(localSinrDb.size());
+                }
                 top1PerCellPrgDb[idx] = top1SinrDb;
                 top2GapPerCellPrgDb[idx] = gapDb;
                 top1ValidPerCellPrg[idx] = any ? 1U : 0U;
+                p10PerCellPrgDb[idx] = p10SinrDb;
+                meanPerCellPrgDb[idx] = meanSinrDb;
+                backlogWeightedGoodputPerCellPrgMbps[idx] =
+                    backlogWeightSum > 0.0f ? backlogWeightedGoodputSum / backlogWeightSum : 0.0f;
+                lowSinrHolTtlWeightPerCellPrg[idx] = lowSinrHolTtlWeight;
                 if (any && top1UeIdx < ueWbSinrDb.size()) {
                     top1WinnerWbSinrDb[idx] = ueWbSinrDb[top1UeIdx];
                 }
@@ -253,6 +311,10 @@ public:
                 m_snapshot.prgFeatures[base + 5U] = neighborMeanTop1SinrDb;
                 m_snapshot.prgFeatures[base + 6U] = std::max(0.0f, std::min(1.0f, samePrgConflictRatio));
                 m_snapshot.prgFeatures[base + 7U] = std::max(0.0f, std::min(1.0f, iciProxy));
+                m_snapshot.prgFeatures[base + 8U] = p10PerCellPrgDb[idx];
+                m_snapshot.prgFeatures[base + 9U] = meanPerCellPrgDb[idx];
+                m_snapshot.prgFeatures[base + 10U] = backlogWeightedGoodputPerCellPrgMbps[idx];
+                m_snapshot.prgFeatures[base + 11U] = lowSinrHolTtlWeightPerCellPrg[idx];
             }
         }
 

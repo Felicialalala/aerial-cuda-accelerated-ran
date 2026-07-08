@@ -2,12 +2,15 @@
 
 This directory contains the current Stage-B offline BC / offline PPO / online PPO training code.
 
-Note: this is the legacy GNNRL stack. The current representative Stage-B result set uses `3cell + 36UE + RBG16 + TTL200ms + SVD`, `3000B`, and `traffic_arrival_rate=1.0`; HGraph v33 is the preferred current training/evaluation line.
+Note: this is the legacy GNNRL stack. The current Stage-B research line has moved to `7cell + 84UE + RBG16 + TTL200ms + SVD`, `3000B`, and `traffic_arrival_rate=0.85`; HGraph/TAR-GNN-PFQ under `training/stageb_hgraph/` is the preferred implementation line.
+
+For the current 7-cell plan, do not use this directory as the implementation base. Use `training/stageb_hgraph/` and the design in `Doc/stageB_7cell_tar_gnn_pfq_design.md`.
 
 Canonical project docs:
 
 - `Doc/README.md`
 - `Doc/current_stageB_effective_configuration.md`
+- `Doc/stageB_7cell_tar_gnn_pfq_design.md`
 
 Legacy GNNRL design notes are archived under:
 

@@ -30,6 +30,10 @@ _PRG_NEIGHBOR_MAX_TOP1_IDX = 4
 _PRG_NEIGHBOR_MEAN_TOP1_IDX = 5
 _PRG_SAME_PRG_CONFLICT_IDX = 6
 _PRG_ICI_PROXY_IDX = 7
+_PRG_POST_EQ_P10_SINR_IDX = 8
+_PRG_POST_EQ_MEAN_SINR_IDX = 9
+_PRG_BACKLOG_WEIGHTED_EXPECTED_GOODPUT_IDX = 10
+_PRG_LOW_SINR_HOL_TTL_WEIGHT_IDX = 11
 
 _CELL_FEATURE_NAMES = (
     "cell_load_bytes",
@@ -63,6 +67,10 @@ _PRG_FEATURE_NAMES = (
     "neighbor_mean_top1_sinr_db",
     "same_prg_conflict_ratio",
     "ici_proxy",
+    "post_eq_p10_sinr_db",
+    "post_eq_mean_sinr_db",
+    "backlog_weighted_expected_goodput_mbps",
+    "low_sinr_hol_ttl_weight",
 )
 
 
@@ -164,10 +172,12 @@ class FeatureSnapshotBuilder:
 
         cell_values = obs_cell[:, : len(_CELL_FEATURE_NAMES)].contiguous()
         ue_values = obs_ue[:, : len(_UE_FEATURE_NAMES)].contiguous()
-        prg_values = obs_prg[:, :, : len(_PRG_FEATURE_NAMES)].reshape(
+        prg_feat_dim = min(int(obs_prg.shape[-1]), len(_PRG_FEATURE_NAMES))
+        prg_values = obs_prg[:, :, :prg_feat_dim].reshape(
             n_cell * n_prg,
-            len(_PRG_FEATURE_NAMES),
+            prg_feat_dim,
         ).contiguous()
+        prg_feature_names = _PRG_FEATURE_NAMES[:prg_feat_dim]
 
         ue_serving_cell = self._infer_ue_serving_cell(action_mask_cell_ue)
         prg_owner_cell = torch.arange(n_cell, dtype=torch.long).repeat_interleave(n_prg)
@@ -235,7 +245,7 @@ class FeatureSnapshotBuilder:
         return GraphFeatureSnapshot(
             cell_features=NamedFeatureBlock(values=cell_values, names=_CELL_FEATURE_NAMES),
             ue_features=NamedFeatureBlock(values=ue_values, names=_UE_FEATURE_NAMES),
-            prg_features=NamedFeatureBlock(values=prg_values, names=_PRG_FEATURE_NAMES),
+            prg_features=NamedFeatureBlock(values=prg_values, names=prg_feature_names),
             static_meta=static_meta,
         )
 

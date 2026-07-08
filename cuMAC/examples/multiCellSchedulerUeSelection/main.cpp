@@ -37,7 +37,9 @@
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <iomanip>
 #include <limits>
+#include <string>
 #include <vector>
 
 using namespace cumac;
@@ -165,6 +167,31 @@ unsigned long long countAllocatedPrgs(const cumacSchdSol* schdSol, const cumacCe
         }
     }
     return allocatedPrgs;
+}
+
+unsigned long long writePacketDelaySamplesCsv(
+    const std::string& path,
+    const std::vector<std::vector<double>>& perFlowDelays)
+{
+    if (path.empty()) {
+        return 0ULL;
+    }
+    std::ofstream out(path);
+    if (!out) {
+        fprintf(stderr, "WARNING: failed to open packet delay sample CSV for writing: %s\n", path.c_str());
+        return 0ULL;
+    }
+    out << "ue_id,packet_index,delay_ms\n";
+    out << std::fixed << std::setprecision(6);
+    unsigned long long rows = 0ULL;
+    for (size_t ueId = 0; ueId < perFlowDelays.size(); ++ueId) {
+        const auto& delays = perFlowDelays[ueId];
+        for (size_t pktIdx = 0; pktIdx < delays.size(); ++pktIdx) {
+            out << ueId << "," << pktIdx << "," << delays[pktIdx] << "\n";
+            ++rows;
+        }
+    }
+    return rows;
 }
 
 struct PrgUsageStats {
@@ -463,7 +490,13 @@ cumac::online::StepState buildOnlineState(int tti,
                                           const std::vector<float>& actualUeServedBytes,
                                           const std::vector<float>& actualUeGoodputBytes,
                                           const std::vector<int32_t>& actualUeTbTxCount,
-                                          const std::vector<int32_t>& actualUeTbErrCount)
+                                          const std::vector<int32_t>& actualUeTbErrCount,
+                                          const std::vector<int32_t>& actualUePacketDeliveredPackets,
+                                          const std::vector<int32_t>& actualUePacketPendingPackets,
+                                          const std::vector<float>& actualUePacketDeliveredBits,
+                                          const std::vector<float>& actualUePacketSystemTimeMs,
+                                          const std::vector<float>& actualUePacketServiceRateMbps,
+                                          const std::vector<float>& actualUePacketServiceRatePerPacketMeanMbps)
 {
     cumac::online::StepState state;
     state.header.tti = tti;
@@ -542,6 +575,16 @@ cumac::online::StepState buildOnlineState(int tti,
     if (hasActualUeDiagnostics) {
         state.header.stateFlags |= cumac::online::kStateFlagHasActualUeDiagnostics;
     }
+    const bool hasActualUePacketDiagnostics =
+        actualUePacketDeliveredPackets.size() == codec.nActiveUe() &&
+        actualUePacketPendingPackets.size() == codec.nActiveUe() &&
+        actualUePacketDeliveredBits.size() == codec.nActiveUe() &&
+        actualUePacketSystemTimeMs.size() == codec.nActiveUe() &&
+        actualUePacketServiceRateMbps.size() == codec.nActiveUe() &&
+        actualUePacketServiceRatePerPacketMeanMbps.size() == codec.nActiveUe();
+    if (hasActualUePacketDiagnostics) {
+        state.header.stateFlags |= cumac::online::kStateFlagHasActualUePacketDiagnostics;
+    }
 
     state.obsCellFeatures = obsCell;
     state.obsUeFeatures = obsUe;
@@ -576,6 +619,14 @@ cumac::online::StepState buildOnlineState(int tti,
         state.actualUeGoodputBytes = actualUeGoodputBytes;
         state.actualUeTbTxCount = actualUeTbTxCount;
         state.actualUeTbErrCount = actualUeTbErrCount;
+    }
+    if (hasActualUePacketDiagnostics) {
+        state.actualUePacketDeliveredPackets = actualUePacketDeliveredPackets;
+        state.actualUePacketPendingPackets = actualUePacketPendingPackets;
+        state.actualUePacketDeliveredBits = actualUePacketDeliveredBits;
+        state.actualUePacketSystemTimeMs = actualUePacketSystemTimeMs;
+        state.actualUePacketServiceRateMbps = actualUePacketServiceRateMbps;
+        state.actualUePacketServiceRatePerPacketMeanMbps = actualUePacketServiceRatePerPacketMeanMbps;
     }
     return state;
 }
@@ -858,9 +909,16 @@ int main(int argc, char* argv[])
   const bool compactTtiLog = getEnvInt("CUMAC_COMPACT_TTI_LOG", 1) != 0;
   int progressTtiInterval = getEnvInt("CUMAC_PROGRESS_TTI_INTERVAL", 100);
   int compareTtiInterval = getEnvInt("CUMAC_COMPARE_TTI_INTERVAL", useCustomUePrg ? 0 : 1);
+  const bool packetDelaySamplesEnabled = getEnvInt("CUMAC_PACKET_DELAY_SAMPLES", 0) != 0;
+  const std::string packetDelaySamplesCsv =
+      getEnvString("CUMAC_PACKET_DELAY_SAMPLES_CSV", "packet_delay_samples.csv");
   const float trafficArrivalRate = getEnvFloat("CUMAC_TRAFFIC_ARRIVAL_RATE", 1.0f);
   const int packetTtlTtiEnv = getEnvInt("CUMAC_PACKET_TTL_TTI", 0);
   const float packetTtlMsEnv = getEnvFloat("CUMAC_PACKET_TTL_MS", 0.0f);
+  const int topologySeedForRun = getEnvInt("CUMAC_TOPOLOGY_SEED", seedConst);
+  const char* trafficSeedEnv = std::getenv("CUMAC_TRAFFIC_SEED");
+  const bool trafficSeedExplicit = trafficSeedEnv != nullptr && trafficSeedEnv[0] != '\0';
+  const int trafficSeed = getEnvInt("CUMAC_TRAFFIC_SEED", topologySeedForRun);
   const bool replayDumpEnabled = getEnvInt("CUMAC_RL_REPLAY_DUMP", 0) != 0;
   const std::string replayDir = getEnvString("CUMAC_RL_REPLAY_DIR", "./replay");
   const std::string replayScenario = getEnvString("CUMAC_RL_REPLAY_SCENARIO", "default");
@@ -1020,6 +1078,11 @@ int main(int argc, char* argv[])
   //TrafficType low_traffic(100, 0, 1);
   //traf_cfg.AddFlows(low_traffic,totNumUesConst/2);
   std::unique_ptr<TrafficService> trafSvc = std::make_unique<TrafficService>(traf_cfg,net->cellGrpUeStatusCpu.get(),net->cellGrpUeStatusGpu.get());
+  trafSvc->Seed(trafficSeed);
+  printf("Traffic RNG seed: traffic_seed=%d topology_seed=%d source=%s\n",
+         trafficSeed,
+         topologySeedForRun,
+         trafficSeedExplicit ? "CUMAC_TRAFFIC_SEED" : "topology_seed");
   trafSvc->SetSlotDurationMs(slotDurationConst * 1.0e3);
   if (packetTtlTtiEnv > 0) {
     if (packetTtlMsEnv > 0.0f) {
@@ -1486,7 +1549,13 @@ int main(int argc, char* argv[])
             std::vector<float>{},
             std::vector<float>{},
             std::vector<int32_t>{},
-            std::vector<int32_t>{});
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<int32_t>{},
+            std::vector<float>{},
+            std::vector<float>{},
+            std::vector<float>{},
+            std::vector<float>{});
         if (!onlineBridge->sendResetRsp(resetState)) {
           fprintf(stderr, "ERROR: Failed to send online reset response.\n");
           return 1;
@@ -1974,6 +2043,35 @@ int main(int argc, char* argv[])
         actualUeServedBytes[ueId] = static_cast<float>(servedBytesThisTti[ueId]);
         actualUeGoodputBytes[ueId] = static_cast<float>(goodputBytesThisTti[ueId]);
       }
+      PacketServiceRateSummary packetServiceRateCumulativeTotal;
+      std::vector<PacketServiceRateSummary> uePacketServiceRateCumulative;
+      trafSvc->GetPacketServiceRateStats(packetServiceRateCumulativeTotal, uePacketServiceRateCumulative);
+      std::vector<int32_t> actualUePacketDeliveredPackets(static_cast<size_t>(nActiveUe), 0);
+      std::vector<int32_t> actualUePacketPendingPackets(static_cast<size_t>(nActiveUe), 0);
+      std::vector<float> actualUePacketDeliveredBits(static_cast<size_t>(nActiveUe), 0.0F);
+      std::vector<float> actualUePacketSystemTimeMs(static_cast<size_t>(nActiveUe), 0.0F);
+      std::vector<float> actualUePacketServiceRateMbps(static_cast<size_t>(nActiveUe), 0.0F);
+      std::vector<float> actualUePacketServiceRatePerPacketMeanMbps(static_cast<size_t>(nActiveUe), 0.0F);
+      for (int ueId = 0; ueId < nActiveUe; ++ueId) {
+        const size_t idx = static_cast<size_t>(ueId);
+        if (idx >= uePacketServiceRateCumulative.size()) {
+          break;
+        }
+        const PacketServiceRateSummary& s = uePacketServiceRateCumulative[idx];
+        actualUePacketDeliveredPackets[idx] = static_cast<int32_t>(
+            std::min<unsigned long long>(
+                s.delivered_packets,
+                static_cast<unsigned long long>(std::numeric_limits<int32_t>::max())));
+        actualUePacketPendingPackets[idx] = static_cast<int32_t>(
+            std::min<unsigned long long>(
+                s.pending_packets,
+                static_cast<unsigned long long>(std::numeric_limits<int32_t>::max())));
+        actualUePacketDeliveredBits[idx] = static_cast<float>(s.total_delivered_bits);
+        actualUePacketSystemTimeMs[idx] = static_cast<float>(s.total_packet_system_time_ms);
+        actualUePacketServiceRateMbps[idx] = static_cast<float>(s.packet_effective_service_rate_mbps);
+        actualUePacketServiceRatePerPacketMeanMbps[idx] =
+            static_cast<float>(s.packet_effective_service_rate_per_packet_mean_mbps);
+      }
       const cumac::online::StepState stepState = buildOnlineState(
           t + 1,
           onlineDone,
@@ -2003,7 +2101,13 @@ int main(int argc, char* argv[])
           actualUeServedBytes,
           actualUeGoodputBytes,
           actualUeTbTxCount,
-          actualUeTbErrCount);
+          actualUeTbErrCount,
+          actualUePacketDeliveredPackets,
+          actualUePacketPendingPackets,
+          actualUePacketDeliveredBits,
+          actualUePacketSystemTimeMs,
+          actualUePacketServiceRateMbps,
+          actualUePacketServiceRatePerPacketMeanMbps);
       if (!onlineBridge->sendStepRsp(stepState)) {
         fprintf(stderr, "ERROR: Failed to send online step response.\n");
         return 1;
@@ -2288,6 +2392,16 @@ int main(int argc, char* argv[])
            pktRateSummary.total_packet_system_time_ms,
            pktRateSummary.packet_effective_service_rate_mbps,
            pktRateSummary.packet_effective_service_rate_per_packet_mean_mbps);
+  }
+
+  if (packetDelaySamplesEnabled) {
+    std::vector<std::vector<double>> perFlowPacketDelaySamples;
+    trafSvc->GetServedPacketDelaySamples(perFlowPacketDelaySamples);
+    const unsigned long long sampleRows =
+        writePacketDelaySamplesCsv(packetDelaySamplesCsv, perFlowPacketDelaySamples);
+    printf("TRAFFIC_PKT_DELAY_SAMPLES_CSV path=%s rows=%llu\n",
+           packetDelaySamplesCsv.c_str(),
+           sampleRows);
   }
 
   if (saveTv == 1) {

@@ -47,6 +47,7 @@ All other options are forwarded to ${PER_SEED_SCRIPT##*/}.
 Common forwarded options include:
   --total-ue-count <n>        Total active/scheduled UE count across coordinated cells
   --precoding <mode>          Compile-time precoding mode: none | svd
+  --traffic-seed <n>          Fixed traffic RNG seed; by default each topology seed is also used as traffic seed
 EOF
 }
 

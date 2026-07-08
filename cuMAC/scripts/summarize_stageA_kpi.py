@@ -41,6 +41,8 @@ METRIC_DEFINITIONS = {
     "traffic.packet_delay_p90_ms": "90th percentile packet-level delay for fully served packets.",
     "traffic.packet_delay_p95_ms": "95th percentile packet-level delay for fully served packets.",
     "traffic.packet_delay_max_ms": "Maximum packet-level delay among fully served packets.",
+    "traffic.packet_delay_samples_csv": "Optional CSV path containing every served packet delay sample as ue_id,packet_index,delay_ms rows, emitted when CUMAC_PACKET_DELAY_SAMPLES=1.",
+    "traffic.packet_delay_samples_rows": "Number of served packet delay sample rows written to traffic.packet_delay_samples_csv.",
     "traffic.ue_macro_packet_delay_mean_ms": "UE-macro packet mean delay: arithmetic mean over UEs of each UE's packet_delay_mean_ms. UEs with no served packets contribute 0 when UE packet-delay logs are available.",
     "traffic.packet_effective_delivered_pkt_count": "Number of MAC-queue-completed packets contributing to R_pkt under the current packet tracker implementation.",
     "traffic.packet_effective_total_delivered_bits": "Sum of original payload bits over MAC-queue-completed packets only under the current tracker implementation; retransmissions are not double-counted.",
@@ -455,6 +457,40 @@ def parse_traffic_packet_service_rate_kpi(log_text: str):
         "packet_effective_service_rate_mbps": float(m[3]),
         "packet_effective_service_rate_per_packet_mean_mbps": float(m[4]) if len(m) > 4 and m[4] != "" else 0.0,
     }
+
+
+def count_csv_data_rows(path: Path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            line_count = sum(1 for _ in f)
+    except OSError:
+        return None
+    return max(0, line_count - 1)
+
+
+def parse_traffic_packet_delay_samples_kpi(log_text: str, out_dir: Path):
+    matches = re.findall(
+        r"TRAFFIC_PKT_DELAY_SAMPLES_CSV\s+path=(\S+)\s+rows=(\d+)",
+        log_text,
+    )
+    if matches:
+        raw_path, rows = matches[-1]
+        sample_path = Path(raw_path)
+        if not sample_path.is_absolute():
+            sample_path = out_dir / sample_path
+        return {
+            "packet_delay_samples_csv": str(sample_path),
+            "packet_delay_samples_rows": int(rows),
+        }
+
+    default_path = out_dir / "packet_delay_samples.csv"
+    if default_path.exists():
+        row_count = count_csv_data_rows(default_path)
+        return {
+            "packet_delay_samples_csv": str(default_path),
+            "packet_delay_samples_rows": row_count,
+        }
+    return None
 
 
 def parse_prg_utilization_kpi(log_text: str):
@@ -1025,6 +1061,7 @@ def main():
         traffic_expiry_kpi = parse_traffic_expiry_kpi(log_text)
         traffic_packet_delay_kpi = parse_traffic_packet_delay_kpi(log_text)
         traffic_packet_service_rate_kpi = parse_traffic_packet_service_rate_kpi(log_text)
+        traffic_packet_delay_samples_kpi = parse_traffic_packet_delay_samples_kpi(log_text, out_dir)
         prg_kpi = parse_prg_utilization_kpi(log_text)
         if traffic_kpi is not None and traffic_goodput_kpi is not None:
             traffic_kpi.update(traffic_goodput_kpi)
@@ -1034,6 +1071,8 @@ def main():
             traffic_kpi.update(traffic_packet_delay_kpi)
         if traffic_kpi is not None and traffic_packet_service_rate_kpi is not None:
             traffic_kpi.update(traffic_packet_service_rate_kpi)
+        if traffic_kpi is not None and traffic_packet_delay_samples_kpi is not None:
+            traffic_kpi.update(traffic_packet_delay_samples_kpi)
         ue_kpi = parse_ue_kpi(log_text)
         ue_kpi = merge_ue_goodput(ue_kpi, parse_ue_goodput_kpi(log_text))
         ue_kpi = merge_ue_packet_delay(ue_kpi, parse_ue_packet_delay_kpi(log_text))
@@ -1164,6 +1203,13 @@ def main():
     traffic_kpi.setdefault("packet_delay_p90_ms", 0.0)
     traffic_kpi.setdefault("packet_delay_p95_ms", 0.0)
     traffic_kpi.setdefault("packet_delay_max_ms", 0.0)
+    traffic_kpi.setdefault("packet_delay_samples_csv", None)
+    traffic_kpi.setdefault("packet_delay_samples_rows", None)
+    if traffic_kpi.get("packet_delay_samples_csv") is None:
+        default_packet_delay_samples = out_dir / "packet_delay_samples.csv"
+        if default_packet_delay_samples.exists():
+            traffic_kpi["packet_delay_samples_csv"] = str(default_packet_delay_samples)
+            traffic_kpi["packet_delay_samples_rows"] = count_csv_data_rows(default_packet_delay_samples)
     traffic_kpi.setdefault("ue_macro_packet_delay_mean_ms", None)
     traffic_kpi.setdefault("packet_effective_delivered_pkt_count", 0)
     traffic_kpi.setdefault("packet_effective_total_delivered_bits", 0)
@@ -1273,6 +1319,19 @@ def main():
         format_metric_line("traffic.packet_delay_p50_ms", f"{summary['traffic']['packet_delay_p50_ms']:.6f}"),
         format_metric_line("traffic.packet_delay_p90_ms", f"{summary['traffic']['packet_delay_p90_ms']:.6f}"),
         format_metric_line("traffic.packet_delay_p95_ms", f"{summary['traffic']['packet_delay_p95_ms']:.6f}"),
+        format_metric_line("traffic.packet_delay_max_ms", f"{summary['traffic']['packet_delay_max_ms']:.6f}"),
+        format_metric_line(
+            "traffic.packet_delay_samples_csv",
+            summary["traffic"]["packet_delay_samples_csv"]
+            if summary["traffic"]["packet_delay_samples_csv"] is not None
+            else "N/A",
+        ),
+        format_metric_line(
+            "traffic.packet_delay_samples_rows",
+            summary["traffic"]["packet_delay_samples_rows"]
+            if summary["traffic"]["packet_delay_samples_rows"] is not None
+            else "N/A",
+        ),
         format_metric_line(
             "traffic.ue_macro_packet_delay_mean_ms",
             "N/A"

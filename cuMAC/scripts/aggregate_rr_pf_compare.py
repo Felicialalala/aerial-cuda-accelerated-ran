@@ -280,6 +280,41 @@ def write_text(
     return path
 
 
+def collect_packet_delay_sample_rows(
+    scenario: str,
+    seed: str,
+    payload: Dict,
+    reference_baseline: str,
+    compare_baseline: str,
+) -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+    samples = payload.get("packet_delay_samples") or {}
+    for baseline in (reference_baseline, compare_baseline):
+        info = samples.get(baseline) or {}
+        rows.append(
+            {
+                "scenario": scenario,
+                "seed": str(seed),
+                "baseline": baseline,
+                "csv": "" if info.get("csv") is None else str(info.get("csv")),
+                "rows": "" if info.get("rows") is None else str(info.get("rows")),
+                "exists": str(bool(info.get("exists"))).lower(),
+            }
+        )
+    return rows
+
+
+def write_packet_delay_samples_manifest(out_dir: Path, sample_rows: List[Dict[str, str]]) -> Path:
+    path = out_dir / "packet_delay_samples_manifest.csv"
+    fieldnames = ["scenario", "seed", "baseline", "csv", "rows", "exists"]
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in sample_rows:
+            writer.writerow(row)
+    return path
+
+
 def infer_reference_baseline(rows: Sequence[Dict[str, str]], preferred: str) -> str:
     if preferred:
         return normalize_compare_baseline(preferred)
@@ -330,11 +365,21 @@ def main() -> None:
     for scenario in sorted(grouped.keys()):
         rows = sorted(grouped[scenario], key=lambda r: int(r["seed"]))
         metric_rows_by_seed: Dict[str, List[Dict]] = {}
+        packet_delay_sample_rows: List[Dict[str, str]] = []
         for row in rows:
             compare_json_path = Path(row["compare_json"]).resolve()
             payload = load_json(compare_json_path)
             metric_rows = payload.get("rr_vs_pf_metrics") or payload.get("rr_vs_compare_metrics") or []
             metric_rows_by_seed[str(row["seed"])] = list(metric_rows)
+            packet_delay_sample_rows.extend(
+                collect_packet_delay_sample_rows(
+                    scenario,
+                    str(row["seed"]),
+                    payload,
+                    reference_baseline,
+                    compare_baseline,
+                )
+            )
 
         aggregated_metrics = aggregate_metric_rows(metric_rows_by_seed, reference_baseline, compare_baseline)
         scenario_out_dir = out_root / scenario
@@ -342,6 +387,7 @@ def main() -> None:
         csv_path = write_csv(scenario_out_dir, reference_baseline, compare_baseline, aggregated_metrics)
         json_path = write_json(scenario_out_dir, scenario, reference_baseline, compare_baseline, rows, aggregated_metrics)
         txt_path = write_text(scenario_out_dir, scenario, reference_baseline, compare_baseline, rows, aggregated_metrics)
+        packet_delay_samples_manifest = write_packet_delay_samples_manifest(scenario_out_dir, packet_delay_sample_rows)
         aggregate_manifest_rows.append(
             {
                 "scenario": scenario,
@@ -351,6 +397,7 @@ def main() -> None:
                 "aggregate_csv": str(csv_path),
                 "aggregate_json": str(json_path),
                 "aggregate_txt": str(txt_path),
+                "packet_delay_samples_manifest": str(packet_delay_samples_manifest),
             }
         )
 
@@ -366,6 +413,7 @@ def main() -> None:
                 "aggregate_csv",
                 "aggregate_json",
                 "aggregate_txt",
+                "packet_delay_samples_manifest",
             ],
         )
         writer.writeheader()

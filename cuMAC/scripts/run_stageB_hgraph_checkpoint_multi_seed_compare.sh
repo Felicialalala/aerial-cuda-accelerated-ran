@@ -30,6 +30,23 @@ EVAL_UE_PRG_DIVERSITY_EXTRA="auto"
 EVAL_TB_ERR_EMA_ALPHA="auto"
 EVAL_SLOT_REPAIR_MAX_PER_CELL="auto"
 EVAL_SLOT_REPAIR_MIN_BACKLOG_BYTES="auto"
+EVAL_SAFE_FILL_MAX_PER_CELL="auto"
+EVAL_SAFE_FILL_MIN_QUALITY_DB="auto"
+EVAL_SAFE_FILL_MAX_QUALITY_GAP_DB="auto"
+EVAL_SAFE_FILL_MAX_PRG_RISK="auto"
+EVAL_SAFE_FILL_MIN_BACKLOG_BYTES="auto"
+EVAL_SAFE_FILL_MAX_UE_TB_ERR="auto"
+EVAL_CANDIDATE_BLANK_BUDGET_MAX_PER_CELL="auto"
+EVAL_CANDIDATE_BLANK_BUDGET_MIN_DECISION_LOGIT="auto"
+EVAL_CANDIDATE_DECODE_DEMAND_SLACK_BYTES="auto"
+EVAL_CANDIDATE_HEADROOM_RANK_MODE="auto"
+EVAL_CANDIDATE_BUDGETED_SELECT_MODE="auto"
+EVAL_CANDIDATE_BUDGETED_HARD_CAP="auto"
+EVAL_CANDIDATE_BUDGETED_USAGE_PENALTY="auto"
+EVAL_CANDIDATE_BUDGETED_OVERCAP_PENALTY="auto"
+EVAL_CANDIDATE_BUDGETED_FIRST_SERVICE_BONUS="auto"
+EVAL_CANDIDATE_SEQ_STATE_COEF="auto"
+EVAL_CANDIDATE_SEQ_FAIL_RISK_FEATURE_OFFSET="auto"
 EVAL_SAVE_STEPS=0
 EVAL_STATS_WARMUP_STEPS=0
 PARALLEL_SEEDS=1
@@ -69,6 +86,23 @@ Wrapper-specific options:
   --eval-tb-err-ema-alpha <v>       Evaluator TB-error EMA alpha. "auto" inherits checkpoint args (default: ${EVAL_TB_ERR_EMA_ALPHA})
   --eval-slot-repair-max-per-cell <n> Evaluator slot repair cap. "auto" inherits checkpoint args (default: ${EVAL_SLOT_REPAIR_MAX_PER_CELL})
   --eval-slot-repair-min-backlog-bytes <v> Evaluator slot repair backlog threshold. "auto" inherits checkpoint args (default: ${EVAL_SLOT_REPAIR_MIN_BACKLOG_BYTES})
+  --eval-safe-fill-max-per-cell <n> Guarded safe-fill cap per cell. "auto" inherits checkpoint args (default: ${EVAL_SAFE_FILL_MAX_PER_CELL})
+  --eval-safe-fill-min-quality-db <v> Safe-fill min post-eq quality dB. "auto" inherits checkpoint args (default: ${EVAL_SAFE_FILL_MIN_QUALITY_DB})
+  --eval-safe-fill-max-quality-gap-db <v> Safe-fill max quality gap dB. "auto" inherits checkpoint args (default: ${EVAL_SAFE_FILL_MAX_QUALITY_GAP_DB})
+  --eval-safe-fill-max-prg-risk <v> Safe-fill max PRG risk. "auto" inherits checkpoint args (default: ${EVAL_SAFE_FILL_MAX_PRG_RISK})
+  --eval-safe-fill-min-backlog-bytes <v> Safe-fill min backlog bytes. "auto" inherits checkpoint args (default: ${EVAL_SAFE_FILL_MIN_BACKLOG_BYTES})
+  --eval-safe-fill-max-ue-tb-err <v> Safe-fill max UE TB err. "auto" inherits checkpoint args (default: ${EVAL_SAFE_FILL_MAX_UE_TB_ERR})
+  --eval-candidate-blank-budget-max-per-cell <n> Candidate deployment blank cap per cell. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BLANK_BUDGET_MAX_PER_CELL})
+  --eval-candidate-blank-budget-min-decision-logit <v> Candidate blank-minus-best-candidate threshold for blank-budget slots. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BLANK_BUDGET_MIN_DECISION_LOGIT})
+  --eval-candidate-decode-demand-slack-bytes <v> Candidate decode demand-cap slack. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_DECODE_DEMAND_SLACK_BYTES})
+  --eval-candidate-headroom-rank-mode <m> Candidate headroom ranking: auto | stable | utility | logit | phy (default: ${EVAL_CANDIDATE_HEADROOM_RANK_MODE})
+  --eval-candidate-budgeted-select-mode <off|greedy|sample> Headroom-aware sequential selector. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BUDGETED_SELECT_MODE})
+  --eval-candidate-budgeted-hard-cap <0|1> Hard-mask candidates once UE decode headroom is exhausted. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BUDGETED_HARD_CAP})
+  --eval-candidate-budgeted-usage-penalty <v> Per-used-PRG score penalty for the same UE. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BUDGETED_USAGE_PENALTY})
+  --eval-candidate-budgeted-overcap-penalty <v> Soft over-cap penalty when hard cap is off. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BUDGETED_OVERCAP_PENALTY})
+  --eval-candidate-budgeted-first-service-bonus <v> Bonus for first PRG assigned to an active UE. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_BUDGETED_FIRST_SERVICE_BONUS})
+  --eval-candidate-seq-state-coef <v> Sequential candidate state logit multiplier. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_SEQ_STATE_COEF})
+  --eval-candidate-seq-fail-risk-feature-offset <n> Sequential state fail-risk feature offset. "auto" inherits checkpoint args (default: ${EVAL_CANDIDATE_SEQ_FAIL_RISK_FEATURE_OFFSET})
   --eval-save-steps <0|1>           Write per-TTI eval_steps.jsonl (default: ${EVAL_SAVE_STEPS})
   --eval-stats-warmup-steps <n>     Ignore first N evaluator steps in eval stats_mean_* fields (default: ${EVAL_STATS_WARMUP_STEPS})
   --parallel-seeds <n>              Run up to n seed/evaluator pairs at once after one build-only step (default: ${PARALLEL_SEEDS})
@@ -106,7 +140,6 @@ parse_seed_list() {
 forward_arg_value() {
     local key="$1"
     shift || true
-    local idx=1
     while [[ $# -gt 0 ]]; do
         local cur="$1"
         local nxt="${2:-}"
@@ -114,8 +147,11 @@ forward_arg_value() {
             printf '%s\n' "${nxt}"
             return 0
         fi
-        shift 2 || break
-        idx=$((idx + 1))
+        if [[ "${cur}" == "${key}="* ]]; then
+            printf '%s\n' "${cur#*=}"
+            return 0
+        fi
+        shift
     done
     return 1
 }
@@ -128,6 +164,41 @@ normalize_label() {
         safe="hgraph"
     fi
     printf '%s\n' "${safe}"
+}
+
+normalize_tag_value() {
+    local raw="$1"
+    local safe
+    safe="$(echo "${raw}" | tr '[:upper:]' '[:lower:]' | sed -E 's/([0-9])\.0+$/\1/; s/\./p/g; s/[^[:alnum:]]+/_/g; s/^_*//; s/_*$//')"
+    if [[ -z "${safe}" ]]; then
+        safe="na"
+    fi
+    printf '%s\n' "${safe}"
+}
+
+normalize_placement_tag() {
+    local raw="$1"
+    local normalized
+    normalized="$(echo "${raw}" | tr '[:upper:]' '[:lower:]')"
+    case "${normalized}" in
+        coop|cooperative|coord_center) normalized="coop_center" ;;
+    esac
+    normalized="$(normalize_tag_value "${normalized}")"
+    # Keep the common coop-center tag compact and hard to confuse with uniform.
+    if [[ "${normalized}" == "coop_center" ]]; then
+        normalized="coopcenter"
+    fi
+    printf '%s\n' "${normalized}"
+}
+
+append_suffix_once() {
+    local raw="$1"
+    local suffix="$2"
+    if [[ "${raw}" == *"${suffix}"* ]]; then
+        printf '%s\n' "${raw}"
+    else
+        printf '%s_%s\n' "${raw}" "${suffix}"
+    fi
 }
 
 resolve_path() {
@@ -156,6 +227,23 @@ while [[ $# -gt 0 ]]; do
         --eval-tb-err-ema-alpha|--tb-err-ema-alpha) EVAL_TB_ERR_EMA_ALPHA="$2"; shift 2 ;;
         --eval-slot-repair-max-per-cell|--slot-repair-max-per-cell) EVAL_SLOT_REPAIR_MAX_PER_CELL="$2"; shift 2 ;;
         --eval-slot-repair-min-backlog-bytes|--slot-repair-min-backlog-bytes) EVAL_SLOT_REPAIR_MIN_BACKLOG_BYTES="$2"; shift 2 ;;
+        --eval-safe-fill-max-per-cell|--safe-fill-max-per-cell) EVAL_SAFE_FILL_MAX_PER_CELL="$2"; shift 2 ;;
+        --eval-safe-fill-min-quality-db|--safe-fill-min-quality-db) EVAL_SAFE_FILL_MIN_QUALITY_DB="$2"; shift 2 ;;
+        --eval-safe-fill-max-quality-gap-db|--safe-fill-max-quality-gap-db) EVAL_SAFE_FILL_MAX_QUALITY_GAP_DB="$2"; shift 2 ;;
+        --eval-safe-fill-max-prg-risk|--safe-fill-max-prg-risk) EVAL_SAFE_FILL_MAX_PRG_RISK="$2"; shift 2 ;;
+        --eval-safe-fill-min-backlog-bytes|--safe-fill-min-backlog-bytes) EVAL_SAFE_FILL_MIN_BACKLOG_BYTES="$2"; shift 2 ;;
+        --eval-safe-fill-max-ue-tb-err|--safe-fill-max-ue-tb-err) EVAL_SAFE_FILL_MAX_UE_TB_ERR="$2"; shift 2 ;;
+        --eval-candidate-blank-budget-max-per-cell|--candidate-blank-budget-max-per-cell) EVAL_CANDIDATE_BLANK_BUDGET_MAX_PER_CELL="$2"; shift 2 ;;
+        --eval-candidate-blank-budget-min-decision-logit|--candidate-blank-budget-min-decision-logit) EVAL_CANDIDATE_BLANK_BUDGET_MIN_DECISION_LOGIT="$2"; shift 2 ;;
+        --eval-candidate-decode-demand-slack-bytes|--candidate-decode-demand-slack-bytes) EVAL_CANDIDATE_DECODE_DEMAND_SLACK_BYTES="$2"; shift 2 ;;
+        --eval-candidate-headroom-rank-mode|--candidate-headroom-rank-mode) EVAL_CANDIDATE_HEADROOM_RANK_MODE="$2"; shift 2 ;;
+        --eval-candidate-budgeted-select-mode|--candidate-budgeted-select-mode) EVAL_CANDIDATE_BUDGETED_SELECT_MODE="$2"; shift 2 ;;
+        --eval-candidate-budgeted-hard-cap|--candidate-budgeted-hard-cap) EVAL_CANDIDATE_BUDGETED_HARD_CAP="$2"; shift 2 ;;
+        --eval-candidate-budgeted-usage-penalty|--candidate-budgeted-usage-penalty) EVAL_CANDIDATE_BUDGETED_USAGE_PENALTY="$2"; shift 2 ;;
+        --eval-candidate-budgeted-overcap-penalty|--candidate-budgeted-overcap-penalty) EVAL_CANDIDATE_BUDGETED_OVERCAP_PENALTY="$2"; shift 2 ;;
+        --eval-candidate-budgeted-first-service-bonus|--candidate-budgeted-first-service-bonus) EVAL_CANDIDATE_BUDGETED_FIRST_SERVICE_BONUS="$2"; shift 2 ;;
+        --eval-candidate-seq-state-coef|--candidate-seq-state-coef) EVAL_CANDIDATE_SEQ_STATE_COEF="$2"; shift 2 ;;
+        --eval-candidate-seq-fail-risk-feature-offset|--candidate-seq-fail-risk-feature-offset) EVAL_CANDIDATE_SEQ_FAIL_RISK_FEATURE_OFFSET="$2"; shift 2 ;;
         --eval-save-steps) EVAL_SAVE_STEPS="$2"; shift 2 ;;
         --eval-stats-warmup-steps|--stats-warmup-steps) EVAL_STATS_WARMUP_STEPS="$2"; shift 2 ;;
         --parallel-seeds) PARALLEL_SEEDS="$2"; shift 2 ;;
@@ -240,11 +328,37 @@ if ! [[ "${EVAL_STATS_WARMUP_STEPS}" =~ ^[0-9]+$ ]]; then
     echo "--eval-stats-warmup-steps must be a non-negative integer" >&2
     exit 1
 fi
+EVAL_CANDIDATE_HEADROOM_RANK_MODE="$(echo "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" != "auto" && "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" != "stable" && "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" != "utility" && "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" != "logit" && "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" != "phy" ]]; then
+    echo "--eval-candidate-headroom-rank-mode must be auto, stable, utility, logit, or phy" >&2
+    exit 1
+fi
+EVAL_CANDIDATE_BUDGETED_SELECT_MODE="$(echo "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}" | tr '[:upper:]' '[:lower:]')"
+if [[ "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}" != "auto" && "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}" != "off" && "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}" != "greedy" && "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}" != "sample" ]]; then
+    echo "--eval-candidate-budgeted-select-mode must be auto, off, greedy, or sample" >&2
+    exit 1
+fi
+if [[ "${EVAL_CANDIDATE_BUDGETED_HARD_CAP}" != "auto" && "${EVAL_CANDIDATE_BUDGETED_HARD_CAP}" != "0" && "${EVAL_CANDIDATE_BUDGETED_HARD_CAP}" != "1" ]]; then
+    echo "--eval-candidate-budgeted-hard-cap must be auto, 0, or 1" >&2
+    exit 1
+fi
+
+FORWARD_CELL_RADIUS="$(forward_arg_value --cell-radius "${FORWARD_ARGS[@]}" || true)"
+FORWARD_UE_PLACEMENT="$(forward_arg_value --ue-placement "${FORWARD_ARGS[@]}" || true)"
+SCENARIO_CELL_RADIUS="${FORWARD_CELL_RADIUS:-500}"
+SCENARIO_UE_PLACEMENT="${FORWARD_UE_PLACEMENT:-uniform}"
+SCENARIO_PLACEMENT_TAG="$(normalize_placement_tag "${SCENARIO_UE_PLACEMENT}")"
+SCENARIO_RADIUS_TAG="r$(normalize_tag_value "${SCENARIO_CELL_RADIUS}")"
+SCENARIO_HORIZON_TAG="t$(normalize_tag_value "${EVAL_EPISODE_HORIZON}")"
+SCENARIO_WARMUP_TAG="w$(normalize_tag_value "${EVAL_STATS_WARMUP_STEPS}")"
+SCENARIO_CONTEXT_TAG="${SCENARIO_PLACEMENT_TAG}_${SCENARIO_RADIUS_TAG}_${SCENARIO_HORIZON_TAG}_${SCENARIO_WARMUP_TAG}"
+MODEL_LABEL="$(append_suffix_once "${MODEL_LABEL}" "${SCENARIO_CONTEXT_TAG}")"
 
 mapfile -t SEEDS < <(parse_seed_list "${SEED_LIST}")
 timestamp="$(date +%Y%m%d_%H%M%S)"
 default_base_tag="${MODEL_LABEL}_multiseed_compare"
 base_tag="${USER_TAG:-${default_base_tag}}"
+base_tag="$(append_suffix_once "${base_tag}" "${SCENARIO_CONTEXT_TAG}")"
 safe_base_tag="$(normalize_label "${base_tag}")"
 
 if [[ -z "${COMPARE_OUTPUT_DIR}" ]]; then
@@ -252,6 +366,7 @@ if [[ -z "${COMPARE_OUTPUT_DIR}" ]]; then
 elif [[ "${COMPARE_OUTPUT_DIR}" != /* ]]; then
     COMPARE_OUTPUT_DIR="${ROOT_DIR}/${COMPARE_OUTPUT_DIR}"
 fi
+COMPARE_OUTPUT_DIR="$(append_suffix_once "${COMPARE_OUTPUT_DIR}" "${SCENARIO_CONTEXT_TAG}")"
 mkdir -p "${COMPARE_OUTPUT_DIR}"
 
 manifest_csv="${COMPARE_OUTPUT_DIR}/scenario_seed_manifest.csv"
@@ -260,6 +375,7 @@ echo "scenario,seed,run_tag,run_dir,kpi_summary_json,eval_summary_json,model_lab
 if [[ -n "${IGNORED_TOPOLOGY_SEED}" ]]; then
     echo "[hgraph multi-seed] ignoring --topology-seed=${IGNORED_TOPOLOGY_SEED}; using --seed-list=${SEED_LIST}" >&2
 fi
+echo "[hgraph multi-seed] scenario_context=${SCENARIO_CONTEXT_TAG} model_label=${MODEL_LABEL}"
 
 PYTHON_BIN="${ROOT_DIR}/.venv/bin/python"
 if [[ ! -x "${PYTHON_BIN}" ]]; then
@@ -329,6 +445,57 @@ run_one_seed() {
     fi
     if [[ "${EVAL_SLOT_REPAIR_MIN_BACKLOG_BYTES}" != "auto" ]]; then
         eval_cmd+=(--slot-repair-min-backlog-bytes "${EVAL_SLOT_REPAIR_MIN_BACKLOG_BYTES}")
+    fi
+    if [[ "${EVAL_SAFE_FILL_MAX_PER_CELL}" != "auto" ]]; then
+        eval_cmd+=(--safe-fill-max-per-cell "${EVAL_SAFE_FILL_MAX_PER_CELL}")
+    fi
+    if [[ "${EVAL_SAFE_FILL_MIN_QUALITY_DB}" != "auto" ]]; then
+        eval_cmd+=(--safe-fill-min-quality-db "${EVAL_SAFE_FILL_MIN_QUALITY_DB}")
+    fi
+    if [[ "${EVAL_SAFE_FILL_MAX_QUALITY_GAP_DB}" != "auto" ]]; then
+        eval_cmd+=(--safe-fill-max-quality-gap-db "${EVAL_SAFE_FILL_MAX_QUALITY_GAP_DB}")
+    fi
+    if [[ "${EVAL_SAFE_FILL_MAX_PRG_RISK}" != "auto" ]]; then
+        eval_cmd+=(--safe-fill-max-prg-risk "${EVAL_SAFE_FILL_MAX_PRG_RISK}")
+    fi
+    if [[ "${EVAL_SAFE_FILL_MIN_BACKLOG_BYTES}" != "auto" ]]; then
+        eval_cmd+=(--safe-fill-min-backlog-bytes "${EVAL_SAFE_FILL_MIN_BACKLOG_BYTES}")
+    fi
+    if [[ "${EVAL_SAFE_FILL_MAX_UE_TB_ERR}" != "auto" ]]; then
+        eval_cmd+=(--safe-fill-max-ue-tb-err "${EVAL_SAFE_FILL_MAX_UE_TB_ERR}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BLANK_BUDGET_MAX_PER_CELL}" != "auto" ]]; then
+        eval_cmd+=(--candidate-blank-budget-max-per-cell "${EVAL_CANDIDATE_BLANK_BUDGET_MAX_PER_CELL}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BLANK_BUDGET_MIN_DECISION_LOGIT}" != "auto" ]]; then
+        eval_cmd+=(--candidate-blank-budget-min-decision-logit "${EVAL_CANDIDATE_BLANK_BUDGET_MIN_DECISION_LOGIT}")
+    fi
+    if [[ "${EVAL_CANDIDATE_DECODE_DEMAND_SLACK_BYTES}" != "auto" ]]; then
+        eval_cmd+=(--candidate-decode-demand-slack-bytes "${EVAL_CANDIDATE_DECODE_DEMAND_SLACK_BYTES}")
+    fi
+    if [[ "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}" != "auto" ]]; then
+        eval_cmd+=(--candidate-headroom-rank-mode "${EVAL_CANDIDATE_HEADROOM_RANK_MODE}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}" != "auto" ]]; then
+        eval_cmd+=(--candidate-budgeted-select-mode "${EVAL_CANDIDATE_BUDGETED_SELECT_MODE}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BUDGETED_HARD_CAP}" != "auto" ]]; then
+        eval_cmd+=(--candidate-budgeted-hard-cap "${EVAL_CANDIDATE_BUDGETED_HARD_CAP}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BUDGETED_USAGE_PENALTY}" != "auto" ]]; then
+        eval_cmd+=(--candidate-budgeted-usage-penalty "${EVAL_CANDIDATE_BUDGETED_USAGE_PENALTY}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BUDGETED_OVERCAP_PENALTY}" != "auto" ]]; then
+        eval_cmd+=(--candidate-budgeted-overcap-penalty "${EVAL_CANDIDATE_BUDGETED_OVERCAP_PENALTY}")
+    fi
+    if [[ "${EVAL_CANDIDATE_BUDGETED_FIRST_SERVICE_BONUS}" != "auto" ]]; then
+        eval_cmd+=(--candidate-budgeted-first-service-bonus "${EVAL_CANDIDATE_BUDGETED_FIRST_SERVICE_BONUS}")
+    fi
+    if [[ "${EVAL_CANDIDATE_SEQ_STATE_COEF}" != "auto" ]]; then
+        eval_cmd+=(--candidate-seq-state-coef "${EVAL_CANDIDATE_SEQ_STATE_COEF}")
+    fi
+    if [[ "${EVAL_CANDIDATE_SEQ_FAIL_RISK_FEATURE_OFFSET}" != "auto" ]]; then
+        eval_cmd+=(--candidate-seq-fail-risk-feature-offset "${EVAL_CANDIDATE_SEQ_FAIL_RISK_FEATURE_OFFSET}")
     fi
 
     env "${EVAL_ENVS[@]}" "${eval_cmd[@]}" > "${eval_log}" 2>&1 || {

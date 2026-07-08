@@ -223,11 +223,15 @@ CustomUePrgScheduler::Config CustomUePrgScheduler::loadConfigFromEnv()
     cfg.modelMinSchedRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_SCHED_RATIO", cfg.modelMinSchedRatio);
     cfg.modelNoPrgBias = envFloat("CUMAC_GNNRL_MODEL_NO_PRG_BIAS", cfg.modelNoPrgBias);
     cfg.modelMinPrgRatio = envFloat("CUMAC_GNNRL_MODEL_MIN_PRG_RATIO", cfg.modelMinPrgRatio);
+    cfg.modelCandidateDecodeDemandSlackBytes = envFloat(
+        "CUMAC_GNNRL_CANDIDATE_DECODE_DEMAND_SLACK_BYTES",
+        cfg.modelCandidateDecodeDemandSlackBytes);
     if (hasEnvValue("CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE")) {
         cfg.modelMaxPrgSharePerUe = envFloat("CUMAC_GNNRL_MODEL_MAX_PRG_SHARE_PER_UE", cfg.modelMaxPrgSharePerUe);
     }
     cfg.modelMinSchedRatio = std::max(0.0f, std::min(1.0f, cfg.modelMinSchedRatio));
     cfg.modelMinPrgRatio = std::max(0.0f, std::min(1.0f, cfg.modelMinPrgRatio));
+    cfg.modelCandidateDecodeDemandSlackBytes = std::max(0.0f, cfg.modelCandidateDecodeDemandSlackBytes);
     if (cfg.modelMaxPrgSharePerUe > 0.0f) {
         cfg.modelMaxPrgSharePerUe = std::max(1.0e-3f, std::min(1.0f, cfg.modelMaxPrgSharePerUe));
     }
@@ -621,6 +625,7 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                   << " modelNoPrgBias=" << m_cfg.modelNoPrgBias
                   << " modelMinPrgRatio=" << m_cfg.modelMinPrgRatio
                   << " modelMaxPrgSharePerUe=" << maxPrgShareToString(m_cfg.modelMaxPrgSharePerUe)
+                  << " candidateDecodeDemandSlackBytes=" << m_cfg.modelCandidateDecodeDemandSlackBytes
                   << std::endl;
         logOnce = true;
     }
@@ -646,6 +651,7 @@ void CustomUePrgScheduler::run(cumacCellGrpUeStatus* cellGrpUeStatusCpu,
                 runtimeCfg.noPrgBias = m_cfg.modelNoPrgBias;
                 runtimeCfg.minPrgRatio = m_cfg.modelMinPrgRatio;
                 runtimeCfg.maxPrgSharePerUe = m_cfg.modelMaxPrgSharePerUe;
+                runtimeCfg.candidateDecodeDemandSlackBytes = m_cfg.modelCandidateDecodeDemandSlackBytes;
                 m_modelRuntime = std::make_unique<GnnRlPolicyRuntime>(runtimeCfg);
                 m_modelReady = (m_modelRuntime != nullptr) && m_modelRuntime->initialize(cellGrpPrmsCpu);
                 if (!m_modelReady) {
